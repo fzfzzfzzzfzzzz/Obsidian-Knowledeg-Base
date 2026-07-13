@@ -19,21 +19,34 @@
       }
       const d = await res.json();
       const m = d.meta || {};
-      // 读阅读状态(用 dashboard_full 拿全列表)
-      let rl = false, fav = false, readCount = 0;
+      // 读阅读状态 + tags
+      let rl = false, fav = false, readCount = 0, tags = [];
       try {
         const dbRes = await fetch('/api/dashboard_full');
         const db = await dbRes.json();
         const all = [...(db.unread||[]), ...(db.read||[])];
         const me = all.find(x => x.source_id === SOURCE_ID);
-        if (me) { rl = me.read_later; fav = me.is_favorite; readCount = me.read_count || 0; }
+        if (me) { rl = me.read_later; fav = me.is_favorite; readCount = me.read_count || 0; tags = me.tags || []; }
       } catch(e) {}
+      // 如果 dashboard_full 没有(无 summary 的文章),从 tags API 读
+      if (tags.length === 0) {
+        try {
+          const tRes = await fetch(`/api/article/${SOURCE_ID}/tags`);
+          const tData = await tRes.json();
+          tags = tData.tags || [];
+        } catch(e) {}
+      }
 
       const hasSummary = d.has_summary !== false;
       const summaryWarn = !hasSummary
         ? `<div class="warn-banner">⚠️ 这篇文章还没有生成 summary,以下显示的是原始内容。运行 <code>make-prompts --auto</code> 生成总结。</div>`
         : '';
       const readInfo = readCount > 0 ? `<span class="muted">读过 ${readCount} 次</span>` : '';
+
+      // tags UI
+      const tagsHtml = tags.length > 0
+        ? tags.map(t => `<span class="tag tag-tag">${escapeHtml(t)} <button class="tag-remove" onclick="removeTag('${escapeHtml(t)}')" title="删除">×</button></span>`).join('')
+        : '<span class="muted">暂无标签</span>';
 
       wrap.innerHTML = `
         <a href="/" class="back-link">← 返回首页</a>
@@ -51,6 +64,13 @@
           ${m.area ? `<span class="tag tag-area">${m.area}</span>` : ''}
           ${m.summarized_at ? `<span class="muted">总结于 ${m.summarized_at}</span>` : (m.ingested_at ? `<span class="muted">录入于 ${m.ingested_at}</span>` : '')}
         </div>
+        <div class="tags-bar">
+          <span class="tags-label">标签:</span>
+          <span id="tags-list">${tagsHtml}</span>
+          <input type="text" id="tag-input" class="tag-input" placeholder="添加标签" onkeypress="if(event.key==='Enter'){addTagFromInput();}">
+          <button class="btn btn-sm btn-secondary" onclick="addTagFromInput()">添加</button>
+          <button class="btn btn-sm" onclick="aiRecommendTags(this)">🤖 AI 推荐</button>
+        </div>
         <h1 class="detail-title">${escapeHtml(d.title)}</h1>
         <div class="markdown-body">${d.html_body}</div>
         <div class="detail-footer muted">文件:${escapeHtml(d.path)}</div>
@@ -59,6 +79,55 @@
       wrap.innerHTML = `<div class="error">加载失败:${escapeHtml(e.message)}</div>`;
     }
   }
+
+  async function addTagFromInput() {
+    const input = document.getElementById('tag-input');
+    const val = input.value.trim();
+    if (!val) return;
+    input.value = '';
+    try {
+      const res = await fetch(`/api/article/${SOURCE_ID}/tags`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({tags: [val]})
+      });
+      const data = await res.json();
+      if (!res.ok) { alert('添加失败:' + (data.detail||'')); return; }
+      refreshTags(data.tags);
+    } catch(e) { alert('网络错误:' + e.message); }
+  }
+
+  async function removeTag(tag) {
+    try {
+      const res = await fetch(`/api/article/${SOURCE_ID}/tags/${encodeURIComponent(tag)}`, {method: 'DELETE'});
+      const data = await res.json();
+      if (!res.ok) { alert('删除失败:' + (data.detail||'')); return; }
+      refreshTags(data.tags);
+    } catch(e) { alert('网络错误:' + e.message); }
+  }
+
+  async function aiRecommendTags(btn) {
+    btn.disabled = true;
+    btn.textContent = '🤖 生成中...';
+    try {
+      const res = await fetch(`/api/article/${SOURCE_ID}/ai-tags`, {method: 'POST'});
+      const data = await res.json();
+      if (!res.ok) { alert('推荐失败:' + (data.detail||'')); return; }
+      refreshTags(data.tags);
+    } catch(e) { alert('网络错误:' + e.message); }
+    finally { btn.disabled = false; btn.textContent = '🤖 AI 推荐'; }
+  }
+
+  function refreshTags(tags) {
+    const list = document.getElementById('tags-list');
+    if (!list) return;
+    if (!tags || tags.length === 0) {
+      list.innerHTML = '<span class="muted">暂无标签</span>';
+      return;
+    }
+    list.innerHTML = tags.map(t => `<span class="tag tag-tag">${escapeHtml(t)} <button class="tag-remove" onclick="removeTag('${escapeHtml(t)}')" title="删除">×</button></span>`).join('');
+  }
+
   loadDetail();
 </script>
 {% endblock %}

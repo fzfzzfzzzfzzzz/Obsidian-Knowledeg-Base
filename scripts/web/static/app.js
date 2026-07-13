@@ -20,12 +20,20 @@ function renderArticleCard(item) {
   const readInfo = item.read_count > 0
     ? `<span class="muted read-info">读过 ${item.read_count} 次${item.last_read_at ? ' · ' + String(item.last_read_at).slice(0,10) : ''}</span>`
     : '';
+  const tagsHtml = (item.tags && item.tags.length > 0)
+    ? item.tags.map(t => `<span class="tag tag-tag">${escapeHtml(t)}</span>`).join('')
+    : '';
+  const hasSummaryBadge = item.has_summary === false
+    ? '<span class="tag tag-nosummary">无summary</span>'
+    : '';
   return `
     <div class="card summary-card article-card" id="article-${escapeHtml(item.source_id)}">
       <a class="card-link" href="/summary/${encodeURIComponent(item.source_id)}">
         <div class="card-header">
           <span class="tag tag-${item.source_type}">${item.source_type}</span>
           ${item.area ? `<span class="tag tag-area">${item.area}</span>` : ''}
+          ${hasSummaryBadge}
+          ${tagsHtml}
         </div>
         <h3 class="card-title">${escapeHtml(item.title)}</h3>
         <p class="card-excerpt">${item.excerpt ? escapeHtml(item.excerpt) : '<span class="muted">(无摘要)</span>'}</p>

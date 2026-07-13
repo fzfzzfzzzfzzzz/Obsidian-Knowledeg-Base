@@ -459,6 +459,103 @@ code {
   margin-bottom: 16px;
 }
 
+/* ===== tags 徽章 + 编辑栏 ===== */
+.tag-tag {
+  background: #ede9fe;
+  color: #5b21b6;
+}
+.tag-nosummary {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.tags-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: #f9fafb;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.tags-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.tag-input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  width: 120px;
+}
+.tag-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.tag-remove {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 0 0 4px;
+  opacity: 0.6;
+}
+.tag-remove:hover { opacity: 1; }
+
+/* ===== 首页搜索框 ===== */
+.home-search-bar {
+  margin-bottom: 24px;
+}
+.search-form {
+  display: flex;
+  gap: 8px;
+}
+.search-input {
+  flex: 1;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 15px;
+}
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+}
+
+/* ===== 搜索页 ===== */
+.search-panel {
+  margin-bottom: 20px;
+}
+.search-form-full {
+  margin-bottom: 12px;
+}
+.filter-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.filter-select, .filter-input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: #fff;
+}
+.filter-input { width: 140px; }
+.search-result-info {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  font-weight: 500;
+}
+
 /* ===== 首页统计概览 ===== */
 .stats-overview {
   margin-bottom: 40px;

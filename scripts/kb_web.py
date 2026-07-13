@@ -105,6 +105,7 @@ def _ensure_reading_fields(source_record: dict) -> dict:
     r.setdefault("last_read_at", None)
     r.setdefault("read_count", 0)
     r.setdefault("reading_status", "to_read")
+    r.setdefault("tags", [])
     return r
 
 
@@ -153,6 +154,122 @@ def _mark_read(source_id: str) -> None:
         pass
 
 
+# ---------------------------------------------------------------------------
+# 标签管理(tags):state.json + summary frontmatter 双写
+# ---------------------------------------------------------------------------
+
+
+def _get_article_tags(source_id: str) -> list[str]:
+    """从 state.json 读 tags(兜底 [])。"""
+    state = kb.load_state()
+    rec = state.get("sources", {}).get(source_id)
+    if not rec:
+        return []
+    return list(rec.get("tags", []))
+
+
+def _read_summary_frontmatter_tags(summary_path: Path) -> list[str]:
+    """从 summary frontmatter 解析 tags 字段。
+
+    frontmatter 里 tags 写成 `tags: [a, b, c]`(字面串),这里解析为 list。
+    旧文件无此字段返回 []。
+    """
+    if not summary_path.exists():
+        return []
+    try:
+        text = summary_path.read_text(encoding=ENC)
+        meta, _ = _parse_frontmatter(text)
+        raw = meta.get("tags", "")
+        if not raw:
+            return []
+        # 解析 [a, b, c] 或 a, b, c
+        cleaned = raw.strip().strip("[]").strip()
+        if not cleaned:
+            return []
+        return [t.strip().strip('"').strip("'") for t in cleaned.split(",") if t.strip()]
+    except Exception:
+        return []
+
+
+def _write_summary_frontmatter_tags(summary_path: Path, tags: list[str]) -> bool:
+    """把 tags 写回 summary frontmatter(行级替换)。
+
+    若 frontmatter 无 tags 行则插入一行。返回是否成功。
+    """
+    if not summary_path.exists():
+        return False
+    try:
+        text = summary_path.read_text(encoding=ENC)
+        tags_str = "[" + ", ".join(tags) + "]"
+        # 尝试替换已有 tags 行
+        new_text, n = re.subn(
+            r"^(tags:\s*).*$",
+            rf"\g<1>{tags_str}",
+            text,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if n == 0:
+            # 没有 tags 行,在 frontmatter 末尾(--- 前)插入
+            new_text = re.sub(
+                r"(\n---\s*\n)",
+                f"\ntags: {tags_str}\\1",
+                text,
+                count=1,
+            )
+        summary_path.write_text(new_text, encoding=ENC)
+        return True
+    except Exception:
+        return False
+
+
+def _set_article_tags(source_id: str, tags: list[str]) -> list[str]:
+    """设置文章 tags,双写 state.json + summary frontmatter。返回最终 tags。"""
+    # 去重保序
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for t in tags:
+        t = t.strip()
+        if t and t not in seen:
+            seen.add(t)
+            deduped.append(t)
+
+    state = kb.load_state()
+    sources = state.get("sources", {})
+    if source_id not in sources:
+        raise HTTPException(404, f"找不到 source:{source_id}")
+
+    # 备份
+    backup_dir = VAULT_ROOT / ".kb" / "logs" / "web_backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup = backup_dir / f"state_{date.today().isoformat()}.json.bak"
+    if kb.STATE_FILE.exists():
+        shutil.copy2(kb.STATE_FILE, backup)
+
+    # 写 state.json
+    sources[source_id]["tags"] = deduped
+    kb.save_state(state)
+
+    # 写 summary frontmatter(如果有 summary)
+    summary_path = sources[source_id].get("summary_path")
+    if summary_path:
+        _write_summary_frontmatter_tags(VAULT_ROOT / summary_path, deduped)
+
+    return deduped
+
+
+def _add_article_tags(source_id: str, new_tags: list[str]) -> list[str]:
+    """追加 tags(不覆盖旧 tags,自动去重)。返回最终 tags。"""
+    current = _get_article_tags(source_id)
+    return _set_article_tags(source_id, current + new_tags)
+
+
+def _remove_article_tag(source_id: str, tag: str) -> list[str]:
+    """删除单个 tag。返回最终 tags。"""
+    current = _get_article_tags(source_id)
+    return _set_article_tags(source_id, [t for t in current if t != tag])
+
+
 def _summary_card_from_source(source_id: str, rec: dict) -> dict[str, Any]:
     """把 state.json 里的 source 记录转成前端卡片数据(含阅读状态)。"""
     return {
@@ -168,6 +285,7 @@ def _summary_card_from_source(source_id: str, rec: dict) -> dict[str, Any]:
         "last_read_at": rec.get("last_read_at"),
         "read_count": rec.get("read_count", 0),
         "reading_status": rec.get("reading_status", "to_read"),
+        "tags": rec.get("tags", []),
     }
 
 
@@ -236,6 +354,81 @@ def _build_favorites() -> list[dict[str, Any]]:
 def _build_pending_summaries() -> list[dict[str, Any]]:
     """待生成 summary 的文章(有 source note 但没 summary)。"""
     return [c for c in _all_cards() if not c.get("has_summary")]
+
+
+def _build_all_articles() -> list[dict[str, Any]]:
+    """所有文章(含无 summary 的),按日期倒序。"""
+    cards = _all_cards()
+    cards.sort(key=lambda x: x.get("created_at") or "", reverse=True)
+    return cards
+
+
+def _build_searchable_articles() -> list[dict[str, Any]]:
+    """可搜索的文章:有 summary 的,带 summary 正文用于搜索。"""
+    cards = _summary_cards_only()
+    # 补充 summary 正文(用于关键词搜索)
+    for c in cards:
+        c["summary_text"] = ""
+        sid = c["source_id"]
+        state = kb.load_state()
+        rec = state.get("sources", {}).get(sid, {})
+        sp = rec.get("summary_path")
+        if sp:
+            spath = VAULT_ROOT / sp
+            if spath.exists():
+                try:
+                    _, body = _parse_frontmatter(spath.read_text(encoding=ENC))
+                    c["summary_text"] = body
+                except Exception:
+                    pass
+    return cards
+
+
+def _do_search(
+    q: str = "",
+    reading_status: str = "",
+    is_favorite: str = "",
+    source_type: str = "",
+    tags: str = "",
+    has_summary: str = "",
+) -> list[dict[str, Any]]:
+    """搜索 + 筛选。返回卡片列表(不含 summary_text,避免响应过大)。"""
+    articles = _build_searchable_articles()
+
+    # 关键词搜索(title + summary 正文 + tags)
+    if q:
+        ql = q.lower()
+        articles = [
+            a for a in articles
+            if ql in (a.get("title") or "").lower()
+            or ql in (a.get("summary_text") or "").lower()
+            or any(ql in (t or "").lower() for t in a.get("tags", []))
+        ]
+
+    # 筛选
+    if reading_status:
+        articles = [a for a in articles if a.get("reading_status") == reading_status]
+    if is_favorite == "true":
+        articles = [a for a in articles if a.get("is_favorite")]
+    if is_favorite == "false":
+        articles = [a for a in articles if not a.get("is_favorite")]
+    if source_type:
+        articles = [a for a in articles if a.get("source_type") == source_type]
+    if tags:
+        filter_tags = [t.strip().lower() for t in tags.split(",") if t.strip()]
+        articles = [
+            a for a in articles
+            if any(ft in [t.lower() for t in a.get("tags", [])] for ft in filter_tags)
+        ]
+    if has_summary == "true":
+        articles = [a for a in articles if a.get("has_summary")]
+    if has_summary == "false":
+        articles = [a for a in articles if not a.get("has_summary")]
+
+    # 清理 summary_text(不返回给前端)
+    for a in articles:
+        a.pop("summary_text", None)
+    return articles
 
 
 def _generate_summary_for_source(source_id: str) -> dict[str, Any]:
@@ -549,6 +742,26 @@ async def page_submit(request: Request):
     )
 
 
+@app.get("/search", response_class=HTMLResponse)
+async def page_search(request: Request):
+    """搜索页面。"""
+    if templates is None:
+        return HTMLResponse("templates 目录不存在", 500)
+    return templates.TemplateResponse(
+        request, "search.html", {"active_nav": "search"}
+    )
+
+
+@app.get("/articles", response_class=HTMLResponse)
+async def page_articles(request: Request):
+    """All Articles 页面。"""
+    if templates is None:
+        return HTMLResponse("templates 目录不存在", 500)
+    return templates.TemplateResponse(
+        request, "articles.html", {"active_nav": "articles"}
+    )
+
+
 # ---------------------------------------------------------------------------
 # API 路由
 # ---------------------------------------------------------------------------
@@ -819,6 +1032,77 @@ async def api_delete_article(source_id: str):
     return JSONResponse(
         {"ok": True, "source_id": source_id, "deleted_files": deleted_files}
     )
+
+
+# ---------------------------------------------------------------------------
+# 搜索 / All Articles / tags API
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/search")
+async def api_search(
+    q: str = "",
+    reading_status: str = "",
+    is_favorite: str = "",
+    source_type: str = "",
+    tags: str = "",
+    has_summary: str = "",
+):
+    """搜索 + 筛选。"""
+    results = _do_search(q, reading_status, is_favorite, source_type, tags, has_summary)
+    return JSONResponse({"items": results, "count": len(results)})
+
+
+@app.get("/api/articles")
+async def api_articles():
+    """所有文章(含无 summary 的)。"""
+    return JSONResponse({"items": _build_all_articles()})
+
+
+@app.get("/api/article/{source_id}/tags")
+async def api_get_tags(source_id: str):
+    """获取文章 tags。"""
+    return JSONResponse({"source_id": source_id, "tags": _get_article_tags(source_id)})
+
+
+class TagsRequest(BaseModel):
+    tags: list[str]
+
+
+@app.post("/api/article/{source_id}/tags")
+async def api_add_tags(source_id: str, payload: TagsRequest):
+    """添加 tags(追加,去重)。"""
+    final = _add_article_tags(source_id, payload.tags)
+    return JSONResponse({"ok": True, "source_id": source_id, "tags": final})
+
+
+@app.delete("/api/article/{source_id}/tags/{tag}")
+async def api_remove_tag(source_id: str, tag: str):
+    """删除单个 tag。"""
+    final = _remove_article_tag(source_id, tag)
+    return JSONResponse({"ok": True, "source_id": source_id, "tags": final})
+
+
+@app.post("/api/article/{source_id}/ai-tags")
+async def api_ai_tags(source_id: str):
+    """AI 推荐标签:基于 summary 生成 3-5 个 tags 并写入。"""
+    state = kb.load_state()
+    rec = state.get("sources", {}).get(source_id)
+    if not rec:
+        raise HTTPException(404, f"找不到 source:{source_id}")
+    sp = rec.get("summary_path")
+    if not sp:
+        raise HTTPException(400, "该文章没有 summary,无法推荐标签")
+    spath = VAULT_ROOT / sp
+    if not spath.exists():
+        raise HTTPException(404, f"summary 文件不存在:{sp}")
+    _, body = _parse_frontmatter(spath.read_text(encoding=ENC))
+    try:
+        new_tags = kb_llm.recommend_tags_from_summary(body)
+    except Exception as e:
+        raise HTTPException(500, f"AI 推荐失败:{e}")
+    final = _add_article_tags(source_id, new_tags)
+    return JSONResponse({"ok": True, "source_id": source_id, "tags": final, "new_tags": new_tags})
 
 
 @app.get("/api/health")

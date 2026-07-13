@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}全部文章 · 知识库{% endblock %}
+{% block content %}
+<h1 class="page-title">📚 全部文章</h1>
+<p class="page-hint muted">所有文章(含未生成 summary 的)。点击卡片进入详情。</p>
+<div id="articles-grid" class="card-grid">
+  <div class="loading">加载中...</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  async function loadArticles() {
+    const grid = document.getElementById('articles-grid');
+    try {
+      const res = await fetch('/api/articles');
+      const data = await res.json();
+      if (!data.items || data.items.length === 0) {
+        grid.innerHTML = '<div class="empty">还没有文章。去 <a href="/submit">投稿</a> 添加内容。</div>';
+        return;
+      }
+      grid.innerHTML = data.items.map(item => renderArticleCard(item)).join('');
+    } catch (e) {
+      grid.innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
+    }
+  }
+  loadArticles();
+</script>
+{% endblock %}

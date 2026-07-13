@@ -2,6 +2,13 @@
 {% block title %}仪表盘 · 知识库{% endblock %}
 {% block content %}
 
+<div class="home-search-bar">
+  <form action="/search" method="get" class="search-form">
+    <input type="text" name="q" placeholder="搜索文章标题、摘要、标签..." class="search-input">
+    <button type="submit" class="btn btn-primary">🔍 搜索</button>
+  </form>
+</div>
+
 <div id="stats-overview" class="stats-overview">
   <div class="loading">加载中...如果长时间停留在此处,按 F12 看控制台报错。</div>
 </div>

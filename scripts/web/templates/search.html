@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}搜索 · 知识库{% endblock %}
+{% block content %}
+<h1 class="page-title">🔍 搜索</h1>
+
+<div class="search-panel">
+  <form id="search-form" class="search-form search-form-full">
+    <input type="text" id="search-q" placeholder="关键词(搜标题、摘要、标签)" class="search-input">
+    <button type="submit" class="btn btn-primary">搜索</button>
+  </form>
+  <div class="filter-row">
+    <select id="filter-status" class="filter-select">
+      <option value="">全部状态</option>
+      <option value="to_read">未读</option>
+      <option value="reading">在读</option>
+      <option value="read">已读</option>
+      <option value="archived">归档</option>
+    </select>
+    <select id="filter-favorite" class="filter-select">
+      <option value="">收藏不限</option>
+      <option value="true">已收藏</option>
+      <option value="false">未收藏</option>
+    </select>
+    <select id="filter-type" class="filter-select">
+      <option value="">全部来源</option>
+      <option value="wechat">微信</option>
+      <option value="github">GitHub</option>
+      <option value="web">网页</option>
+      <option value="x">X/Twitter</option>
+      <option value="douyin">抖音</option>
+      <option value="gpt_chat">GPT对话</option>
+      <option value="manual">手动</option>
+    </select>
+    <input type="text" id="filter-tags" placeholder="标签(逗号分隔)" class="filter-input">
+    <button type="button" class="btn btn-secondary" onclick="resetFilters()">重置</button>
+  </div>
+</div>
+
+<div id="search-result-info" class="search-result-info" style="display:none;"></div>
+<div id="search-grid" class="card-grid"></div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  async function doSearch() {
+    const grid = document.getElementById('search-grid');
+    const info = document.getElementById('search-result-info');
+    const q = document.getElementById('search-q').value.trim();
+    const status = document.getElementById('filter-status').value;
+    const fav = document.getElementById('filter-favorite').value;
+    const type = document.getElementById('filter-type').value;
+    const tags = document.getElementById('filter-tags').value.trim();
+
+    const params = new URLSearchParams();
+    if (q) params.set('q', q);
+    if (status) params.set('reading_status', status);
+    if (fav) params.set('is_favorite', fav);
+    if (type) params.set('source_type', type);
+    if (tags) params.set('tags', tags);
+
+    grid.innerHTML = '<div class="loading">搜索中...</div>';
+    try {
+      const res = await fetch('/api/search?' + params.toString());
+      const data = await res.json();
+      info.style.display = 'block';
+      info.textContent = '找到 ' + data.count + ' 篇文章';
+      if (!data.items || data.items.length === 0) {
+        grid.innerHTML = '<div class="empty">没有匹配的文章。试试调整关键词或筛选条件。</div>';
+        return;
+      }
+      grid.innerHTML = data.items.map(item => renderArticleCard(item)).join('');
+    } catch (e) {
+      grid.innerHTML = '<div class="error">搜索失败:' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  function resetFilters() {
+    document.getElementById('search-q').value = '';
+    document.getElementById('filter-status').value = '';
+    document.getElementById('filter-favorite').value = '';
+    document.getElementById('filter-type').value = '';
+    document.getElementById('filter-tags').value = '';
+    doSearch();
+  }
+
+  document.getElementById('search-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    doSearch();
+  });
+  document.getElementById('filter-status').addEventListener('change', doSearch);
+  document.getElementById('filter-favorite').addEventListener('change', doSearch);
+  document.getElementById('filter-type').addEventListener('change', doSearch);
+  document.getElementById('filter-tags').addEventListener('change', doSearch);
+
+  // 从 URL 参数预填
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('q')) {
+    document.getElementById('search-q').value = urlParams.get('q');
+  }
+  doSearch();
+</script>
+{% endblock %}

@@ -1608,6 +1608,7 @@ def _write_summary(sid: str, info: dict, body: str) -> Path:
         "todo_extracted: false",
         "related_ideas: []",
         "related_todos: []",
+        "tags: []",
         "---",
         "",
     ]

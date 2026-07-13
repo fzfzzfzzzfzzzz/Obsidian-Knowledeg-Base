@@ -821,3 +821,65 @@ def extract_todos_from_summary(summary_text: str) -> list[dict[str, str]]:
             }
         )
     return [c for c in cleaned if c["title"]]
+
+
+# ---------------------------------------------------------------------------
+# AI 推荐标签
+# ---------------------------------------------------------------------------
+
+TAG_RECOMMEND_SYSTEM_PROMPT = """你是一个内容标签生成助手。用户会给你一篇文章的 summary,你需要基于内容生成 3-5 个主题标签。
+
+只输出一个 JSON 数组(不要任何解释、不要 markdown 代码块标记),例如:
+["agent", "benchmark", "tool-use"]
+
+规则:
+- 生成 3-5 个标签,不要过多。
+- 标签用中英文均可,优先用英文(技术术语)。
+- 标签要具体(如 "agent" "benchmark" "tool-use" "prompt-compression"),不要泛泛的(如 "AI" "技术")。
+- 基于 summary 内容生成,不要瞎编。
+- 每个标签是一个不带引号的纯字符串。
+"""
+
+
+def recommend_tags_from_summary(summary_text: str) -> list[str]:
+    """让 LLM 基于 summary 生成 3-5 个标签。
+
+    返回 list[str]。失败抛 LLMError。
+    """
+    if not summary_text.strip():
+        raise LLMError("空 summary,无法推荐标签")
+
+    result = chat(
+        [
+            {"role": "system", "content": TAG_RECOMMEND_SYSTEM_PROMPT},
+            {"role": "user", "content": summary_text[:50000]},
+        ],
+        temperature=0.3,
+        max_tokens=3000,
+    )
+    # 自己解析 JSON 数组(不能用 _extract_json_list,它只保留 dict 元素,会过滤掉纯字符串标签)
+    content = result["content"].strip()
+    tags: list[str] = []
+    try:
+        obj = json.loads(content)
+        if isinstance(obj, list):
+            for it in obj:
+                if isinstance(it, str):
+                    tags.append(it.strip())
+                elif isinstance(it, dict):
+                    t = it.get("tag") or it.get("name") or it.get("label") or ""
+                    if t:
+                        tags.append(str(t).strip())
+    except json.JSONDecodeError:
+        # 尝试提取 ```json 块
+        m = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", content, re.DOTALL)
+        if m:
+            try:
+                obj = json.loads(m.group(1))
+                if isinstance(obj, list):
+                    for it in obj:
+                        if isinstance(it, str):
+                            tags.append(it.strip())
+            except json.JSONDecodeError:
+                pass
+    return [t for t in tags if t][:5]
