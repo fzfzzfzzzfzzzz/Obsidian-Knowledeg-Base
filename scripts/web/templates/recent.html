@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}最近阅读 · 知识库{% endblock %}
+{% block content %}
+<h1 class="page-title">🕒 最近阅读</h1>
+<p class="page-hint muted">按最近打开时间倒序,最多 30 篇。打开文章详情会自动记录。</p>
+<div id="recent-grid" class="card-grid">
+  <div class="loading">加载中...</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  async function loadRecent() {
+    const grid = document.getElementById('recent-grid');
+    try {
+      const res = await fetch('/api/recent');
+      const data = await res.json();
+      if (!data.items || data.items.length === 0) {
+        grid.innerHTML = '<div class="empty">还没有阅读记录。打开文章详情会自动记录到这里。</div>';
+        return;
+      }
+      grid.innerHTML = data.items.map(item => renderArticleCard(item)).join('');
+    } catch (e) {
+      grid.innerHTML = `<div class="error">加载失败:${escapeHtml(e.message)}</div>`;
+    }
+  }
+  loadRecent();
+</script>
+{% endblock %}

@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}文章详情 · 知识库{% endblock %}
+{% block content %}
+<div id="summary-detail">
+  <div class="loading">加载中...</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const SOURCE_ID = "{{ source_id }}";
+  async function loadDetail() {
+    const wrap = document.getElementById('summary-detail');
+    try {
+      const res = await fetch(`/api/summary/${encodeURIComponent(SOURCE_ID)}`);
+      if (!res.ok) {
+        const err = await res.json();
+        wrap.innerHTML = `<div class="error">${escapeHtml(err.detail || '加载失败')}</div>`;
+        return;
+      }
+      const d = await res.json();
+      const m = d.meta || {};
+      // 读阅读状态(用 dashboard_full 拿全列表)
+      let rl = false, fav = false, readCount = 0;
+      try {
+        const dbRes = await fetch('/api/dashboard_full');
+        const db = await dbRes.json();
+        const all = [...(db.unread||[]), ...(db.read||[])];
+        const me = all.find(x => x.source_id === SOURCE_ID);
+        if (me) { rl = me.read_later; fav = me.is_favorite; readCount = me.read_count || 0; }
+      } catch(e) {}
+
+      const hasSummary = d.has_summary !== false;
+      const summaryWarn = !hasSummary
+        ? `<div class="warn-banner">⚠️ 这篇文章还没有生成 summary,以下显示的是原始内容。运行 <code>make-prompts --auto</code> 生成总结。</div>`
+        : '';
+      const readInfo = readCount > 0 ? `<span class="muted">读过 ${readCount} 次</span>` : '';
+
+      wrap.innerHTML = `
+        <a href="/" class="back-link">← 返回首页</a>
+        <div class="detail-action-bar">
+          <button class="btn detail-action-btn ${rl ? 'active-rl' : ''}" data-field="read_later"
+            onclick="toggleReadLater('${SOURCE_ID}')">${rl ? '📖✓ 已加入稍后读' : '📖 稍后阅读'}</button>
+          <button class="btn detail-action-btn ${fav ? 'active-fav' : ''}" data-field="is_favorite"
+            onclick="toggleFavorite('${SOURCE_ID}')">${fav ? '⭐✓ 已收藏' : '⭐ 收藏'}</button>
+          <button class="btn btn-danger" onclick="deleteArticle('${SOURCE_ID}')">🗑 删除</button>
+          ${readInfo}
+        </div>
+        ${summaryWarn}
+        <div class="summary-meta-bar">
+          ${m.source_type ? `<span class="tag tag-${m.source_type}">${m.source_type}</span>` : ''}
+          ${m.area ? `<span class="tag tag-area">${m.area}</span>` : ''}
+          ${m.summarized_at ? `<span class="muted">总结于 ${m.summarized_at}</span>` : (m.ingested_at ? `<span class="muted">录入于 ${m.ingested_at}</span>` : '')}
+        </div>
+        <h1 class="detail-title">${escapeHtml(d.title)}</h1>
+        <div class="markdown-body">${d.html_body}</div>
+        <div class="detail-footer muted">文件:${escapeHtml(d.path)}</div>
+      `;
+    } catch (e) {
+      wrap.innerHTML = `<div class="error">加载失败:${escapeHtml(e.message)}</div>`;
+    }
+  }
+  loadDetail();
+</script>
+{% endblock %}

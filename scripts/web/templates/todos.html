@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Todo List · 知识库{% endblock %}
+{% block content %}
+<h1 class="page-title">Todo 候选</h1>
+<p class="page-hint muted">AI 抽取的 todo 先进这里。点「本周/本月/someday」会改 status 并写回 todo_suggestions.md,之后运行 <code>accept-todos</code> 进入正式计划。</p>
+<div id="todo-grid" class="card-grid">
+  <div class="loading">加载中...</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  loadSuggestions('todo');
+</script>
+{% endblock %}

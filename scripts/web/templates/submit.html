@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}投稿 · 知识库{% endblock %}
+{% block content %}
+<h1 class="page-title">📥 投稿</h1>
+<p class="page-hint muted">粘贴 URL 或文章正文,提交后自动抓取 + 识别 + 生成 source note。</p>
+
+<div id="submit-form" class="submit-form">
+  <div id="input-list" class="input-list">
+    <!-- 动态文本框容器 -->
+  </div>
+  <div class="submit-options">
+    <label class="checkbox-label">
+      <input type="checkbox" id="auto-summary" checked>
+      <span>提交后自动生成 summary(每篇约 10-30 秒)</span>
+    </label>
+  </div>
+  <div class="submit-actions">
+    <button class="btn btn-secondary" onclick="addInput()">+ 添加一条</button>
+    <button class="btn btn-primary" id="submit-btn" onclick="submitContent()">提交并处理</button>
+  </div>
+</div>
+
+<div id="submit-result" class="submit-result" style="display:none;"></div>
+
+<section class="dashboard-section" style="margin-top:48px;">
+  <h2 class="section-title">⏳ 待生成 summary <span class="count-badge" id="count-pending"></span></h2>
+  <p class="page-hint muted">这些文章已入库但还没生成 summary。可以逐个生成,或一键全部生成。</p>
+  <div id="pending-actions" style="margin-bottom:12px;"></div>
+  <div id="pending-grid" class="card-grid"><div class="loading">加载中...</div></div>
+</section>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  let inputCount = 0;
+
+  function addInput(value) {
+    inputCount++;
+    const list = document.getElementById('input-list');
+    const wrap = document.createElement('div');
+    wrap.className = 'input-item';
+    wrap.dataset.idx = inputCount;
+    wrap.innerHTML = `
+      <div class="input-item-header">
+        <span class="input-num">#${inputCount}</span>
+        <button class="btn btn-ghost btn-sm" onclick="removeInput(this)">✕ 删除</button>
+      </div>
+      <textarea class="submit-textarea" placeholder="粘贴 URL(如 https://...) 或文章正文" rows="4"></textarea>
+    `;
+    list.appendChild(wrap);
+    if (value) wrap.querySelector('textarea').value = value;
+  }
+
+  function removeInput(btn) {
+    const item = btn.closest('.input-item');
+    if (document.querySelectorAll('.input-item').length <= 1) { alert('至少保留一条'); return; }
+    item.remove();
+  }
+
+  function collectItems() {
+    const items = [];
+    document.querySelectorAll('.submit-textarea').forEach(t => {
+      const v = t.value.trim();
+      if (v) items.push(v);
+    });
+    return items;
+  }
+
+  async function submitContent() {
+    const items = collectItems();
+    if (items.length === 0) { alert('请至少粘贴一条内容'); return; }
+    const btn = document.getElementById('submit-btn');
+    const result = document.getElementById('submit-result');
+    const autoSummary = document.getElementById('auto-summary').checked;
+    btn.disabled = true;
+    btn.textContent = autoSummary ? '处理中...(ingest + 生成 summary,可能需 1-2 分钟)' : '处理中...(ingest)';
+    result.style.display = 'block';
+    result.innerHTML = '<div class="loading">正在处理 ' + items.length + ' 条内容...</div>';
+
+    try {
+      const res = await fetch('/api/ingest', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({items: items, auto_summary: autoSummary}),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        result.innerHTML = '<div class="error">失败:' + escapeHtml(data.detail || '未知错误') + '</div>';
+        return;
+      }
+      const news = data.new_sources || [];
+      const sumResults = data.summary_results || [];
+      const sumOk = sumResults.filter(r => r.ok).length;
+      const sumFail = sumResults.filter(r => !r.ok);
+      let html = '<div class="success-banner">✓ 处理完成,提交 ' + data.submitted + ' 条</div>';
+      if (sumResults.length > 0) {
+        html += '<div class="sum-status">summary 生成:' + sumOk + ' 成功' + (sumFail.length ? ', ' + sumFail.length + ' 失败' : '') + '</div>';
+      }
+      if (news.length > 0) {
+        html += '<div class="result-list">';
+        news.forEach((s, i) => {
+          const sr = sumResults[i];
+          const badge = sr ? (sr.ok ? '<span class="tag tag-area">已总结</span>' : '<span class="tag" style="background:#fee2e2;color:#991b1b">总结失败</span>') : '';
+          html += '<a class="card result-card" href="/summary/' + encodeURIComponent(s.source_id) + '">' +
+            '<span class="tag tag-' + s.source_type + '">' + s.source_type + '</span>' +
+            '<span class="result-card-title">' + escapeHtml(s.title) + '</span>' +
+            badge + '</a>';
+        });
+        html += '</div>';
+      }
+      if (data.log) {
+        html += '<details class="log-details"><summary>处理日志</summary><pre>' + escapeHtml(data.log) + '</pre></details>';
+      }
+      html += '<div class="result-next"><a class="btn btn-primary" href="/">回首页</a> <a class="btn" href="/submit">继续投稿</a></div>';
+      result.innerHTML = html;
+      document.getElementById('input-list').innerHTML = '';
+      addInput();
+      loadPendingSummaries();
+    } catch (e) {
+      result.innerHTML = '<div class="error">网络错误:' + escapeHtml(e.message) + '</div>';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '提交并处理';
+    }
+  }
+
+  // ===== 待生成 summary 板块 =====
+  async function loadPendingSummaries() {
+    const grid = document.getElementById('pending-grid');
+    const count = document.getElementById('count-pending');
+    const actions = document.getElementById('pending-actions');
+    try {
+      const res = await fetch('/api/pending-summaries');
+      const data = await res.json();
+      const items = data.items || [];
+      count.textContent = items.length;
+      if (items.length === 0) {
+        grid.innerHTML = '<div class="empty">没有待生成 summary 的文章 🎉</div>';
+        actions.innerHTML = '';
+        return;
+      }
+      actions.innerHTML = '<button class="btn btn-primary" onclick="generateAllSummaries()">⚡ 全部生成(' + items.length + ')</button>';
+      grid.innerHTML = items.map(function(item) {
+        return '<div class="card pending-card">' +
+          '<div class="card-header"><span class="tag tag-' + item.source_type + '">' + item.source_type + '</span></div>' +
+          '<h3 class="card-title">' + escapeHtml(item.title) + '</h3>' +
+          '<div class="action-row"><button class="btn btn-primary btn-sm" onclick="generateSummary(\'' + item.source_id + '\', this)">生成 summary</button></div>' +
+        '</div>';
+      }).join('');
+    } catch (e) {
+      grid.innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  async function generateSummary(sourceId, btn) {
+    if (btn) { btn.disabled = true; btn.textContent = '生成中...'; }
+    try {
+      const res = await fetch('/api/generate-summary/' + sourceId, {method: 'POST'});
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        alert('生成失败:' + (data.detail || data.error || '未知错误'));
+        if (btn) { btn.disabled = false; btn.textContent = '生成 summary'; }
+        return;
+      }
+      loadPendingSummaries();
+    } catch (e) {
+      alert('网络错误:' + e.message);
+      if (btn) { btn.disabled = false; btn.textContent = '生成 summary'; }
+    }
+  }
+
+  async function generateAllSummaries() {
+    const btns = document.querySelectorAll('.pending-card .btn-primary');
+    if (btns.length === 0) return;
+    if (!confirm('确认全部生成?共 ' + btns.length + ' 篇,每篇约 10-30 秒。')) return;
+    for (let btn of btns) {
+      await generateSummary(btn.getAttribute('onclick').match(/'([^']+)'/)[1], btn);
+    }
+  }
+
+  addInput();
+  loadPendingSummaries();
+</script>
+{% endblock %}

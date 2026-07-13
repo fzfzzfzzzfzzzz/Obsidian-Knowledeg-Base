@@ -1,0 +1,7 @@
+# Obsidian KB 运行依赖
+# 安装: pip install -r requirements.txt
+requests>=2.28
+fastapi>=0.100
+uvicorn>=0.23
+markdown>=3.4
+python-multipart>=0.0.6
