@@ -7,6 +7,16 @@
 # —— Obsidian 配置(本地工作区设置,不入库)——
 .obsidian/
 
+# —— vault 内容(Obsidian 数据,由 kb.py init 生成,不入库)——
+00_Inbox/
+01_Sources/
+02_Summaries/
+03_Ideas/
+04_Plans/
+05_Projects/
+90_Templates/
+99_System/
+
 # —— Python ——
 __pycache__/
 *.pyc
@@ -17,4 +27,5 @@ venv/
 # —— 系统 ——
 .DS_Store
 Thumbs.db
+
 
