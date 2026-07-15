@@ -270,6 +270,69 @@ def _remove_article_tag(source_id: str, tag: str) -> list[str]:
     return _set_article_tags(source_id, [t for t in current if t != tag])
 
 
+def _delete_one(source_id: str, state: dict) -> dict[str, Any]:
+    """删除单篇文章的全部文件 + state 记录(不调 save_state,由调用方统一保存)。
+
+    返回 {ok, source_id, deleted_files, error?}。
+    单个失败不影响其他文章(批量删除用)。
+    """
+    sources = state.get("sources", {})
+    if source_id not in sources:
+        return {"ok": False, "source_id": source_id, "error": "source 不存在", "deleted_files": []}
+    rec = sources[source_id]
+    deleted_files: list[str] = []
+    try:
+        # 1. 删 source note
+        sp = rec.get("path")
+        if sp:
+            p = VAULT_ROOT / sp
+            if p.exists():
+                p.unlink()
+                deleted_files.append(sp)
+        # 2. 删 summary
+        sump = rec.get("summary_path")
+        if sump:
+            p = VAULT_ROOT / sump
+            if p.exists():
+                p.unlink()
+                deleted_files.append(sump)
+        else:
+            summaries_dir = VAULT_ROOT / "02_Summaries"
+            if summaries_dir.exists():
+                for sf in summaries_dir.rglob("*.md"):
+                    try:
+                        txt = sf.read_text(encoding=ENC)
+                        fm, _ = _parse_frontmatter(txt)
+                        if fm.get("source_id") == source_id:
+                            sf.unlink()
+                            deleted_files.append(str(sf.relative_to(VAULT_ROOT).as_posix()))
+                            break
+                    except Exception:
+                        continue
+        # 3. 删 raw_text
+        rp = VAULT_ROOT / ".kb" / "raw_text" / f"{source_id}.txt"
+        if rp.exists():
+            rp.unlink()
+            deleted_files.append(str(rp.relative_to(VAULT_ROOT).as_posix()))
+        # 4. 删 suggestion 候选块
+        for sug_path in [VAULT_ROOT / "03_Ideas" / "idea_suggestions.md",
+                         VAULT_ROOT / "04_Plans" / "todo_suggestions.md"]:
+            if sug_path.exists():
+                txt = sug_path.read_text(encoding=ENC)
+                pattern = re.compile(
+                    rf"\n## (?:Idea|Todo) Suggestion:[^\n]*\n(?:(?!## (?:Idea|Todo) Suggestion:).)*?{re.escape(source_id)}(?:(?!## (?:Idea|Todo) Suggestion:).)*",
+                    re.DOTALL,
+                )
+                new_txt = pattern.sub("", txt)
+                if new_txt != txt:
+                    sug_path.write_text(new_txt, encoding=ENC)
+        # 5. 从 state 删记录
+        del sources[source_id]
+        return {"ok": True, "source_id": source_id, "deleted_files": deleted_files}
+    except Exception as e:
+        return {"ok": False, "source_id": source_id, "error": str(e), "deleted_files": deleted_files}
+
+
 def _summary_card_from_source(source_id: str, rec: dict) -> dict[str, Any]:
     """把 state.json 里的 source 记录转成前端卡片数据(含阅读状态)。"""
     return {
@@ -459,6 +522,10 @@ def _generate_summary_for_source(source_id: str) -> dict[str, Any]:
     except Exception as e:
         return {"ok": False, "source_id": source_id, "error": f"LLM 失败:{e}"}
 
+    # 检查 LLM 是否返回了空内容(思考模型可能 token 全用在思考上,没输出)
+    if not summary_body or not summary_body.strip():
+        return {"ok": False, "source_id": source_id, "error": "LLM 返回空内容(可能是思考模型超时或 token 不足,请重试)"}
+
     # 写 summary 文件(复用 kb.py 的 _write_summary)
     summary_path = kb._write_summary(source_id, rec, summary_body)
     # 回填 source note
@@ -514,8 +581,21 @@ def _read_summary_detail(source_id: str) -> dict[str, Any]:
     """读单篇 summary,返回 frontmatter + markdown 转 HTML 后的正文。
 
     若 summary 不存在,回退读 source note 的原始内容(投稿后未生成 summary 的情况)。
+    返回值含 source_url(从 source note frontmatter 读)。
     """
     import markdown as md
+
+    # 先从 source note 读 source_url(两种路径都需要)
+    source_url = ""
+    state = kb.load_state()
+    rec = state.get("sources", {}).get(source_id, {})
+    sn_path = VAULT_ROOT / rec.get("path", "") if rec.get("path") else None
+    if sn_path and sn_path.exists():
+        try:
+            sn_meta, _ = _parse_frontmatter(sn_path.read_text(encoding=ENC))
+            source_url = sn_meta.get("source_url", "").strip()
+        except Exception:
+            pass
 
     summaries_dir = VAULT_ROOT / "02_Summaries"
     # 1. 先找 summary
@@ -539,6 +619,7 @@ def _read_summary_detail(source_id: str) -> dict[str, Any]:
                     "html_body": html_body,
                     "path": str(sf.relative_to(VAULT_ROOT).as_posix()),
                     "has_summary": True,
+                    "source_url": source_url,
                 }
 
     # 2. 回退:读 source note 原文
@@ -574,6 +655,7 @@ def _read_summary_detail(source_id: str) -> dict[str, Any]:
         "html_body": html_body,
         "path": str(source_path.relative_to(VAULT_ROOT).as_posix()),
         "has_summary": False,
+        "source_url": source_url,
     }
 
 
@@ -903,6 +985,74 @@ async def api_generate_summary(source_id: str):
     return JSONResponse(_generate_summary_for_source(source_id))
 
 
+@app.post("/api/article/{source_id}/regenerate-summary")
+async def api_regenerate_summary(source_id: str):
+    """重新生成 summary(覆盖已有)。先备份旧 summary 到 .kb/logs/web_backups/。"""
+    state = kb.load_state()
+    sources = state.get("sources", {})
+    if source_id not in sources:
+        raise HTTPException(404, f"找不到 source:{source_id}")
+
+    # 备份旧 summary(如果存在)
+    old_sp = sources[source_id].get("summary_path")
+    if old_sp:
+        old_path = VAULT_ROOT / old_sp
+        if old_path.exists():
+            backup_dir = VAULT_ROOT / ".kb" / "logs" / "web_backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            ts = datetime.now().strftime("%H%M%S")
+            backup_name = f"{old_path.stem}_regen_{ts}.md"
+            shutil.copy2(old_path, backup_dir / backup_name)
+            # 删除旧 summary,清除 summary_path,让 _generate_summary_for_source 重新生成
+            old_path.unlink()
+            sources[source_id].pop("summary_path", None)
+            sources[source_id].pop("action_status", None)
+            kb.save_state(state)
+
+    return JSONResponse(_generate_summary_for_source(source_id))
+
+
+@app.delete("/api/article/{source_id}/summary")
+async def api_delete_summary(source_id: str):
+    """删除文章的 summary(不删 source)。备份旧 summary + 清除 state 的 summary_path。
+
+    删除后文章回到"无 summary"状态,可让别的 Agent 重新生成。
+    """
+    state = kb.load_state()
+    sources = state.get("sources", {})
+    if source_id not in sources:
+        raise HTTPException(404, f"找不到 source:{source_id}")
+
+    old_sp = sources[source_id].get("summary_path")
+    if not old_sp:
+        raise HTTPException(400, "该文章没有 summary")
+
+    old_path = VAULT_ROOT / old_sp
+    # 备份
+    if old_path.exists():
+        backup_dir = VAULT_ROOT / ".kb" / "logs" / "web_backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%H%M%S")
+        backup_name = f"{old_path.stem}_delsum_{ts}.md"
+        shutil.copy2(old_path, backup_dir / backup_name)
+        old_path.unlink()
+
+    # 清除 state
+    sources[source_id].pop("summary_path", None)
+    sources[source_id].pop("action_status", None)
+    kb.save_state(state)
+
+    # 回填 source note 的 status(改回 source_created)
+    sn_path = VAULT_ROOT / sources[source_id].get("path", "") if sources[source_id].get("path") else None
+    if sn_path and sn_path.exists():
+        text = sn_path.read_text(encoding=ENC)
+        text = re.sub(r"^status:.*", "status: source_created", text, flags=re.MULTILINE)
+        text = re.sub(r"summary_location:.*", "summary_location:", text)
+        sn_path.write_text(text, encoding=ENC)
+
+    return JSONResponse({"ok": True, "source_id": source_id, "deleted_summary": old_sp})
+
+
 @app.get("/api/dashboard_full")
 async def api_dashboard_full():
     """首页:按 reading_status 分组的文章列表(未读/已读,只含有 summary 的)。"""
@@ -958,80 +1108,135 @@ async def api_toggle_favorite(source_id: str):
 
 @app.delete("/api/article/{source_id}")
 async def api_delete_article(source_id: str):
-    """彻底删除一篇文章:source note + summary + raw_text + state 记录。
+    """彻底删除一篇文章:source note + summary + raw_text + state 记录 + 关联候选。
 
     删除前备份 state.json。物理文件直接删除(不可恢复)。
     """
-    state = kb.load_state()
-    sources = state.get("sources", {})
-    if source_id not in sources:
-        raise HTTPException(404, f"找不到 source:{source_id}")
-    rec = sources[source_id]
-    deleted_files: list[str] = []
-
-    # 备份 state
+    # 备份
     backup_dir = VAULT_ROOT / ".kb" / "logs" / "web_backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
     backup = backup_dir / f"state_{date.today().isoformat()}.json.bak"
-    shutil.copy2(kb.STATE_FILE, backup)
+    if kb.STATE_FILE.exists():
+        shutil.copy2(kb.STATE_FILE, backup)
 
-    # 1. 删 source note
-    source_path = VAULT_ROOT / rec.get("path", "") if rec.get("path") else None
-    if source_path and source_path.exists():
-        source_path.unlink()
-        deleted_files.append(str(source_path.relative_to(VAULT_ROOT).as_posix()))
-
-    # 2. 删 summary(如果存在)
-    summary_path = rec.get("summary_path")
-    if summary_path:
-        sp = VAULT_ROOT / summary_path
-        if sp.exists():
-            sp.unlink()
-            deleted_files.append(str(sp.relative_to(VAULT_ROOT).as_posix()))
-    else:
-        # summary_path 没记录,扫 02_Summaries 找匹配 source_id 的
-        summaries_dir = VAULT_ROOT / "02_Summaries"
-        if summaries_dir.exists():
-            for sf in summaries_dir.rglob("*.md"):
-                try:
-                    txt = sf.read_text(encoding=ENC)
-                    fm, _ = _parse_frontmatter(txt)
-                    if fm.get("source_id") == source_id:
-                        sf.unlink()
-                        deleted_files.append(str(sf.relative_to(VAULT_ROOT).as_posix()))
-                        break
-                except Exception:
-                    continue
-
-    # 3. 删 raw_text
-    raw_path = VAULT_ROOT / ".kb" / "raw_text" / f"{source_id}.txt"
-    if raw_path.exists():
-        raw_path.unlink()
-        deleted_files.append(str(raw_path.relative_to(VAULT_ROOT).as_posix()))
-
-    # 4. 删 idea_suggestions / todo_suggestions 里关联的候选(source_id 匹配)
-    for sug_path, kind in [
-        (VAULT_ROOT / "03_Ideas" / "idea_suggestions.md", "idea"),
-        (VAULT_ROOT / "04_Plans" / "todo_suggestions.md", "todo"),
-    ]:
-        if sug_path.exists():
-            txt = sug_path.read_text(encoding=ENC)
-            # 删除引用了该 source_id 的候选块
-            pattern = re.compile(
-                rf"\n## (?:Idea|Todo) Suggestion:[^\n]*\n(?:(?!## (?:Idea|Todo) Suggestion:).)*?{re.escape(source_id)}(?:(?!## (?:Idea|Todo) Suggestion:).)*",
-                re.DOTALL,
-            )
-            new_txt = pattern.sub("", txt)
-            if new_txt != txt:
-                sug_path.write_text(new_txt, encoding=ENC)
-
-    # 5. 从 state 删除记录
-    del sources[source_id]
+    state = kb.load_state()
+    if source_id not in state.get("sources", {}):
+        raise HTTPException(404, f"找不到 source:{source_id}")
+    result = _delete_one(source_id, state)
     kb.save_state(state)
+    if not result["ok"]:
+        raise HTTPException(500, result.get("error", "删除失败"))
+    return JSONResponse(result)
 
-    return JSONResponse(
-        {"ok": True, "source_id": source_id, "deleted_files": deleted_files}
-    )
+
+class BatchRequest(BaseModel):
+    """批量操作请求。"""
+    source_ids: list[str]
+    action: str  # archive / delete / favorite / unfavorite / add_tags / generate_summary / extract_suggestions
+    tags: list[str] = []  # add_tags 时用
+
+
+VALID_BATCH_ACTIONS = {
+    "archive", "delete", "favorite", "unfavorite",
+    "add_tags", "generate_summary", "extract_suggestions",
+}
+
+
+@app.post("/api/batch")
+async def api_batch(payload: BatchRequest):
+    """批量操作。单条失败不影响其他,返回成功/失败/跳过数量 + 失败项。"""
+    if not payload.source_ids:
+        raise HTTPException(400, "source_ids 不能为空")
+    if payload.action not in VALID_BATCH_ACTIONS:
+        raise HTTPException(400, f"非法 action:{payload.action}")
+
+    # 删除操作先备份
+    if payload.action == "delete":
+        backup_dir = VAULT_ROOT / ".kb" / "logs" / "web_backups"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        backup = backup_dir / f"state_{date.today().isoformat()}.json.bak"
+        if kb.STATE_FILE.exists():
+            shutil.copy2(kb.STATE_FILE, backup)
+
+    state = kb.load_state()
+    sources = state.get("sources", {})
+    results = {"success": 0, "failed": 0, "skipped": 0, "failed_items": []}
+
+    for sid in payload.source_ids:
+        if sid not in sources:
+            results["failed"] += 1
+            results["failed_items"].append({"source_id": sid, "error": "source 不存在"})
+            continue
+
+        try:
+            if payload.action == "archive":
+                sources[sid]["reading_status"] = "archived"
+                results["success"] += 1
+            elif payload.action == "delete":
+                r = _delete_one(sid, state)
+                if r["ok"]:
+                    results["success"] += 1
+                else:
+                    results["failed"] += 1
+                    results["failed_items"].append({"source_id": sid, "error": r.get("error", "")})
+            elif payload.action == "favorite":
+                sources[sid]["is_favorite"] = True
+                results["success"] += 1
+            elif payload.action == "unfavorite":
+                sources[sid]["is_favorite"] = False
+                results["success"] += 1
+            elif payload.action == "add_tags":
+                if not sources[sid].get("summary_path"):
+                    results["skipped"] += 1
+                    continue
+                _add_article_tags(sid, payload.tags)
+                results["success"] += 1
+            elif payload.action == "generate_summary":
+                if sources[sid].get("summary_path"):
+                    results["skipped"] += 1
+                    continue
+                r = _generate_summary_for_source(sid)
+                if r.get("ok"):
+                    results["success"] += 1
+                else:
+                    results["failed"] += 1
+                    results["failed_items"].append({"source_id": sid, "error": r.get("error", "")})
+            elif payload.action == "extract_suggestions":
+                if not sources[sid].get("summary_path"):
+                    results["skipped"] += 1
+                    continue
+                if sources[sid].get("action_status") == "todo_suggested":
+                    results["skipped"] += 1
+                    continue
+                # 调抽取逻辑
+                sp = sources[sid]["summary_path"]
+                spath = VAULT_ROOT / sp
+                if not spath.exists():
+                    results["skipped"] += 1
+                    continue
+                _, body = _parse_frontmatter(spath.read_text(encoding=ENC))
+                ideas = kb_llm.extract_ideas_from_summary(body)
+                todos = kb_llm.extract_todos_from_summary(body)
+                today = date.today().isoformat()
+                for it in ideas:
+                    kb._append_section(
+                        VAULT_ROOT / "03_Ideas" / "idea_suggestions.md",
+                        kb._format_idea_suggestion(sid, sources[sid], it, today),
+                    )
+                for it in todos:
+                    kb._append_section(
+                        VAULT_ROOT / "04_Plans" / "todo_suggestions.md",
+                        kb._format_todo_suggestion(sid, sources[sid], it, today),
+                    )
+                sources[sid]["action_status"] = "todo_suggested"
+                results["success"] += 1
+        except Exception as e:
+            results["failed"] += 1
+            results["failed_items"].append({"source_id": sid, "error": str(e)})
+
+    # 统一保存(add_tags/generate_summary/extract_suggestions 内部可能已 save,再 save 一次保证一致)
+    kb.save_state(state)
+    return JSONResponse(results)
 
 
 # ---------------------------------------------------------------------------

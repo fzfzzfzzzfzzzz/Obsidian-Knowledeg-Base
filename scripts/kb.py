@@ -412,8 +412,6 @@ source_type: github
 
 # 依赖条件
 
-# 和我当前项目的关系
-
 # 值得尝试的地方
 
 # 风险 / 局限
@@ -431,7 +429,7 @@ source_type: web
 
 # 核心观点
 
-# 方法 / 框架 / 实现路径
+# 详细内容总结
 """,
     "summary_video.md": """---
 kind: summary
@@ -1342,6 +1340,11 @@ def cmd_make_prompts(args):
             try:
                 print(f"  → {sid}: 调用 LLM 生成 summary...")
                 body = kb_llm.generate_summary(source_text, info["source_type"])
+                # 检查 LLM 是否返回空内容(思考模型可能 token 全用在思考上)
+                if not body or not body.strip():
+                    print(f"    ✗ LLM 返回空内容(可能是思考模型超时或 token 不足)")
+                    failed += 1
+                    continue
                 summary_path = _write_summary(sid, info, body)
                 _backfill_source_note(source_note, sid, summary_path, "summarized")
                 info["summary_path"] = summary_path.relative_to(VAULT_ROOT).as_posix()

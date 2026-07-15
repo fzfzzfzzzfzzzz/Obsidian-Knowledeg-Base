@@ -4,26 +4,42 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}知识库{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=6">
+  <link rel="stylesheet" href="/static/style.css?v=10">
 </head>
 <body>
-  <nav class="topnav">
-    <div class="nav-brand">📚 Obsidian KB</div>
-    <div class="nav-links">
+  <a href="#main" class="skip-link">跳到主内容</a>
+  <nav class="topnav" aria-label="主导航">
+    <button class="nav-toggle" id="navToggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="navLinks">☰</button>
+    <a href="/" class="nav-brand">📚 Obsidian KB</a>
+    <div class="nav-links" id="navLinks">
       <a href="/" class="{% if active_nav == 'index' %}active{% endif %}">仪表盘</a>
-      <a href="/search" class="{% if active_nav == 'search' %}active{% endif %}">🔍 搜索</a>
-      <a href="/articles" class="{% if active_nav == 'articles' %}active{% endif %}">📚 全部文章</a>
-      <a href="/submit" class="{% if active_nav == 'submit' %}active{% endif %}">📥 投稿</a>
-      <a href="/recent" class="{% if active_nav == 'recent' %}active{% endif %}">🕒 最近阅读</a>
-      <a href="/favorites" class="{% if active_nav == 'favorites' %}active{% endif %}">⭐ 收藏夹</a>
+      <a href="/search" class="{% if active_nav == 'search' %}active{% endif %}">搜索</a>
+      <a href="/articles" class="{% if active_nav == 'articles' %}active{% endif %}">全部文章</a>
+      <a href="/submit" class="{% if active_nav == 'submit' %}active{% endif %}">投稿</a>
+      <a href="/recent" class="{% if active_nav == 'recent' %}active{% endif %}">最近阅读</a>
+      <a href="/favorites" class="{% if active_nav == 'favorites' %}active{% endif %}">收藏夹</a>
       <a href="/ideas" class="{% if active_nav == 'ideas' %}active{% endif %}">Ideas</a>
       <a href="/todos" class="{% if active_nav == 'todos' %}active{% endif %}">Todos</a>
     </div>
+    <button class="theme-toggle" id="themeToggle" aria-label="切换浅色/暗色主题" title="切换主题">🌙</button>
   </nav>
-  <main class="container">
+  <div class="nav-overlay" id="navOverlay" hidden></div>
+
+  <main class="container" id="main">
     {% block content %}{% endblock %}
   </main>
-  <script src="/static/app.js?v=6"></script>
+
+  <!-- Modal / Toast 挂载点 -->
+  <div class="modal-overlay" id="modalOverlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" id="modalBox">
+      <h3 class="modal-title" id="modalTitle"></h3>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-actions" id="modalActions"></div>
+    </div>
+  </div>
+  <div class="toast-wrap" id="toastWrap" aria-live="polite" aria-atomic="false"></div>
+
+  <script src="/static/app.js?v=10"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

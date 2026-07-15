@@ -19,22 +19,20 @@
       }
       const d = await res.json();
       const m = d.meta || {};
-      // 读阅读状态 + tags
       let rl = false, fav = false, readCount = 0, tags = [];
       try {
         const dbRes = await fetch('/api/dashboard_full');
         const db = await dbRes.json();
-        const all = [...(db.unread||[]), ...(db.read||[])];
+        const all = [...(db.unread || []), ...(db.read || [])];
         const me = all.find(x => x.source_id === SOURCE_ID);
         if (me) { rl = me.read_later; fav = me.is_favorite; readCount = me.read_count || 0; tags = me.tags || []; }
-      } catch(e) {}
-      // 如果 dashboard_full 没有(无 summary 的文章),从 tags API 读
+      } catch (e) {}
       if (tags.length === 0) {
         try {
           const tRes = await fetch(`/api/article/${SOURCE_ID}/tags`);
           const tData = await tRes.json();
           tags = tData.tags || [];
-        } catch(e) {}
+        } catch (e) {}
       }
 
       const hasSummary = d.has_summary !== false;
@@ -43,9 +41,8 @@
         : '';
       const readInfo = readCount > 0 ? `<span class="muted">读过 ${readCount} 次</span>` : '';
 
-      // tags UI
       const tagsHtml = tags.length > 0
-        ? tags.map(t => `<span class="tag tag-tag">${escapeHtml(t)} <button class="tag-remove" onclick="removeTag('${escapeHtml(t)}')" title="删除">×</button></span>`).join('')
+        ? tags.map(t => `<span class="tag tag-tag">${escapeHtml(t)} <button class="tag-remove" onclick="removeTag('${escapeHtml(t)}')" title="删除" aria-label="删除标签 ${escapeHtml(t)}">×</button></span>`).join('')
         : '<span class="muted">暂无标签</span>';
 
       wrap.innerHTML = `
@@ -55,7 +52,9 @@
             onclick="toggleReadLater('${SOURCE_ID}')">${rl ? '📖✓ 已加入稍后读' : '📖 稍后阅读'}</button>
           <button class="btn detail-action-btn ${fav ? 'active-fav' : ''}" data-field="is_favorite"
             onclick="toggleFavorite('${SOURCE_ID}')">${fav ? '⭐✓ 已收藏' : '⭐ 收藏'}</button>
-          <button class="btn btn-danger" onclick="deleteArticle('${SOURCE_ID}')">🗑 删除</button>
+          ${hasSummary ? `<button class="btn btn-warn" id="regen-btn" onclick="regenerateSummary(this)">🔄 重新生成</button>` : ''}
+          ${hasSummary ? `<button class="btn btn-ghost" onclick="deleteSummary(this)">🗑 删除 summary</button>` : ''}
+          <button class="btn btn-danger" onclick="deleteArticle('${SOURCE_ID}')">🗑 删除文章</button>
           ${readInfo}
         </div>
         ${summaryWarn}
@@ -63,11 +62,12 @@
           ${m.source_type ? `<span class="tag tag-${m.source_type}">${m.source_type}</span>` : ''}
           ${m.area ? `<span class="tag tag-area">${m.area}</span>` : ''}
           ${m.summarized_at ? `<span class="muted">总结于 ${m.summarized_at}</span>` : (m.ingested_at ? `<span class="muted">录入于 ${m.ingested_at}</span>` : '')}
+          ${d.source_url ? `<a href="${escapeHtml(d.source_url)}" target="_blank" rel="noopener" class="source-link">🔗 查看原文</a>` : ''}
         </div>
         <div class="tags-bar">
           <span class="tags-label">标签:</span>
           <span id="tags-list">${tagsHtml}</span>
-          <input type="text" id="tag-input" class="tag-input" placeholder="添加标签" onkeypress="if(event.key==='Enter'){addTagFromInput();}">
+          <input type="text" id="tag-input" class="tag-input" placeholder="添加标签" aria-label="添加标签" onkeypress="if(event.key==='Enter'){addTagFromInput();}">
           <button class="btn btn-sm btn-secondary" onclick="addTagFromInput()">添加</button>
           <button class="btn btn-sm" onclick="aiRecommendTags(this)">🤖 AI 推荐</button>
         </div>
@@ -88,34 +88,76 @@
     try {
       const res = await fetch(`/api/article/${SOURCE_ID}/tags`, {
         method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({tags: [val]})
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags: [val] })
       });
       const data = await res.json();
-      if (!res.ok) { alert('添加失败:' + (data.detail||'')); return; }
+      if (!res.ok) { toast('添加失败:' + (data.detail || ''), 'error'); return; }
       refreshTags(data.tags);
-    } catch(e) { alert('网络错误:' + e.message); }
+    } catch (e) { toast('网络错误:' + e.message, 'error'); }
   }
 
   async function removeTag(tag) {
     try {
-      const res = await fetch(`/api/article/${SOURCE_ID}/tags/${encodeURIComponent(tag)}`, {method: 'DELETE'});
+      const res = await fetch(`/api/article/${SOURCE_ID}/tags/${encodeURIComponent(tag)}`, { method: 'DELETE' });
       const data = await res.json();
-      if (!res.ok) { alert('删除失败:' + (data.detail||'')); return; }
+      if (!res.ok) { toast('删除失败:' + (data.detail || ''), 'error'); return; }
       refreshTags(data.tags);
-    } catch(e) { alert('网络错误:' + e.message); }
+    } catch (e) { toast('网络错误:' + e.message, 'error'); }
   }
 
   async function aiRecommendTags(btn) {
     btn.disabled = true;
     btn.textContent = '🤖 生成中...';
     try {
-      const res = await fetch(`/api/article/${SOURCE_ID}/ai-tags`, {method: 'POST'});
+      const res = await fetch(`/api/article/${SOURCE_ID}/ai-tags`, { method: 'POST' });
       const data = await res.json();
-      if (!res.ok) { alert('推荐失败:' + (data.detail||'')); return; }
+      if (!res.ok) { toast('推荐失败:' + (data.detail || ''), 'error'); return; }
       refreshTags(data.tags);
-    } catch(e) { alert('网络错误:' + e.message); }
+    } catch (e) { toast('网络错误:' + e.message, 'error'); }
     finally { btn.disabled = false; btn.textContent = '🤖 AI 推荐'; }
+  }
+
+  async function regenerateSummary(btn) {
+    if (!await confirmModal('确认重新生成 summary?\n\n⚠️ 这将覆盖当前 summary(旧版本会自动备份)。\n如果你手动编辑过 summary,修改会丢失。', { title: '重新生成 summary', danger: true, confirmText: '重新生成' })) return;
+    btn.disabled = true;
+    btn.textContent = '🔄 生成中...(约 30-60 秒)';
+    try {
+      const res = await fetch(`/api/article/${SOURCE_ID}/regenerate-summary`, { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        toast('重新生成失败:' + (data.detail || data.error || '未知错误'), 'error');
+        return;
+      }
+      toast('✓ 重新生成成功!旧 summary 已备份。', 'success');
+      location.reload();
+    } catch (e) {
+      toast('网络错误:' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🔄 重新生成';
+    }
+  }
+
+  async function deleteSummary(btn) {
+    if (!await confirmModal('确认删除这篇 summary?\n\n文章本身保留,只删除 summary 文件。\n旧 summary 会自动备份。\n删除后你可以让别的 Agent 重新生成。', { title: '删除 summary', danger: true, confirmText: '删除 summary' })) return;
+    btn.disabled = true;
+    btn.textContent = '删除中...';
+    try {
+      const res = await fetch(`/api/article/${SOURCE_ID}/summary`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) {
+        toast('删除失败:' + (data.detail || ''), 'error');
+        return;
+      }
+      toast('✓ summary 已删除(已备份)。文章保留,现在可以重新生成。', 'success');
+      location.reload();
+    } catch (e) {
+      toast('网络错误:' + e.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '🗑 删除 summary';
+    }
   }
 
   function refreshTags(tags) {
@@ -125,7 +167,7 @@
       list.innerHTML = '<span class="muted">暂无标签</span>';
       return;
     }
-    list.innerHTML = tags.map(t => `<span class="tag tag-tag">${escapeHtml(t)} <button class="tag-remove" onclick="removeTag('${escapeHtml(t)}')" title="删除">×</button></span>`).join('');
+    list.innerHTML = tags.map(t => `<span class="tag tag-tag">${escapeHtml(t)} <button class="tag-remove" onclick="removeTag('${escapeHtml(t)}')" title="删除" aria-label="删除标签 ${escapeHtml(t)}">×</button></span>`).join('');
   }
 
   loadDetail();

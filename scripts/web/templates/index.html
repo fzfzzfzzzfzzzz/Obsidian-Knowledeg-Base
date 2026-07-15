@@ -2,10 +2,22 @@
 {% block title %}仪表盘 · 知识库{% endblock %}
 {% block content %}
 
+<div id="batch-bar" class="batch-bar" style="display:none;">
+  <span class="batch-info">已选 <strong id="batch-count">0</strong> 篇</span>
+  <button class="btn btn-sm" onclick="batchAction('archive')">📦 归档</button>
+  <button class="btn btn-sm btn-accept" onclick="batchAction('favorite')">⭐ 收藏</button>
+  <button class="btn btn-sm" onclick="batchAction('unfavorite')">取消收藏</button>
+  <button class="btn btn-sm" onclick="batchAction('add_tags')">🏷 加标签</button>
+  <button class="btn btn-sm" onclick="batchAction('extract_suggestions')">💡 抽 idea/todo</button>
+  <button class="btn btn-sm" onclick="batchAction('generate_summary')">📝 生成 summary</button>
+  <button class="btn btn-sm btn-danger" onclick="batchAction('delete')">🗑 删除</button>
+  <button class="btn btn-sm btn-ghost" onclick="clearSelection()">取消选择</button>
+</div>
+
 <div class="home-search-bar">
   <form action="/search" method="get" class="search-form">
-    <input type="text" name="q" placeholder="搜索文章标题、摘要、标签..." class="search-input">
-    <button type="submit" class="btn btn-primary">🔍 搜索</button>
+    <input type="text" name="q" placeholder="搜索文章标题、摘要、标签..." class="search-input" aria-label="搜索">
+    <button type="submit" class="btn btn-primary">搜索</button>
   </form>
 </div>
 
@@ -13,108 +25,36 @@
   <div class="loading">加载中...如果长时间停留在此处,按 F12 看控制台报错。</div>
 </div>
 
-<section id="section-unread" class="dashboard-section">
-  <h2 class="section-title">📘 未读文章 <span class="count-badge" id="count-unread"></span></h2>
-  <div id="grid-unread" class="card-grid"><div class="loading">加载中...</div></div>
+<div class="tab-bar" role="tablist" aria-label="文章分组">
+  <button class="tab active" data-tab="unread" role="tab" aria-selected="true">📘 未读 <span class="count-badge" id="count-unread"></span></button>
+  <button class="tab" data-tab="read" role="tab" aria-selected="false">✅ 已读 <span class="count-badge" id="count-read"></span></button>
+  <button class="tab" data-tab="readlater" role="tab" aria-selected="false">📖 稍后阅读 <span class="count-badge" id="count-read-later"></span></button>
+</div>
+
+<section class="tab-panel active" id="panel-unread" role="tabpanel">
+  <div id="grid-unread" class="card-grid selectable"></div>
+  <button class="btn show-more" data-tab="unread" style="display:none">显示更多</button>
 </section>
 
-<section id="section-read" class="dashboard-section">
-  <h2 class="section-title">✅ 已读文章 <span class="count-badge" id="count-read"></span></h2>
-  <div id="grid-read" class="card-grid"><div class="loading">加载中...</div></div>
+<section class="tab-panel" id="panel-read" role="tabpanel">
+  <div id="grid-read" class="card-grid selectable"></div>
+  <button class="btn show-more" data-tab="read" style="display:none">显示更多</button>
 </section>
 
-<section class="dashboard-section">
-  <h2 class="section-title">📖 稍后阅读 <span class="count-badge" id="count-read-later"></span></h2>
-  <div id="grid-read-later" class="card-grid"><div class="loading">加载中...</div></div>
+<section class="tab-panel" id="panel-readlater" role="tabpanel">
+  <div id="grid-readlater" class="card-grid selectable"></div>
+  <button class="btn show-more" data-tab="readlater" style="display:none">显示更多</button>
 </section>
 
 {% endblock %}
 {% block scripts %}
 <script>
   // 全局错误捕获,把报错显示到页面而不是静默吞掉
-  window.addEventListener('error', function(e) {
+  window.addEventListener('error', function (e) {
     const ov = document.getElementById('stats-overview');
-    if (ov) ov.innerHTML = '<div class="error">JS 错误:' + escapeHtml(e.message) + ' (行 ' + (e.lineno||'?') + ')</div>';
+    if (ov) ov.innerHTML = '<div class="error">JS 错误:' + escapeHtml(e.message) + ' (行 ' + (e.lineno || '?') + ')</div>';
   });
 
-  async function loadDashboard() {
-    const overview = document.getElementById('stats-overview');
-    try {
-      const res = await fetch('/api/dashboard');
-      if (!res.ok) throw new Error('API 返回 ' + res.status);
-      const d = await res.json();
-      const s = d.stats || {};
-
-      // 统计概览:4 个数字卡片 + 进度条
-      overview.innerHTML = `
-        <div class="stat-cards">
-          <div class="stat-card stat-unread">
-            <div class="stat-num">${s.unread}</div>
-            <div class="stat-label">未读</div>
-          </div>
-          <div class="stat-card stat-read">
-            <div class="stat-num">${s.read}</div>
-            <div class="stat-label">已读</div>
-          </div>
-          <div class="stat-card stat-total">
-            <div class="stat-num">${s.total}</div>
-            <div class="stat-label">总计</div>
-          </div>
-          <div class="stat-card stat-progress">
-            <div class="stat-num">${s.progress}%</div>
-            <div class="stat-label">进度</div>
-          </div>
-        </div>
-        <div class="progress-bar-wrap">
-          <div class="progress-bar" style="width:${s.progress}%"></div>
-        </div>
-      `;
-
-      // 稍后读列表
-      renderSection('grid-read-later', 'count-read-later', d.read_later, '还没有稍后阅读的文章。在文章详情页点 📖 加入。');
-
-      // 加载未读/已读列表(独立请求)
-      loadUnreadRead();
-    } catch (e) {
-      overview.innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
-    }
-  }
-
-  // 加载未读/已读文章卡片(复用 /api/summaries,按 reading_status 过滤)
-  async function loadUnreadRead() {
-    try {
-      const res = await fetch('/api/dashboard_full');
-      let data;
-      if (res.ok) {
-        data = await res.json();
-      } else {
-        // 后备:用 summaries API
-        const r2 = await fetch('/api/summaries');
-        const d2 = await r2.json();
-        data = {unread: d2.items, read: []};
-      }
-      renderSection('grid-unread', 'count-unread', data.unread, '没有未读文章,全部已读 🎉');
-      renderSection('grid-read', 'count-read', data.read, '还没有已读文章。打开文章详情会自动标记为已读。');
-    } catch (e) {
-      document.getElementById('grid-unread').innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
-    }
-  }
-
-  function renderSection(gridId, countId, items, emptyMsg) {
-    const grid = document.getElementById(gridId);
-    const count = document.getElementById(countId);
-    count.textContent = items.length;
-    if (!items || items.length === 0) {
-      grid.innerHTML = '<div class="empty">' + emptyMsg + '</div>';
-      return;
-    }
-    grid.innerHTML = items.map(function(item) {
-      return typeof renderArticleCard === 'function'
-        ? renderArticleCard(item)
-        : '<div class="card"><h3>' + escapeHtml(item.title || item.source_id) + '</h3></div>';
-    }).join('');
-  }
-
-  loadDashboard();
+  initDashboard();
 </script>
 {% endblock %}
