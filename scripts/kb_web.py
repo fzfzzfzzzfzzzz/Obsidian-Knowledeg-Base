@@ -14,13 +14,15 @@ kb_web.py —— 知识库阅读前端(FastAPI)
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import re
 import shutil
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -28,6 +30,7 @@ from pydantic import BaseModel
 
 import kb  # 复用 kb.py 的工具函数
 import kb_llm  # 用于生成 summary(generate_summary)
+import kb_date  # 日期识别(detect_dates / recommend_date)
 
 # ---------------------------------------------------------------------------
 # 配置
@@ -77,16 +80,8 @@ VALID_TODO_STATUS = {
 
 
 def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
-    """解析 markdown frontmatter,返回 (metadata_dict, body)。"""
-    m = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)", text, re.DOTALL)
-    if not m:
-        return {}, text
-    meta: dict[str, str] = {}
-    for line in m.group(1).splitlines():
-        mm = re.match(r"^([\w_]+)\s*:\s*(.*)$", line.strip())
-        if mm:
-            meta[mm.group(1)] = mm.group(2).strip()
-    return meta, m.group(2).strip()
+    """解析 markdown frontmatter(委托给 kb.parsefrontmatter,保证单一真相)。"""
+    return kb.parsefrontmatter(text)
 
 
 # ---------------------------------------------------------------------------
@@ -326,7 +321,24 @@ def _delete_one(source_id: str, state: dict) -> dict[str, Any]:
                 new_txt = pattern.sub("", txt)
                 if new_txt != txt:
                     sug_path.write_text(new_txt, encoding=ENC)
-        # 5. 从 state 删记录
+        # 5. 清理关联的日历事项(PRD 11.6:删除知识时移除日历关联)
+        try:
+            cal = kb.load_calendar()
+            cal_changed = False
+            for cal_id, cal_item in list(cal.get("items", {}).items()):
+                if cal_item.get("source_id") == source_id:
+                    # 移除关联(source_id 清空),事项本身保留
+                    cal_item["source_id"] = ""
+                    cal_item["source_type"] = ""
+                    cal_item["source_title"] = ""
+                    cal_item["updated_at"] = datetime.now().isoformat(timespec="seconds")
+                    cal_changed = True
+            if cal_changed:
+                kb.save_calendar(cal)
+        except Exception:
+            pass  # 日历清理失败不阻断删除
+
+        # 6. 从 state 删记录
         del sources[source_id]
         return {"ok": True, "source_id": source_id, "deleted_files": deleted_files}
     except Exception as e:
@@ -685,6 +697,124 @@ def _parse_suggestion_file(path: Path, kind: str) -> list[dict[str, Any]]:
     return results
 
 
+def _parse_formal_ideas() -> list[dict[str, Any]]:
+    """扫描 03_Ideas/*_ideas.md(排除 review 队列和 archived),按 ## Idea: 切块。
+
+    正式 idea 格式(_format_formal_idea 落盘):## Idea: <title> + - key: value + 正文。
+    复用 kb._split_suggestion_blocks(text, "Idea")(标题前缀正好是 "Idea")。
+    返回 [{id, title, status, area, fields, body}]。文件不存在/为空返回 []。
+    """
+    ideas_dir = VAULT_ROOT / "03_Ideas"
+    if not ideas_dir.exists():
+        return []
+    results: list[dict[str, Any]] = []
+    for path in sorted(ideas_dir.glob("*_ideas.md")):
+        # 排除 review 队列(idea_suggestions.md 不匹配 *_ideas.md,但保险起见)
+        if path.name in ("idea_suggestions.md",):
+            continue
+        # area 从文件名推断:research_ideas.md → research
+        area = path.stem.removesuffix("_ideas") or "other"
+        if not path.exists():
+            continue
+        text = path.read_text(encoding=ENC)
+        for raw, meta, body in kb._split_suggestion_blocks(text, "Idea"):
+            results.append({
+                "id": meta.get("id", ""),
+                "title": meta.get("title", ""),
+                "status": meta.get("status", "candidate"),
+                "area": area,
+                "maturity": meta.get("maturity", "spark"),
+                "priority": meta.get("priority", "P2"),
+                "fields": meta,
+                "body": body,
+            })
+    return results
+
+
+def _parse_formal_todos() -> list[dict[str, Any]]:
+    """扫描 04_Plans 下的正式 todo 文件,解析 - [ ] / - [x] 任务行及其缩进子项。
+
+    覆盖:Weekly/*.md、Monthly/*.md、someday.md、completed_todos.md。
+    每条返回 {title, done, plan, period, source, estimated_time, difficulty, note}。
+    plan/period 从路径+文件名推断;文件不存在/为空返回 []。
+    """
+    plans_dir = VAULT_ROOT / "04_Plans"
+    if not plans_dir.exists():
+        return []
+    results: list[dict[str, Any]] = []
+
+    def _parse_file(path: Path, plan: str, period: str) -> None:
+        if not path.exists():
+            return
+        text = path.read_text(encoding=ENC)
+        lines = text.splitlines()
+        # 任务行:`- [ ] xxx` 或 `- [x] xxx`(允许 [ ] 内有空格)。子项是紧随其后、
+        # 缩进比任务行更深的 `  - ` 行。遇到下一个同级或更浅的非空行就结束归属。
+        i = 0
+        while i < len(lines):
+            line = lines[i]
+            mtask = re.match(r"^(\s*)-\s*\[([ xX])\]\s*(.+?)\s*$", line)
+            if not mtask:
+                i += 1
+                continue
+            indent = len(mtask.group(1))
+            done = mtask.group(2).lower() == "x"
+            title = mtask.group(3).strip()
+            # 跳过模板里 Review 段的占位任务(如 "Review pending summaries")
+            # —— 这些是 weekly 模板预置的,不计为用户 todo?为兼容保留,前端可显示。
+            # 确定性 id:基于 plan+period+title,重新解析后不变,供日历关联去重/回显
+            _id_raw = f"{plan}|{period}|{title}"
+            tid = "todo_" + hashlib.sha1(_id_raw.encode("utf-8")).hexdigest()[:10]
+            item: dict[str, Any] = {
+                "id": tid,
+                "title": title, "done": done, "plan": plan, "period": period,
+                "source": "", "estimated_time": "", "difficulty": "", "note": "",
+            }
+            # 收集缩进子项
+            j = i + 1
+            while j < len(lines):
+                sub = lines[j]
+                if sub.strip() == "":
+                    j += 1
+                    continue
+                # 子项:缩进比任务行深
+                msub = re.match(r"^(\s+)-\s*(.+?)\s*$", sub)
+                if msub and len(msub.group(1)) > indent:
+                    kv = msub.group(2).strip()
+                    # 解析 `来源:xxx` / `预计时间:xxx` / `难度:xxx` / `难点:xxx`
+                    mkv = re.match(r"^(来源|预计时间|难度|难点|备注)[:：]\s*(.*)$", kv)
+                    if mkv:
+                        key_map = {"来源": "source", "预计时间": "estimated_time",
+                                   "难度": "difficulty", "难点": "note", "备注": "note"}
+                        item[key_map[mkv.group(1)]] = mkv.group(2).strip()
+                    else:
+                        # 无标签的子项并入 note
+                        item["note"] = (item["note"] + "\n" + kv).strip() if item["note"] else kv
+                    j += 1
+                else:
+                    break
+            results.append(item)
+            i = j
+
+    # Weekly:文件名形如 2026-W29.md
+    weekly_dir = plans_dir / "Weekly"
+    if weekly_dir.exists():
+        for path in sorted(weekly_dir.glob("*.md")):
+            period = path.stem  # 如 2026-W29
+            _parse_file(path, "weekly", period)
+    # Monthly:文件名形如 2026-07.md
+    monthly_dir = plans_dir / "Monthly"
+    if monthly_dir.exists():
+        for path in sorted(monthly_dir.glob("*.md")):
+            period = path.stem  # 如 2026-07
+            _parse_file(path, "monthly", period)
+    # someday
+    _parse_file(plans_dir / "someday.md", "someday", "")
+    # completed
+    _parse_file(plans_dir / "completed_todos.md", "completed", "")
+    return results
+
+
 def _update_suggestion_status(
     path: Path, kind: str, item_id: str, new_status: str, valid_set: set[str]
 ) -> dict[str, Any]:
@@ -844,6 +974,16 @@ async def page_articles(request: Request):
     )
 
 
+@app.get("/calendar", response_class=HTMLResponse)
+async def page_calendar(request: Request):
+    """日历页面。"""
+    if templates is None:
+        return HTMLResponse("templates 目录不存在", 500)
+    return templates.TemplateResponse(
+        request, "calendar.html", {"active_nav": "calendar"}
+    )
+
+
 # ---------------------------------------------------------------------------
 # API 路由
 # ---------------------------------------------------------------------------
@@ -874,6 +1014,18 @@ async def api_todos():
     """所有 todo suggestion 块。"""
     path = VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
     return JSONResponse({"items": _parse_suggestion_file(path, "Todo Suggestion")})
+
+
+@app.get("/api/ideas/confirmed")
+async def api_ideas_confirmed():
+    """已确定的 idea:扫描 03_Ideas/*_ideas.md 正式清单(accept-ideas 落盘)。"""
+    return JSONResponse({"items": _parse_formal_ideas()})
+
+
+@app.get("/api/todos/confirmed")
+async def api_todos_confirmed():
+    """已确定的 todo:扫描 04_Plans/Weekly、Monthly、someday、completed(accept-todos 落盘)。"""
+    return JSONResponse({"items": _parse_formal_todos()})
 
 
 class StatusUpdate(BaseModel):
@@ -924,10 +1076,9 @@ async def api_ingest(payload: IngestRequest):
     if not texts:
         raise HTTPException(400, "没有有效内容")
 
-    inbox_path = VAULT_ROOT / "00_Inbox" / "inbox.md"
-    header = "# Inbox\n\n> web submit\n\n"
-    body = "\n\n---\n\n".join(texts)
-    inbox_path.write_text(header + body + "\n", encoding=ENC)
+    # 增量追加到 inbox.md,绝不覆盖用户已在 inbox 中、尚未处理的内容
+    # (对应 Hard Rule:Do not silently overwrite user-authored notes)
+    kb.append_to_inbox(texts)
 
     import io
     import contextlib
@@ -962,6 +1113,16 @@ async def api_ingest(payload: IngestRequest):
             r = _generate_summary_for_source(sid)
             summary_results.append(r)
 
+    # 从 cmd_ingest 的输出里解析统计(供批量投稿前端显示「成功 N / 跳过 M」)
+    # 输出格式见 kb.py 末尾:[ingest] 新建 source note: N / 跳过(内容重复): M / 失败(保留在 inbox): K
+    def _parse_ingest_count(pattern: str, default: int = 0) -> int:
+        m = re.search(pattern, log)
+        return int(m.group(1)) if m else default
+
+    new_count = _parse_ingest_count(r"\[ingest\] 新建 source note:\s*(\d+)")
+    skipped_count = _parse_ingest_count(r"\[ingest\] 跳过\(内容重复\):\s*(\d+)")
+    failed_count = _parse_ingest_count(r"\[ingest\] 失败\(保留在 inbox\):\s*(\d+)")
+
     return JSONResponse(
         {
             "ok": True,
@@ -969,8 +1130,103 @@ async def api_ingest(payload: IngestRequest):
             "log": log,
             "new_sources": new_sources,
             "summary_results": summary_results,
+            "new_count": new_count,
+            "skipped_count": skipped_count,
+            "failed_count": failed_count,
         }
     )
+
+
+@app.post("/api/ingest-image")
+async def api_ingest_image(
+    file: UploadFile = File(...),
+    auto_summary: bool = Form(True),
+):
+    """上传图片 → OCR 提取文字 → 走 ingest 流程。
+
+    图片存到 .kb/raw_text/,调 GLM-4V-Flash OCR,然后文字走现有 ingest。
+    """
+    # 校验文件类型
+    allowed_types = {"image/jpeg", "image/png", "image/jpg"}
+    content_type = file.content_type or ""
+    if content_type not in allowed_types:
+        ext = Path(file.filename or "").suffix.lower()
+        if ext not in (".jpg", ".jpeg", ".png"):
+            raise HTTPException(400, f"不支持的文件类型:{content_type}。只支持 jpg/png。")
+        content_type = "image/jpeg" if ext in (".jpg", ".jpeg") else "image/png"
+
+    # 读图片
+    image_bytes = await file.read()
+    if len(image_bytes) > 5 * 1024 * 1024:
+        raise HTTPException(400, "图片不能超过 5MB")
+    if not image_bytes:
+        raise HTTPException(400, "图片为空")
+
+    image_b64 = base64.b64encode(image_bytes).decode("utf-8")
+    image_mime = content_type
+    ext = ".jpg" if "jpeg" in content_type or "jpg" in content_type else ".png"
+
+    # OCR 提取文字
+    try:
+        ocr_text = kb_llm.ocr_image(image_b64, image_mime)
+    except Exception as e:
+        raise HTTPException(500, f"OCR 失败:{e}")
+
+    if not ocr_text.strip() or "未检测到文字" in ocr_text:
+        raise HTTPException(400, "图片中未检测到文字内容")
+
+    # 用 OCR 文字走 ingest(写入 inbox → cmd_ingest)
+    inbox_path = VAULT_ROOT / "00_Inbox" / "inbox.md"
+    header = "# Inbox\n\n> web image submit\n\n"
+    inbox_path.write_text(header + ocr_text + "\n", encoding=ENC)
+
+    import io
+    import contextlib
+    import argparse as _ap
+
+    buf = io.StringIO()
+    args = _ap.Namespace(no_llm=False)
+    with contextlib.redirect_stdout(buf):
+        rc = kb.cmd_ingest(args)
+    log = buf.getvalue()
+    if rc != 0:
+        raise HTTPException(500, f"ingest 失败:\n{log}")
+
+    # 找新增的 source
+    state = kb.load_state()
+    today_str = date.today().isoformat()
+    new_source_ids = [
+        sid for sid, rec in state.get("sources", {}).items()
+        if rec.get("ingested_at") == today_str and not rec.get("summary_path")
+    ]
+    new_sources = [
+        {"source_id": sid, "title": state["sources"][sid].get("source_title", sid),
+         "source_type": state["sources"][sid].get("source_type", "?")}
+        for sid in new_source_ids
+    ]
+
+    # 把图片保存到 raw_text(覆盖 ingest 生成的 txt)
+    for sid in new_source_ids:
+        img_path = kb.RAW_TEXT_DIR / f"{sid}{ext}"
+        img_path.write_bytes(image_bytes)
+        # 更新 state 记录标记来源为 ocr
+        state["sources"][sid]["metadata_source"] = "ocr"
+    kb.save_state(state)
+
+    # 可选:自动生成 summary
+    summary_results = []
+    if auto_summary and new_source_ids:
+        for sid in new_source_ids:
+            r = _generate_summary_for_source(sid)
+            summary_results.append(r)
+
+    return JSONResponse({
+        "ok": True,
+        "ocr_text": ocr_text[:500],
+        "log": log,
+        "new_sources": new_sources,
+        "summary_results": summary_results,
+    })
 
 
 @app.get("/api/pending-summaries")
@@ -1051,6 +1307,327 @@ async def api_delete_summary(source_id: str):
         sn_path.write_text(text, encoding=ENC)
 
     return JSONResponse({"ok": True, "source_id": source_id, "deleted_summary": old_sp})
+
+
+# ---------------------------------------------------------------------------
+# 详情页手动生成 idea/todo(v0.4.0)
+# ---------------------------------------------------------------------------
+
+
+class GenerateIdeasRequest(BaseModel):
+    prompt: str = ""
+    priority: str = ""  # "" / P0 / P1 / P2 / P3
+    area: str = ""  # "" / research / productivity / product / ai_agent / web_design / other
+
+
+class GenerateTodosRequest(BaseModel):
+    prompt: str = ""
+    priority: str = ""  # "" / P0 / P1 / P2 / P3
+    difficulty: str = ""  # "" / low / medium / high
+    estimated_time: str = ""  # "" / 30min / 1h / 2-4h / 半天 / 1-2 天
+    plan: str = ""  # "" / weekly / monthly / someday
+
+
+def _build_hint(payload) -> str:
+    """把用户选的非空参数拼成 hint 文本。全空时返回空字符串。"""
+    lines = []
+    if getattr(payload, "priority", ""):
+        lines.append(f"优先级: {payload.priority}")
+    for field, label in (
+        ("area", "领域"),
+        ("difficulty", "难度"),
+        ("estimated_time", "预计时间"),
+        ("plan", "计划"),
+    ):
+        val = getattr(payload, field, "")
+        if val:
+            lines.append(f"{label}: {val}")
+    prompt = (getattr(payload, "prompt", "") or "").strip()
+    if prompt:
+        lines.append(f"引导: {prompt}")
+    return "\n".join(lines)
+
+
+@app.post("/api/article/{source_id}/generate-ideas")
+async def api_generate_ideas(source_id: str, payload: GenerateIdeasRequest):
+    """详情页「生成 Idea 列表」:基于当前 summary + 用户引导,抽取 idea 候选追加进 review 队列。
+
+    生成的候选 status=pending_review,仍需在 /ideas 页 accept + 跑 CLI accept-ideas 进正式清单。
+    允许重抽(不检查 action_status),因为用户带了明确引导意图。
+    """
+    state = kb.load_state()
+    sources = state.get("sources", {})
+    if source_id not in sources:
+        raise HTTPException(404, f"找不到 source:{source_id}")
+
+    sp = sources[source_id].get("summary_path")
+    if not sp:
+        raise HTTPException(400, "该文章没有 summary,无法抽取")
+    spath = VAULT_ROOT / sp
+    if not spath.exists():
+        raise HTTPException(400, "summary 文件不存在,无法抽取")
+
+    _, body = _parse_frontmatter(spath.read_text(encoding=ENC))
+    hint = _build_hint(payload)
+    try:
+        ideas = kb_llm.extract_ideas_from_summary(body, hint or None)
+    except Exception as e:
+        raise HTTPException(500, f"LLM 失败:{e}")
+
+    today = date.today().isoformat()
+    for it in ideas:
+        kb._append_section(
+            VAULT_ROOT / "03_Ideas" / "idea_suggestions.md",
+            kb._format_idea_suggestion(source_id, sources[source_id], it, today),
+        )
+    # 不改 action_status,避免影响批量入口的幂等判断
+    return JSONResponse(
+        {"ok": True, "source_id": source_id, "kind": "idea", "generated": len(ideas)}
+    )
+
+
+@app.post("/api/article/{source_id}/generate-todos")
+async def api_generate_todos(source_id: str, payload: GenerateTodosRequest):
+    """详情页「生成 Todo 列表」:基于当前 summary + 用户引导,抽取 todo 候选追加进 review 队列。
+
+    生成的候选 status=pending_review,仍需在 /todos 页 accept + 跑 CLI accept-todos 进正式清单。
+    """
+    state = kb.load_state()
+    sources = state.get("sources", {})
+    if source_id not in sources:
+        raise HTTPException(404, f"找不到 source:{source_id}")
+
+    sp = sources[source_id].get("summary_path")
+    if not sp:
+        raise HTTPException(400, "该文章没有 summary,无法抽取")
+    spath = VAULT_ROOT / sp
+    if not spath.exists():
+        raise HTTPException(400, "summary 文件不存在,无法抽取")
+
+    _, body = _parse_frontmatter(spath.read_text(encoding=ENC))
+    hint = _build_hint(payload)
+    try:
+        todos = kb_llm.extract_todos_from_summary(body, hint or None)
+    except Exception as e:
+        raise HTTPException(500, f"LLM 失败:{e}")
+
+    today = date.today().isoformat()
+    for it in todos:
+        kb._append_section(
+            VAULT_ROOT / "04_Plans" / "todo_suggestions.md",
+            kb._format_todo_suggestion(source_id, sources[source_id], it, today),
+        )
+    return JSONResponse(
+        {"ok": True, "source_id": source_id, "kind": "todo", "generated": len(todos)}
+    )
+
+
+# ---------------------------------------------------------------------------
+# 日历功能 API(PRD v0.3)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/article/{source_id}/detected-dates")
+async def api_detected_dates(source_id: str):
+    """获取文章的候选日期(识别正文中的日期)。"""
+    state = kb.load_state()
+    rec = state.get("sources", {}).get(source_id)
+    if not rec:
+        raise HTTPException(404, f"找不到 source:{source_id}")
+
+    # 优先用缓存的 detected_dates,没有就实时识别
+    cached = rec.get("detected_dates")
+    if cached:
+        ranked = kb_date.rank_dates(cached)
+    else:
+        # 读正文(source note 或 summary)
+        text = ""
+        sn_path = VAULT_ROOT / rec.get("path", "") if rec.get("path") else None
+        if sn_path and sn_path.exists():
+            note = sn_path.read_text(encoding=ENC)
+            text = kb._extract_source_body(note)
+        if not text.strip() and rec.get("summary_path"):
+            sp = VAULT_ROOT / rec["summary_path"]
+            if sp.exists():
+                _, text = _parse_frontmatter(sp.read_text(encoding=ENC))
+
+        if text.strip():
+            detected = kb_date.detect_dates(text)
+            ranked = kb_date.rank_dates(detected)
+            # 缓存到 state
+            rec["detected_dates"] = detected
+            kb.save_state(state)
+        else:
+            ranked = []
+
+    # 推荐日期(第一个未来日期)
+    recommended = None
+    for d in ranked:
+        if d.get("is_future"):
+            recommended = d
+            break
+
+    return JSONResponse({
+        "recommended": recommended,
+        "candidates": ranked,
+    })
+
+
+@app.post("/api/article/{source_id}/detect-dates")
+async def api_redetect_dates(source_id: str):
+    """手动重新识别日期(清除缓存重新扫描)。"""
+    state = kb.load_state()
+    rec = state.get("sources", {}).get(source_id)
+    if not rec:
+        raise HTTPException(404, f"找不到 source:{source_id}")
+
+    # 读正文
+    text = ""
+    sn_path = VAULT_ROOT / rec.get("path", "") if rec.get("path") else None
+    if sn_path and sn_path.exists():
+        note = sn_path.read_text(encoding=ENC)
+        text = kb._extract_source_body(note)
+    if not text.strip() and rec.get("summary_path"):
+        sp = VAULT_ROOT / rec["summary_path"]
+        if sp.exists():
+            _, text = _parse_frontmatter(sp.read_text(encoding=ENC))
+
+    detected = kb_date.detect_dates(text) if text.strip() else []
+    rec["detected_dates"] = detected
+    kb.save_state(state)
+
+    ranked = kb_date.rank_dates(detected)
+    recommended = next((d for d in ranked if d.get("is_future")), None)
+    return JSONResponse({"recommended": recommended, "candidates": ranked, "count": len(detected)})
+
+
+# ---- CalendarItem CRUD ----
+
+class CalendarItemCreate(BaseModel):
+    title: str
+    date: str  # YYYY-MM-DD
+    note: str = ""
+    source_id: str = ""
+    source_type: str = ""
+    source_title: str = ""
+    detected_date_id: str = ""
+    date_source: str = "manual"  # detected | manual
+    date_confidence: str = ""
+
+
+class CalendarItemUpdate(BaseModel):
+    title: str = ""
+    date: str = ""
+    note: str = ""
+    source_id: str | None = None  # None=不改,None 以外的值(含空串)=更新关联
+
+
+@app.get("/api/calendar")
+async def api_calendar_list(start: str = "", end: str = ""):
+    """获取日历事项(可按日期范围筛选)。"""
+    cal = kb.load_calendar()
+    items = list(cal.get("items", {}).values())
+    if start:
+        items = [i for i in items if i.get("date", "") >= start]
+    if end:
+        items = [i for i in items if i.get("date", "") <= end]
+    items.sort(key=lambda x: x.get("date", ""))
+    return JSONResponse({"items": items, "count": len(items)})
+
+
+@app.get("/api/calendar/{item_id}")
+async def api_calendar_get(item_id: str):
+    """获取单个日历事项。"""
+    cal = kb.load_calendar()
+    item = cal.get("items", {}).get(item_id)
+    if not item:
+        raise HTTPException(404, f"找不到日历事项:{item_id}")
+    return JSONResponse(item)
+
+
+@app.post("/api/calendar")
+async def api_calendar_create(payload: CalendarItemCreate):
+    """创建日历事项。"""
+    if not payload.title.strip():
+        raise HTTPException(400, "事项名称不能为空")
+    # 校验日期格式
+    try:
+        date.fromisoformat(payload.date)
+    except ValueError:
+        raise HTTPException(400, f"日期格式错误:{payload.date}(需 YYYY-MM-DD)")
+
+    import uuid
+    item_id = f"cal_{uuid.uuid4().hex[:12]}"
+    now = datetime.now().isoformat(timespec="seconds")
+
+    # 检查是否已有同 source_id 的事项(防重复,PRD 11.9)
+    cal = kb.load_calendar()
+    if payload.source_id:
+        for existing in cal.get("items", {}).values():
+            if existing.get("source_id") == payload.source_id:
+                # 返回已有事项(PRD: 不创建重复)
+                return JSONResponse({"ok": True, "item": existing, "already_existed": True})
+
+    item = {
+        "id": item_id,
+        "title": payload.title.strip(),
+        "date": payload.date,
+        "note": payload.note,
+        "source_id": payload.source_id,
+        "source_type": payload.source_type,
+        "source_title": payload.source_title,
+        "detected_date_id": payload.detected_date_id,
+        "date_source": payload.date_source,
+        "date_confidence": payload.date_confidence,
+        "created_at": now,
+        "updated_at": now,
+    }
+    cal["items"][item_id] = item
+    kb.save_calendar(cal)
+    return JSONResponse({"ok": True, "item": item})
+
+
+@app.patch("/api/calendar/{item_id}")
+async def api_calendar_update(item_id: str, payload: CalendarItemUpdate):
+    """更新日历事项。"""
+    cal = kb.load_calendar()
+    item = cal.get("items", {}).get(item_id)
+    if not item:
+        raise HTTPException(404, f"找不到日历事项:{item_id}")
+
+    if payload.title:
+        item["title"] = payload.title.strip()
+    if payload.date:
+        try:
+            date.fromisoformat(payload.date)
+        except ValueError:
+            raise HTTPException(400, f"日期格式错误:{payload.date}")
+        item["date"] = payload.date
+    if payload.note is not None:
+        item["note"] = payload.note
+    # 移除/更新关联(P1-2 修复:source_id 不为 None 时更新)
+    if payload.source_id is not None:
+        item["source_id"] = payload.source_id
+        if not payload.source_id:
+            # 移除关联:同时清空 source_type/source_title
+            item["source_type"] = ""
+            item["source_title"] = ""
+    item["updated_at"] = datetime.now().isoformat(timespec="seconds")
+
+    cal["items"][item_id] = item
+    kb.save_calendar(cal)
+    return JSONResponse({"ok": True, "item": item})
+
+
+@app.delete("/api/calendar/{item_id}")
+async def api_calendar_delete(item_id: str):
+    """删除日历事项。"""
+    cal = kb.load_calendar()
+    if item_id not in cal.get("items", {}):
+        raise HTTPException(404, f"找不到日历事项:{item_id}")
+    del cal["items"][item_id]
+    kb.save_calendar(cal)
+    return JSONResponse({"ok": True, "deleted": item_id})
 
 
 @app.get("/api/dashboard_full")

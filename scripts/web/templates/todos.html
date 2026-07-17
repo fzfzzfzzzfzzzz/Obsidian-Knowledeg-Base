@@ -1,14 +1,38 @@
 {% extends "base.html" %}
-{% block title %}AI Todo 建议 · 知识库{% endblock %}
+{% block title %}Todo · 知识库{% endblock %}
 {% block content %}
-<h1 class="page-title">AI Todo 建议</h1>
-<p class="page-hint muted">AI 抽取的 todo 先进这里。点「本周/本月/someday」会改 status 并写回 todo_suggestions.md,之后运行 <code>accept-todos</code> 进入正式计划。</p>
-<div id="todo-grid" class="card-grid">
-  <div class="loading">加载中...</div>
+<h1 class="page-title">Todo</h1>
+<p class="page-hint muted">「待定」是 AI 抽取的候选(来自 todo_suggestions.md);「已确定」是 accept 后进入计划的 todo(来自 04_Plans/Weekly、Monthly、someday),按 weekly/monthly/someday 分组。</p>
+
+<div class="tab-bar">
+  <button class="tab active" data-tab="pending" onclick="switchTab('pending')">待定</button>
+  <button class="tab" data-tab="confirmed" onclick="switchTab('confirmed')">已确定</button>
+</div>
+
+<div id="panel-pending" class="tab-panel active">
+  <p class="page-hint muted">AI 抽取的 todo 先进这里。点「本周/本月/someday」会改 status 并写回 todo_suggestions.md,之后运行 <code>accept-todos</code> 进入 weekly/monthly/someday 计划。</p>
+  <div id="todo-grid" class="card-grid">
+    <div class="loading">加载中...</div>
+  </div>
+</div>
+
+<div id="panel-confirmed" class="tab-panel">
+  <p class="page-hint muted">已 accept 的 todo。文件不存在或为空时,先在「待定」确认后运行 <code>python scripts/kb.py accept-todos</code>。</p>
+  <div id="todo-confirmed-grid">
+    <div class="muted">切换到此页加载...</div>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
   loadSuggestions('todo');
+  let _todoConfirmedLoaded = false;
+  document.addEventListener('click', function(e) {
+    const tab = e.target.closest('.tab[data-tab="confirmed"]');
+    if (tab && !_todoConfirmedLoaded) {
+      _todoConfirmedLoaded = true;
+      loadConfirmedTodos();
+    }
+  });
 </script>
 {% endblock %}

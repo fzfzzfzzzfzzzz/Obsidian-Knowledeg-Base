@@ -4,30 +4,114 @@
 <h1 class="page-title">投稿</h1>
 <p class="page-hint muted">粘贴 URL 或文章正文,提交后自动抓取 + 识别 + 生成 source note。</p>
 
-<div id="submit-form" class="submit-form">
-  <div id="input-list" class="input-list">
-    <!-- 动态文本框容器 -->
+<div class="panel">
+  <div class="panel-head">
+    <div class="ph-icon">✍️</div>
+    <div>
+      <h2 class="panel-title">文字 / 链接投稿</h2>
+      <div class="ph-sub">粘贴 URL 或正文,自动抓取识别并生成摘要</div>
+    </div>
   </div>
-  <div class="submit-options">
-    <label class="checkbox-label">
-      <input type="checkbox" id="auto-summary" checked>
-      <span>提交后自动生成 summary(每篇约 10-30 秒)</span>
+  <div id="submit-form" class="submit-form">
+    <div id="input-list" class="input-list">
+      <!-- 动态文本框容器 -->
+    </div>
+    <div class="submit-options">
+      <label class="checkbox-label">
+        <input type="checkbox" id="auto-summary" checked>
+        <span>提交后自动生成 summary(每篇约 10-30 秒)</span>
+      </label>
+    </div>
+    <div class="submit-actions">
+      <button class="btn btn-secondary" onclick="addInput()">+ 添加一条</button>
+      <button class="btn btn-primary" id="submit-btn" onclick="submitContent()">提交并处理</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <div class="ph-icon">📦</div>
+    <div>
+      <h2 class="panel-title">批量投稿(从文件 / 粘贴提取 URL)</h2>
+      <div class="ph-sub">拖入或选择 .md/.txt 文件,也可直接粘贴文本;自动提取所有 URL,只入库不生成 summary</div>
+    </div>
+  </div>
+  <div class="batch-upload-section">
+    <div id="batch-drop-zone" class="batch-drop-zone" role="button" tabindex="0"
+         aria-label="拖入 md/txt 文件,点击选择,或在下方粘贴文本">
+      <input type="file" id="batch-file-input" accept=".md,.markdown,.txt,.text,text/plain,text/markdown" multiple style="display:none;">
+      <div class="batch-drop-content">
+        <div class="batch-drop-icon">📄</div>
+        <div class="batch-drop-text">拖入 .md / .txt 文件,或点击选择</div>
+        <div class="batch-drop-hint muted">支持多个文件;会自动提取里面所有的 URL</div>
+      </div>
+    </div>
+
+    <div class="batch-paste-area">
+      <label class="batch-paste-label">或在下方粘贴文本(自动提取 URL)</label>
+      <textarea id="batch-paste-input" class="batch-paste-input" rows="4"
+                placeholder="把 md 内容 / 一堆链接粘贴到这里,会自动提取所有 https://... 链接"></textarea>
+    </div>
+
+    <div id="batch-url-section" style="display:none;">
+      <div class="batch-url-header">
+        <span>识别到 <strong id="batch-url-count">0</strong> 个唯一 URL</span>
+        <span class="batch-url-actions">
+          <button class="btn btn-sm btn-ghost" onclick="batchToggleAll(true)">全选</button>
+          <button class="btn btn-sm btn-ghost" onclick="batchToggleAll(false)">全不选</button>
+          <button class="btn btn-sm btn-ghost" onclick="batchClearAll()">清空</button>
+        </span>
+      </div>
+      <div id="batch-url-list" class="batch-url-list"></div>
+      <button class="btn btn-primary" id="batch-submit-btn" onclick="submitBatch()">📤 批量投稿(只入库不总结)</button>
+    </div>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="panel-head">
+    <div class="ph-icon">🖼️</div>
+    <div>
+      <h2 class="panel-title">图片 OCR 投稿</h2>
+      <div class="ph-sub">上传推文 / 文章截图,自动识别文字并生成摘要</div>
+    </div>
+  </div>
+  <div class="image-upload-section">
+    <p class="page-hint muted">支持 PNG、JPG、WebP、GIF,单张最大 10 MB,最多 20 张。可点击选择、拖拽,或 Ctrl+V 粘贴。</p>
+
+    <div id="drop-zone" class="drop-zone" role="button" tabindex="0"
+         aria-label="拖入图片、点击选择,或按 Ctrl+V 粘贴">
+      <input type="file" id="image-input" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display:none;">
+      <div class="drop-zone-content">
+        <div class="drop-zone-icon">📷</div>
+        <div class="drop-zone-text" id="drop-zone-text">拖入图片、点击选择,或按 Ctrl+V 粘贴</div>
+        <div class="drop-zone-hint muted">支持 PNG、JPG、WebP、GIF,单张最大 10 MB,最多 20 张</div>
+      </div>
+    </div>
+
+    <div id="image-preview-list" class="image-preview-list"></div>
+
+    <button class="btn btn-primary" id="image-submit-btn" onclick="submitImages()" style="display:none;">🚀 提交并处理</button>
+
+    <label class="checkbox-label" style="margin-top:8px;">
+      <input type="checkbox" id="image-auto-summary" checked>
+      <span>OCR 后自动生成 summary</span>
     </label>
-  </div>
-  <div class="submit-actions">
-    <button class="btn btn-secondary" onclick="addInput()">+ 添加一条</button>
-    <button class="btn btn-primary" id="submit-btn" onclick="submitContent()">提交并处理</button>
+    <span id="image-status" class="muted" style="margin-left:12px;"></span>
   </div>
 </div>
 
 <div id="submit-result" class="submit-result" style="display:none;"></div>
 
-<section class="dashboard-section" style="margin-top:48px;">
-  <h2 class="section-title">⏳ 待生成 summary <span class="count-badge" id="count-pending"></span></h2>
-  <p class="page-hint muted">这些文章已入库但还没生成 summary。可以逐个生成,或一键全部生成。</p>
-  <div id="pending-actions" style="margin-bottom:12px;"></div>
-  <div id="pending-grid" class="card-grid"><div class="loading">加载中...</div></div>
-</section>
+<div class="panel">
+  <section class="dashboard-section">
+    <h2 class="section-title">⏳ 待生成 summary <span class="count-badge" id="count-pending"></span></h2>
+    <p class="page-hint muted">这些文章已入库但还没生成 summary。可以逐个生成,或一键全部生成。</p>
+    <div id="pending-actions" style="margin-bottom:12px;"></div>
+    <div id="pending-grid" class="card-grid"><div class="loading">加载中...</div></div>
+  </section>
+</div>
 
 {% endblock %}
 {% block scripts %}
@@ -124,6 +208,206 @@
     }
   }
 
+  // ===== 批量投稿:从文件 / 粘贴文本提取 URL =====
+  let batchUrls = [];  // [{url, checked}]
+  let batchDragCounter = 0;
+
+  function extractUrlsFromText(text) {
+    // 正则同 kb_llm._extract_url,排除空白 / 尖括号 / 引号;Set 去重
+    const matches = text.match(/https?:\/\/[^\s<>"']+/g) || [];
+    return [...new Set(matches)];
+  }
+
+  // 把新提取的 URL 合并进 batchUrls(已存在的不再重复加),默认勾选
+  function addBatchUrls(urls) {
+    const existing = new Set(batchUrls.map(u => u.url));
+    for (const u of urls) {
+      if (u && !existing.has(u)) {
+        batchUrls.push({ url: u, checked: true });
+        existing.add(u);
+      }
+    }
+    renderBatchUrls();
+  }
+
+  function renderBatchUrls() {
+    const section = document.getElementById('batch-url-section');
+    const list = document.getElementById('batch-url-list');
+    const count = document.getElementById('batch-url-count');
+    const submitBtn = document.getElementById('batch-submit-btn');
+    count.textContent = batchUrls.length;
+    if (batchUrls.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = '';
+    list.innerHTML = batchUrls.map((item, idx) => {
+      return '<div class="batch-url-item">' +
+        '<label class="batch-url-label">' +
+          '<input type="checkbox" ' + (item.checked ? 'checked' : '') + ' onchange="batchToggle(' + idx + ', this.checked)">' +
+          '<span class="batch-url-text" title="' + escapeHtml(item.url) + '">' + escapeHtml(item.url) + '</span>' +
+        '</label>' +
+        '<button class="btn btn-sm btn-ghost" onclick="batchRemove(' + idx + ')">✕</button>' +
+      '</div>';
+    }).join('');
+    const checkedCount = batchUrls.filter(u => u.checked).length;
+    submitBtn.disabled = checkedCount === 0;
+    submitBtn.textContent = '📤 批量投稿(' + checkedCount + ' 个 URL,只入库不总结)';
+  }
+
+  function batchToggle(idx, checked) {
+    batchUrls[idx].checked = checked;
+    const submitBtn = document.getElementById('batch-submit-btn');
+    const checkedCount = batchUrls.filter(u => u.checked).length;
+    submitBtn.disabled = checkedCount === 0;
+    submitBtn.textContent = '📤 批量投稿(' + checkedCount + ' 个 URL,只入库不总结)';
+  }
+
+  function batchToggleAll(checked) {
+    batchUrls.forEach(u => u.checked = checked);
+    renderBatchUrls();
+  }
+
+  function batchRemove(idx) {
+    batchUrls.splice(idx, 1);
+    renderBatchUrls();
+  }
+
+  function batchClearAll() {
+    batchUrls = [];
+    renderBatchUrls();
+  }
+
+  // 读取文件(支持多个),聚合所有 URL
+  function processBatchFiles(files) {
+    if (!files || files.length === 0) return;
+    const readers = [];
+    for (const file of files) {
+      readers.push(file.text().then(txt => extractUrlsFromText(txt)));
+    }
+    Promise.all(readers).then(results => {
+      const all = results.flat();
+      if (all.length === 0) {
+        toast('文件里没有识别到 URL', 'warning');
+        return;
+      }
+      const before = batchUrls.length;
+      addBatchUrls(all);
+      const added = batchUrls.length - before;
+      toast('从文件提取 ' + all.length + ' 个 URL,新增 ' + added + ' 个', 'success');
+    }).catch(e => {
+      toast('读取文件失败:' + e.message, 'error');
+    });
+  }
+
+  // 粘贴文本实时提取(每次 input 都重算,合并进列表)
+  function setupBatchPaste() {
+    const ta = document.getElementById('batch-paste-input');
+    ta.addEventListener('input', function() {
+      const urls = extractUrlsFromText(this.value);
+      if (urls.length > 0) {
+        const before = batchUrls.length;
+        addBatchUrls(urls);
+        // 提取成功后清空粘贴框,避免重复触发
+        if (batchUrls.length > before) {
+          this.value = '';
+        }
+      }
+    });
+  }
+
+  async function submitBatch() {
+    const urls = batchUrls.filter(u => u.checked).map(u => u.url);
+    if (urls.length === 0) { toast('请至少勾选一个 URL', 'warning'); return; }
+    const btn = document.getElementById('batch-submit-btn');
+    const result = document.getElementById('submit-result');
+    btn.disabled = true;
+    btn.textContent = '⏳ 处理中...(逐条抓取 + 识别,可能需几分钟)';
+    result.style.display = 'block';
+    result.innerHTML = '<div class="loading">正在处理 ' + urls.length + ' 个 URL...</div>';
+
+    try {
+      const res = await fetch('/api/ingest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: urls, auto_summary: false }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        result.innerHTML = '<div class="error">失败:' + escapeHtml(data.detail || '未知错误') + '</div>';
+        return;
+      }
+      const news = data.new_sources || [];
+      const newCount = data.new_count != null ? data.new_count : news.length;
+      const skipCount = data.skipped_count || 0;
+      const failCount = data.failed_count || 0;
+      let html = '<div class="success-banner">✓ 批量投稿完成</div>';
+      html += '<div class="sum-status">成功 ' + newCount + ' 条' +
+              (skipCount > 0 ? ',跳过 ' + skipCount + ' 条重复' : '') +
+              (failCount > 0 ? ',失败 ' + failCount + ' 条' : '') + '</div>';
+      if (news.length > 0) {
+        html += '<div class="result-list">';
+        news.forEach(s => {
+          html += '<a class="card result-card" href="/summary/' + encodeURIComponent(s.source_id) + '">' +
+            '<span class="tag tag-' + s.source_type + '">' + s.source_type + '</span>' +
+            '<span class="result-card-title">' + escapeHtml(s.title) + '</span>' +
+            '<span class="tag tag-area">未总结</span></a>';
+        });
+        html += '</div>';
+      }
+      if (data.log) {
+        html += '<details class="log-details"><summary>处理日志</summary><pre>' + escapeHtml(data.log) + '</pre></details>';
+      }
+      html += '<div class="result-next"><a class="btn btn-primary" href="/">回首页</a> <a class="btn" href="/submit">继续投稿</a></div>';
+      result.innerHTML = html;
+      // 清空列表
+      batchUrls = [];
+      renderBatchUrls();
+      document.getElementById('batch-paste-input').value = '';
+      loadPendingSummaries();
+    } catch (e) {
+      result.innerHTML = '<div class="error">网络错误:' + escapeHtml(e.message) + '</div>';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '📤 批量投稿(只入库不总结)';
+    }
+  }
+
+  function setupBatchDropZone() {
+    const zone = document.getElementById('batch-drop-zone');
+    const fileInput = document.getElementById('batch-file-input');
+    zone.addEventListener('click', function() { fileInput.click(); });
+    zone.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+    });
+    fileInput.addEventListener('change', function() {
+      if (this.files.length > 0) processBatchFiles(Array.from(this.files));
+      this.value = '';
+    });
+    zone.addEventListener('dragenter', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      batchDragCounter++;
+      this.classList.add('drag-active');
+    });
+    zone.addEventListener('dragover', function(e) { e.preventDefault(); e.stopPropagation(); });
+    zone.addEventListener('dragleave', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      batchDragCounter--;
+      if (batchDragCounter <= 0) { batchDragCounter = 0; this.classList.remove('drag-active'); }
+    });
+    zone.addEventListener('drop', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      batchDragCounter = 0;
+      this.classList.remove('drag-active');
+      const files = Array.from(e.dataTransfer.files);
+      if (files.length === 0) { alert('请拖入有效的文件'); return; }
+      processBatchFiles(files);
+    });
+  }
+
+  setupBatchDropZone();
+  setupBatchPaste();
+
   // ===== 待生成 summary 板块 =====
   async function loadPendingSummaries() {
     const grid = document.getElementById('pending-grid');
@@ -177,6 +461,202 @@
       await generateSummary(btn.getAttribute('onclick').match(/'([^']+)'/)[1], btn);
     }
   }
+
+  // ===== 统一图片导入(点击/拖拽/粘贴 三种入口共用) =====
+  const ACCEPTED_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+  const MAX_SIZE = 10 * 1024 * 1024;
+  const MAX_COUNT = 20;
+  let imageQueue = [];  // {id, file, previewUrl, status, error}
+  let dragCounter = 0;
+
+  // 统一处理函数:三种入口都调这个 —— 只入队列+预览,不上传
+  function processImageFiles(files) {
+    const validFiles = [];
+    for (const file of files) {
+      if (!ACCEPTED_TYPES.includes(file.type)) {
+        alert('不支持的格式:' + file.name + '\n仅支持 PNG、JPG、WebP、GIF');
+        continue;
+      }
+      if (file.size > MAX_SIZE) {
+        alert(file.name + ' 超过 10 MB');
+        continue;
+      }
+      validFiles.push(file);
+    }
+    if (validFiles.length === 0) return;
+    if (imageQueue.length + validFiles.length > MAX_COUNT) {
+      alert('一次最多上传 ' + MAX_COUNT + ' 张图片');
+      validFiles.splice(MAX_COUNT - imageQueue.length);
+    }
+
+    // 加入队列 + 生成预览(不自动上传)
+    for (const file of validFiles) {
+      imageQueue.push({
+        id: 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+        file: file,
+        previewUrl: URL.createObjectURL(file),
+        status: 'pending',
+        error: '',
+      });
+    }
+    renderPreview();
+    updateSubmitBtn();
+  }
+
+  // 点「提交并处理」后批量上传
+  async function submitImages() {
+    const pending = imageQueue.filter(i => i.status === 'pending');
+    if (pending.length === 0) return;
+    const autoSum = document.getElementById('image-auto-summary').checked;
+    const statusEl = document.getElementById('image-status');
+    const btn = document.getElementById('image-submit-btn');
+    btn.disabled = true;
+    let processed = 0;
+
+    for (const item of pending) {
+      item.status = 'uploading';
+      renderPreview();
+      statusEl.textContent = '正在处理 ' + (processed + 1) + ' / ' + pending.length + ' ...';
+
+      const formData = new FormData();
+      formData.append('file', item.file);
+      formData.append('auto_summary', autoSum);
+      try {
+        const res = await fetch('/api/ingest-image', {method: 'POST', body: formData});
+        const data = await res.json();
+        if (res.ok) { item.status = 'success'; item.result = data; }
+        else { item.status = 'error'; item.error = data.detail || '处理失败'; }
+      } catch(e) { item.status = 'error'; item.error = e.message; }
+      processed++;
+      renderPreview();
+    }
+
+    const ok = imageQueue.filter(i => i.status === 'success').length;
+    const fail = imageQueue.filter(i => i.status === 'error').length;
+    statusEl.textContent = fail === 0 ? ok + ' 张处理完成 ✓' : ok + ' 张成功,' + fail + ' 张失败';
+    btn.disabled = false;
+    updateSubmitBtn();
+    loadPendingSummaries();
+  }
+
+  function updateSubmitBtn() {
+    const btn = document.getElementById('image-submit-btn');
+    if (!btn) return;
+    const pendingCount = imageQueue.filter(i => i.status === 'pending').length;
+    btn.style.display = imageQueue.length > 0 ? '' : 'none';
+    btn.textContent = '🚀 提交并处理(' + pendingCount + ' 张)';
+    btn.disabled = pendingCount === 0;
+  }
+
+  function renderPreview() {
+    const list = document.getElementById('image-preview-list');
+    if (imageQueue.length === 0) { list.innerHTML = ''; return; }
+    list.innerHTML = imageQueue.map(item => {
+      const statusBadge = item.status === 'pending' ? '<span class="muted">等待</span>'
+        : item.status === 'uploading' ? '<span class="muted">⏳ 处理中...</span>'
+        : item.status === 'success' ? '<span style="color:#10b981">✓ 完成</span>'
+        : '<span style="color:#ef4444">✗ ' + escapeHtml(item.error) + '</span>';
+      return '<div class="image-preview-card" id="' + item.id + '">' +
+        '<img src="' + item.previewUrl + '" class="image-thumb">' +
+        '<div class="image-preview-info">' +
+          '<div class="image-preview-name">' + escapeHtml(item.file.name) + '</div>' +
+          '<div class="image-preview-status">' + statusBadge + '</div>' +
+          (item.status === 'error' ? '<button class="btn btn-sm" onclick="retryImage(\'' + item.id + '\')">重试</button>' : '') +
+        '</div>' +
+        '<button class="btn btn-sm btn-ghost" onclick="removeImage(\'' + item.id + '\')">✕</button>' +
+      '</div>';
+    }).join('');
+    updateSubmitBtn();
+  }
+
+  function removeImage(itemId) {
+    const idx = imageQueue.findIndex(i => i.id === itemId);
+    if (idx >= 0) {
+      URL.revokeObjectURL(imageQueue[idx].previewUrl);
+      imageQueue.splice(idx, 1);
+      renderPreview();
+      updateSubmitBtn();
+    }
+  }
+
+  async function retryImage(itemId) {
+    const item = imageQueue.find(i => i.id === itemId);
+    if (!item) return;
+    item.status = 'pending';
+    item.error = '';
+    renderPreview();
+    // 只重试这一张
+    const autoSum = document.getElementById('image-auto-summary').checked;
+    item.status = 'uploading';
+    renderPreview();
+    const formData = new FormData();
+    formData.append('file', item.file);
+    formData.append('auto_summary', autoSum);
+    try {
+      const res = await fetch('/api/ingest-image', {method: 'POST', body: formData});
+      const data = await res.json();
+      item.status = res.ok ? 'success' : 'error';
+      item.error = res.ok ? '' : (data.detail || '失败');
+      item.result = res.ok ? data : null;
+    } catch(e) { item.status = 'error'; item.error = e.message; }
+    renderPreview();
+    loadPendingSummaries();
+  }
+
+  // === 方式一:点击选择 ===
+  const dropZone = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('image-input');
+  dropZone.addEventListener('click', function() { fileInput.click(); });
+  dropZone.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); }
+  });
+  fileInput.addEventListener('change', function() {
+    if (this.files.length > 0) processImageFiles(Array.from(this.files));
+    this.value = '';
+  });
+
+  // === 方式二:拖拽 ===
+  dropZone.addEventListener('dragenter', function(e) {
+    e.preventDefault(); e.stopPropagation();
+    dragCounter++;
+    this.classList.add('drag-active');
+  });
+  dropZone.addEventListener('dragover', function(e) {
+    e.preventDefault(); e.stopPropagation();
+  });
+  dropZone.addEventListener('dragleave', function(e) {
+    e.preventDefault(); e.stopPropagation();
+    dragCounter--;
+    if (dragCounter <= 0) { dragCounter = 0; this.classList.remove('drag-active'); }
+  });
+  dropZone.addEventListener('drop', function(e) {
+    e.preventDefault(); e.stopPropagation();
+    dragCounter = 0;
+    this.classList.remove('drag-active');
+    const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+    if (files.length === 0) {
+      alert('请拖入有效的图片文件');
+      return;
+    }
+    processImageFiles(files);
+  });
+
+  // === 方式三:Ctrl+V / Cmd+V 粘贴 ===
+  document.addEventListener('paste', function(e) {
+    // 不拦截输入框里的文字粘贴
+    const target = e.target;
+    if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
+    const items = Array.from(e.clipboardData.items || []);
+    const imageFiles = items
+      .filter(item => item.kind === 'file' && item.type.startsWith('image/'))
+      .map(item => item.getAsFile())
+      .filter(f => f !== null);
+    if (imageFiles.length === 0) return;
+    e.preventDefault();
+    processImageFiles(imageFiles);
+  });
 
   addInput();
   loadPendingSummaries();

@@ -52,6 +52,7 @@ VAULT_ROOT = Path(__file__).resolve().parent.parent
 # 机器运行目录(可被 Obsidian 隐藏)
 KB_DIR = VAULT_ROOT / ".kb"
 STATE_FILE = KB_DIR / "state.json"
+CALENDAR_FILE = KB_DIR / "calendar.json"
 RAW_TEXT_DIR = KB_DIR / "raw_text"
 LOGS_DIR = KB_DIR / "logs"
 
@@ -100,6 +101,20 @@ def save_state(state: dict) -> None:
     write_text(STATE_FILE, json.dumps(state, ensure_ascii=False, indent=2))
 
 
+def load_calendar() -> dict:
+    """读取 .kb/calendar.json,不存在则返回空骨架。"""
+    if not CALENDAR_FILE.exists():
+        return {"version": 1, "items": {}}
+    try:
+        return json.loads(read_text(CALENDAR_FILE))
+    except (json.JSONDecodeError, OSError):
+        return {"version": 1, "items": {}}
+
+
+def save_calendar(cal: dict) -> None:
+    write_text(CALENDAR_FILE, json.dumps(cal, ensure_ascii=False, indent=2))
+
+
 def append_log(message: str) -> None:
     """追加一行到 .kb/logs/kb.log。"""
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
@@ -131,6 +146,45 @@ def make_source_id(body: str) -> str:
       - 与文件名解耦(文件名可读,可随标题变化)
     """
     return f"source_ff_{content_hash(body)}"
+
+
+def parsefrontmatter(text: str) -> tuple[dict[str, str], str]:
+    """解析 markdown frontmatter,返回 (metadata_dict, body)。
+
+    只在文档开头的 `---` 与紧随其后的第一个 `---` 之间解析元数据;
+    body 为剩余的全部内容 —— 即使其中含 `---`(Markdown 水平分隔线)也完整保留,
+    不会被当作 frontmatter 结束(关键回归:详情页/搜索内容不可截断)。
+    """
+    m = re.match(r"^---\s*\n(.*?)\n---\s*\n?(.*)", text, re.DOTALL)
+    if not m:
+        return {}, text
+    meta: dict[str, str] = {}
+    for line in m.group(1).splitlines():
+        mm = re.match(r"^([\w_]+)\s*:\s*(.*)$", line.strip())
+        if mm:
+            meta[mm.group(1)] = mm.group(2).strip()
+    return meta, m.group(2).strip()
+
+
+def append_to_inbox(items: list[str]) -> None:
+    """把若干文本片段增量追加到 inbox.md(用 `---` 分隔),不破坏已有内容。
+
+    用于 web / 命令行投稿。与 cmd_ingest 的增量逻辑一致:
+    先去掉 inbox 头部说明区再合并,避免覆盖用户已在 inbox 中、尚未处理的内容。
+
+    若 items 全为空,直接返回(不创建/不改动文件)。
+    """
+    inbox_path = VAULT_ROOT / "00_Inbox" / "inbox.md"
+    header = _INBOX_HEADER_BLOCK()
+    if inbox_path.exists():
+        existing = _strip_inbox_header(read_text(inbox_path)).strip()
+    else:
+        existing = ""
+    new_body = "\n\n---\n\n".join(i.strip() for i in items if i and i.strip())
+    if not new_body:
+        return
+    combined = (existing + "\n\n---\n\n" + new_body) if existing else new_body
+    write_text(inbox_path, header.rstrip() + "\n\n" + combined.strip() + "\n")
 
 
 def make_source_filename(source_id: str, created_at: str, title: str) -> str:
@@ -203,8 +257,11 @@ def parse_inbox_items(inbox_text: str) -> list[dict]:
             stripped = line.strip()
             if in_frontmatter:
                 mm = META_LINE_RE.match(stripped)
-                if mm and mm.group(1) in KNOWN_META:
-                    meta[mm.group(1)] = mm.group(2).strip()
+                if mm:
+                    if mm.group(1) in KNOWN_META:
+                        meta[mm.group(1)] = mm.group(2).strip()
+                    # 未知 meta 字段:忽略,但仍处于 frontmatter 区继续扫描,
+                    # 不能把它当成「正文起点」,否则后面的已知字段会丢失。
                     continue
                 # metadata 区内的空行:直接跳过(容忍 START 标记后的换行,
                 # 以及 metadata 与正文之间的分隔空行)
@@ -831,6 +888,11 @@ def cmd_init(args: argparse.Namespace) -> int:
             }
         )
         created_files.append(".kb/state.json")
+
+    # ---- .kb/calendar.json ----
+    if not CALENDAR_FILE.exists():
+        save_calendar({"version": 1, "items": {}})
+        created_files.append(".kb/calendar.json")
 
     # ---- 顶层文档(只创建缺失的)----
     agents = VAULT_ROOT / "AGENTS.md"
@@ -1713,8 +1775,14 @@ def _split_suggestion_blocks(text: str, kind: str) -> list[tuple[str, dict, str]
     返回 [(raw_block, meta_dict, body_text), ...]
     meta 从块内的 `- key: value` 行提取;body 是字段之后的自由文本。
     """
-    # 匹配每个 ## 标题作为块起点
-    pattern = re.compile(rf"(^|\n)(##\s*{re.escape(kind)}:\s*.+?)(?=\n##\s|\Z)", re.DOTALL)
+    # 匹配每个 ## 标题作为块起点。
+    # 前瞻只在「同类型标题(## {kind}:)」或文末处切分,避免把 body 里的任意
+    # 「## 子标题」误判为块边界(此前用 (?=\n##\s|\Z) 会在任何二级标题处截断)。
+    pattern = re.compile(
+        rf"(^|\n)(##\s*{re.escape(kind)}:\s*.+?)"
+        rf"(?=\n##\s*{re.escape(kind)}:\s*|\Z)",
+        re.DOTALL,
+    )
     results: list[tuple[str, dict, str]] = []
     for m in pattern.finditer(text):
         block = m.group(2).strip()

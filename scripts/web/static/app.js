@@ -441,6 +441,140 @@ async function updateStatus(type, itemId, newStatus, btn) {
   }
 }
 
+/* ====================== 已确定 idea/todo(正式清单) ====================== */
+
+async function loadConfirmedIdeas() {
+  const grid = document.getElementById('idea-confirmed-grid');
+  if (!grid) return;
+  grid.innerHTML = '<div class="loading">加载中...</div>';
+  try {
+    const res = await fetch('/api/ideas/confirmed');
+    const data = await res.json();
+    const items = data.items || [];
+    if (items.length === 0) {
+      grid.innerHTML = '<div class="empty">还没有正式 idea。先在「待定」确认后运行 <code>python scripts/kb.py accept-ideas</code>。</div>';
+      return;
+    }
+    grid.innerHTML = items.map(renderFormalIdeaCard).join('');
+  } catch (e) {
+    grid.innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function renderFormalIdeaCard(item) {
+  const areaTag = item.area ? '<span class="tag tag-area">' + escapeHtml(item.area) + '</span>' : '';
+  const priorityTag = item.priority ? '<span class="tag">' + escapeHtml(item.priority) + '</span>' : '';
+  const maturity = item.maturity ? '<span class="tag">' + escapeHtml(item.maturity) + '</span>' : '';
+  const statusTag = item.status ? '<span class="tag">' + escapeHtml(item.status) + '</span>' : '';
+  const inv = item.fields && item.fields.estimated_investment
+    ? '<span class="tag">⏱ ' + escapeHtml(item.fields.estimated_investment) + '</span>' : '';
+  const bodyHtml = item.body ? '<div class="suggestion-body">' + formatSuggestionBody(item.body) + '</div>' : '';
+  return '<div class="card suggestion-card">' +
+    '<div class="card-header">' + areaTag + priorityTag + maturity + statusTag + inv + '</div>' +
+    '<h3 class="card-title">' + escapeHtml(item.title || item.id || '(未命名)') + '</h3>' +
+    bodyHtml +
+    '</div>';
+}
+
+async function loadConfirmedTodos() {
+  const grid = document.getElementById('todo-confirmed-grid');
+  if (!grid) return;
+  grid.innerHTML = '<div class="loading">加载中...</div>';
+  try {
+    const res = await fetch('/api/todos/confirmed');
+    const data = await res.json();
+    const items = data.items || [];
+    if (items.length === 0) {
+      grid.innerHTML = '<div class="empty">还没有正式 todo。先在「待定」确认后运行 <code>python scripts/kb.py accept-todos</code>。</div>';
+      return;
+    }
+    // 拉日历事项,建 source_id → calItem 映射,用于「已加入日历」状态回显
+    let calMap = {};
+    try {
+      const calRes = await fetch('/api/calendar');
+      const calData = await calRes.json();
+      (calData.items || []).forEach(ci => {
+        if (ci.source_id) calMap[ci.source_id] = ci;
+      });
+    } catch (e) { /* 日历加载失败不阻塞 todo 显示 */ }
+    // 按 plan 分组:weekly / monthly / someday / completed
+    const groups = { weekly: [], monthly: [], someday: [], completed: [] };
+    items.forEach(it => {
+      const key = groups[it.plan] ? it.plan : 'someday';
+      groups[key].push(it);
+    });
+    const labels = { weekly: '📅 Weekly(按周)', monthly: '📆 Monthly(按月)', someday: '🗓 Someday', completed: '✅ 已完成' };
+    let html = '';
+    for (const key of ['weekly', 'monthly', 'someday', 'completed']) {
+      if (groups[key].length === 0) continue;
+      html += '<div class="confirmed-group"><h3 class="confirmed-group-title">' + labels[key] +
+              ' <span class="count-badge">' + groups[key].length + '</span></h3>';
+      html += '<div class="card-grid">' + groups[key].map(it => renderFormalTodoCard(it, calMap[it.id])).join('') + '</div></div>';
+    }
+    grid.innerHTML = html || '<div class="empty">暂无</div>';
+  } catch (e) {
+    grid.innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function renderFormalTodoCard(item, calItem) {
+  const doneBadge = item.done ? '<span class="tag" style="background:#dcfce7;color:#166534">✓ 已完成</span>'
+                              : '<span class="tag tag-area">☐ 待办</span>';
+  const period = item.period ? '<span class="tag">' + escapeHtml(item.period) + '</span>' : '';
+  const time = item.estimated_time ? '<span class="tag">⏱ ' + escapeHtml(item.estimated_time) + '</span>' : '';
+  const diff = item.difficulty ? '<span class="tag">' + escapeHtml(item.difficulty) + '</span>' : '';
+  const source = item.source ? '<div class="muted">来源:' + escapeHtml(item.source) + '</div>' : '';
+  const note = item.note ? '<div class="suggestion-body"><p>' + escapeHtml(item.note) + '</p></div>' : '';
+  // 日历关联区:已加入显示日期+编辑,未加入显示「放入日历」按钮
+  let calSection;
+  if (calItem) {
+    calSection = '<div class="todo-cal-link">' +
+      '<span class="tag" style="background:#dbeafe;color:#1e40af">📅 已加入日历 · ' + escapeHtml(calItem.date) + '</span>' +
+      '<button class="btn btn-sm btn-ghost" onclick=\'openTodoCalendar(' + JSON.stringify(item).replace(/'/g, "&#39;") + ', "edit")\'>编辑</button>' +
+      '</div>';
+  } else {
+    calSection = '<div class="action-row">' +
+      '<button class="btn btn-sm btn-primary" onclick=\'openTodoCalendar(' + JSON.stringify(item).replace(/'/g, "&#39;") + ', "create")\'>📅 放入日历</button>' +
+      '</div>';
+  }
+  return '<div class="card suggestion-card' + (item.done ? ' card-done' : '') + '">' +
+    '<div class="card-header">' + doneBadge + period + time + diff + '</div>' +
+    '<h3 class="card-title">' + escapeHtml(item.title) + '</h3>' +
+    source + note +
+    calSection +
+    '</div>';
+}
+
+// 已确认 todo 放入日历(复用统一日历表单 openCalendarEventForm)
+function openTodoCalendar(todoItem, mode) {
+  if (mode === 'edit') {
+    // 编辑模式:先查该 todo 已有的日历事项
+    fetch('/api/calendar').then(r => r.json()).then(d => {
+      const existing = (d.items || []).find(ci => ci.source_id === todoItem.id);
+      if (!existing) { toast('未找到关联的日历事项', 'warning'); return; }
+      openCalendarEventForm({
+        mode: 'edit',
+        entry: 'todo-edit',
+        item: existing,
+        onSaved: function() { loadConfirmedTodos(); },
+        onDeleted: function() { loadConfirmedTodos(); },
+      });
+    }).catch(e => toast('加载日历失败:' + e.message, 'error'));
+    return;
+  }
+  // 创建模式:默认标题=todo 标题,日期=今天,source_id=todo id(用于去重和回显)
+  openCalendarEventForm({
+    mode: 'create',
+    entry: 'todo-create',
+    sourceId: todoItem.id,
+    sourceType: 'todo',
+    sourceTitle: todoItem.title,
+    defaultTitle: todoItem.title,
+    defaultDate: new Date().toISOString().slice(0, 10),
+    onSaved: function() { loadConfirmedTodos(); },
+  });
+}
+
 /* ====================== 仪表盘(标签页 + 骨架屏) ====================== */
 const DASH = { unread: [], read: [], readlater: [], visible: { unread: 12, read: 12, readlater: 12 } };
 
@@ -546,3 +680,288 @@ async function initDashboard() {
 initTheme();
 initNav();
 initModalOverlay();
+
+/* ====================== 统一日历事件表单(v0.3.1) ====================== */
+
+/**
+ * 打开统一日历事件表单。
+ * opts: { mode, entry, sourceId, sourceType, sourceTitle, item, defaultDate, defaultTitle, recommendedDate, onSaved, onDeleted }
+ */
+function openCalendarEventForm(opts) {
+  opts = opts || {};
+  const isEdit = opts.mode === 'edit';
+  const today = new Date().toISOString().slice(0, 10);
+
+  // 默认值
+  let title = opts.defaultTitle || '';
+  let eventDate = opts.defaultDate || today;
+  let note = '';
+  let sourceId = opts.sourceId || '';
+  let sourceType = opts.sourceType || '';
+  let sourceTitle = opts.sourceTitle || '';
+  let itemId = '';
+
+  if (isEdit && opts.item) {
+    title = opts.item.title || '';
+    eventDate = opts.item.date || today;
+    note = opts.item.note || '';
+    sourceId = opts.item.source_id || '';
+    sourceType = opts.item.source_type || '';
+    sourceTitle = opts.item.source_title || '';
+    itemId = opts.item.id || '';
+  }
+
+  // 推荐日期说明(仅 knowledge-detail 入口)
+  const rec = opts.recommendedDate;
+  let recInfo = '';
+  if (opts.entry === 'knowledge-detail') {
+    if (rec && rec.normalized_date) {
+      const confLabel = rec.confidence === 'high' ? '高可信度' : (rec.confidence === 'medium' ? '可能日期,请确认' : '模糊日期,请确认');
+      recInfo = '<div class="cal-form-rec">' +
+        '<span>推荐日期:' + escapeHtml(rec.normalized_date) + '</span>' +
+        (rec.context ? '<span class="muted">识别依据:"' + escapeHtml(rec.context.slice(0, 60)) + '"</span>' : '') +
+        '<span class="' + (rec.confidence === 'high' ? 'conf-high' : (rec.confidence === 'low' ? 'conf-low' : '')) + '">' + confLabel + '</span>' +
+        (rec.is_approximate ? '<span class="warn-text">该日期由模糊时间推算,请确认</span>' : '') +
+        '</div>';
+    } else {
+      recInfo = '<div class="cal-form-rec"><span class="muted">未识别到明确日期,已默认选择今天。</span></div>';
+    }
+  }
+
+  // 关联内容
+  let sourceHtml = '';
+  if (sourceTitle) {
+    sourceHtml = '<div class="cal-form-source">' +
+      '<span class="cal-source-label">关联内容:</span>' +
+      (sourceId ? '<a href="/summary/' + encodeURIComponent(sourceId) + '" class="cal-source-link" target="_blank">' + escapeHtml(sourceTitle) + '</a>' : '<span>' + escapeHtml(sourceTitle) + '</span>') +
+      '<button class="btn btn-sm btn-ghost" id="cal-form-remove-source">移除关联</button>' +
+      '</div>';
+  }
+
+  const formTitle = isEdit ? '编辑事件' : (opts.entry === 'knowledge-detail' ? '添加到日历' : '新建事件');
+  const deleteBtn = isEdit ? '<button class="btn btn-danger" id="cal-form-delete">删除事件</button>' : '';
+  const saveLabel = isEdit ? '保存' : (opts.entry === 'knowledge-detail' ? '添加' : '保存');
+
+  const formHtml =
+    '<div class="cal-form">' +
+    '<h3 class="cal-form-title">' + formTitle + '</h3>' +
+    recInfo +
+    '<div class="cal-form-field"><label>标题 <span class="required">*</span></label>' +
+    '<input type="text" id="cal-form-title-input" value="' + escapeHtml(title) + '" maxlength="120" placeholder="请输入标题"></div>' +
+    '<div class="cal-form-field"><label>日期 <span class="required">*</span></label>' +
+    '<input type="date" id="cal-form-date-input" value="' + eventDate + '"></div>' +
+    sourceHtml +
+    '<div class="cal-form-field"><label>备注</label>' +
+    '<textarea id="cal-form-note-input" rows="3" maxlength="2000" placeholder="添加备注...">' + escapeHtml(note) + '</textarea></div>' +
+    '<div class="cal-form-actions">' + deleteBtn +
+    '<button class="btn btn-ghost" id="cal-form-cancel">取消</button>' +
+    '<button class="btn btn-primary" id="cal-form-save">' + saveLabel + '</button></div>' +
+    '</div>';
+
+  // 渲染到 modal
+  const overlay = document.getElementById('modalOverlay');
+  const box = document.getElementById('modalBox');
+  const modalTitle = document.getElementById('modalTitle');
+  const modalBody = document.getElementById('modalBody');
+  const modalActions = document.getElementById('modalActions');
+  if (!overlay || !box) { alert('modal 不可用'); return; }
+
+  modalTitle.textContent = formTitle;
+  modalBody.innerHTML = formHtml;
+  modalActions.innerHTML = '';  // 隐藏默认按钮(表单自带按钮)
+  overlay.hidden = false;
+
+  // 移除关联
+  const removeBtn = document.getElementById('cal-form-remove-source');
+  if (removeBtn) {
+    removeBtn.onclick = function() {
+      sourceId = ''; sourceType = ''; sourceTitle = '';
+      const srcDiv = document.querySelector('.cal-form-source');
+      if (srcDiv) srcDiv.innerHTML = '<span class="muted">关联已移除</span>';
+    };
+  }
+
+  // 取消
+  document.getElementById('cal-form-cancel').onclick = function() {
+    overlay.hidden = true;
+  };
+
+  // 保存
+  document.getElementById('cal-form-save').onclick = async function() {
+    const btn = this;
+    const t = document.getElementById('cal-form-title-input').value.trim();
+    const d = document.getElementById('cal-form-date-input').value;
+    const n = document.getElementById('cal-form-note-input').value.trim();
+    if (!t) { alert('标题不能为空'); return; }
+    if (!d || !d.match(/^\d{4}-\d{2}-\d{2}$/)) { alert('日期格式错误'); return; }
+
+    btn.disabled = true; btn.textContent = '保存中...';
+    try {
+      let res;
+      if (isEdit) {
+        res = await fetch('/api/calendar/' + itemId, {
+          method: 'PATCH', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({title: t, date: d, note: n, source_id: sourceId}),
+        });
+      } else {
+        res = await fetch('/api/calendar', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            title: t, date: d, note: n,
+            source_id: sourceId, source_type: sourceType, source_title: sourceTitle,
+            date_source: rec ? 'detected' : 'manual',
+            date_confidence: rec ? rec.confidence : '',
+          }),
+        });
+      }
+      const data = await res.json();
+      if (!res.ok) {
+        alert('保存失败:' + (data.detail || ''));
+        btn.disabled = false; btn.textContent = saveLabel;
+        return;
+      }
+      overlay.hidden = true;
+      if (typeof opts.onSaved === 'function') opts.onSaved(data.item || data, isEdit);
+    } catch(e) {
+      alert('网络错误:' + e.message);
+      btn.disabled = false; btn.textContent = saveLabel;
+    }
+  };
+
+  // 删除(编辑模式)
+  if (isEdit) {
+    const delBtn = document.getElementById('cal-form-delete');
+    if (delBtn) {
+      delBtn.onclick = async function() {
+        if (!confirm('确定删除这个事件吗?')) return;
+        delBtn.disabled = true;
+        try {
+          const res = await fetch('/api/calendar/' + itemId, {method: 'DELETE'});
+          if (res.ok) {
+            overlay.hidden = true;
+            if (typeof opts.onDeleted === 'function') opts.onDeleted();
+          }
+        } catch(e) { alert('删除失败:' + e.message); delBtn.disabled = false; }
+      };
+    }
+  }
+
+  // 聚焦标题
+  setTimeout(function() { document.getElementById('cal-form-title-input').focus(); }, 50);
+}
+
+// ---------------------------------------------------------------------------
+// 详情页手动生成 Idea/Todo(v0.4.0)
+// 参考 openCalendarEventForm 的表单弹窗模式:innerHTML 注入 + 自带按钮
+// ---------------------------------------------------------------------------
+
+function openGenerateDialog(kind, sourceId) {
+  const isIdea = kind === 'idea';
+  const title = isIdea ? '生成 Idea 列表' : '生成 Todo 列表';
+  const promptPh = isIdea
+    ? '例如:重点找可落地的工具型 idea / 关注 Agent 相关方向'
+    : '例如:本周能做完的 / 找可立即试用的工具';
+
+  // kind 专属字段
+  const ideaFields = isIdea
+    ? '<div class="cal-form-field"><label>领域</label>' +
+      '<select id="gen-area"><option value="">不限</option>' +
+      '<option value="research">research</option>' +
+      '<option value="productivity">productivity</option>' +
+      '<option value="product">product</option>' +
+      '<option value="ai_agent">ai_agent</option>' +
+      '<option value="web_design">web_design</option>' +
+      '<option value="other">other</option></select></div>'
+    : '';
+  const todoFields = !isIdea
+    ? '<div class="cal-form-field"><label>难度</label>' +
+      '<select id="gen-difficulty"><option value="">不限</option>' +
+      '<option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></div>' +
+      '<div class="cal-form-field"><label>预计时间</label>' +
+      '<select id="gen-time"><option value="">不限</option>' +
+      '<option value="30min">30min</option><option value="1h">1h</option><option value="2-4h">2-4h</option>' +
+      '<option value="半天">半天</option><option value="1-2 天">1-2 天</option></select></div>' +
+      '<div class="cal-form-field"><label>计划</label>' +
+      '<select id="gen-plan"><option value="">不限</option>' +
+      '<option value="weekly">weekly</option><option value="monthly">monthly</option><option value="someday">someday</option></select></div>'
+    : '';
+
+  const formHtml =
+    '<div class="cal-form">' +
+    '<div class="cal-form-field"><label>引导提示词(可选)</label>' +
+    '<textarea id="gen-prompt" rows="3" maxlength="500" placeholder="' + escapeHtml(promptPh) + '"></textarea></div>' +
+    '<div class="cal-form-field"><label>优先级</label>' +
+    '<select id="gen-priority"><option value="">不限</option>' +
+    '<option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option></select></div>' +
+    ideaFields + todoFields +
+    '<div class="cal-form-actions">' +
+    '<button class="btn btn-ghost" id="gen-cancel">取消</button>' +
+    '<button class="btn btn-primary" id="gen-submit">生成</button></div>' +
+    '</div>';
+
+  // 渲染到 modal
+  const overlay = document.getElementById('modalOverlay');
+  const box = document.getElementById('modalBox');
+  const modalTitle = document.getElementById('modalTitle');
+  const modalBody = document.getElementById('modalBody');
+  const modalActions = document.getElementById('modalActions');
+  if (!overlay || !box) { alert('modal 不可用'); return; }
+
+  modalTitle.textContent = title;
+  modalBody.innerHTML = formHtml;
+  modalActions.innerHTML = '';  // 隐藏默认按钮(表单自带)
+  overlay.hidden = false;
+
+  const cancelBtn = document.getElementById('gen-cancel');
+  const submitBtn = document.getElementById('gen-submit');
+  cancelBtn.onclick = function () { overlay.hidden = true; };
+
+  submitBtn.onclick = async function () {
+    const promptVal = (document.getElementById('gen-prompt').value || '').trim();
+    const priorityVal = document.getElementById('gen-priority').value;
+    const body = { prompt: promptVal.slice(0, 500), priority: priorityVal };
+    if (isIdea) {
+      body.area = document.getElementById('gen-area').value;
+    } else {
+      body.difficulty = document.getElementById('gen-difficulty').value;
+      body.estimated_time = document.getElementById('gen-time').value;
+      body.plan = document.getElementById('gen-plan').value;
+    }
+
+    const url = '/api/article/' + encodeURIComponent(sourceId) +
+                (isIdea ? '/generate-ideas' : '/generate-todos');
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ 生成中...(约 10-30 秒)';
+    cancelBtn.disabled = true;
+    try {
+      const res = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        toast('生成失败:' + (data.detail || data.error || '未知错误'), 'error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = '生成';
+        cancelBtn.disabled = false;
+        return;  // 弹窗保持打开,保留用户输入
+      }
+      overlay.hidden = true;
+      const n = data.generated || 0;
+      const listPage = isIdea ? '/ideas' : '/todos';
+      if (n > 0) {
+        toast('✓ 已生成 ' + n + ' 条候选,前往 ' + listPage + ' 查看', 'success');
+      } else {
+        toast('未识别到可转化的候选', 'warning');
+      }
+    } catch (e) {
+      toast('网络错误:' + e.message, 'error');
+      submitBtn.disabled = false;
+      submitBtn.textContent = '生成';
+      cancelBtn.disabled = false;
+    }
+  };
+
+  // 聚焦引导词
+  setTimeout(function () { document.getElementById('gen-prompt').focus(); }, 50);
+}

@@ -52,8 +52,11 @@
             onclick="toggleReadLater('${SOURCE_ID}')">${rl ? '📖✓ 已加入稍后读' : '📖 稍后阅读'}</button>
           <button class="btn detail-action-btn ${fav ? 'active-fav' : ''}" data-field="is_favorite"
             onclick="toggleFavorite('${SOURCE_ID}')">${fav ? '⭐✓ 已收藏' : '⭐ 收藏'}</button>
+          <button class="btn" id="calendar-btn" onclick="openCalendarDialog()">📅 添加到日历</button>
           ${hasSummary ? `<button class="btn btn-warn" id="regen-btn" onclick="regenerateSummary(this)">🔄 重新生成</button>` : ''}
           ${hasSummary ? `<button class="btn btn-ghost" onclick="deleteSummary(this)">🗑 删除 summary</button>` : ''}
+          ${hasSummary ? `<button class="btn btn-primary" onclick="openGenerateDialog('idea', '${SOURCE_ID}')">💡 生成 Idea 列表</button>` : ''}
+          ${hasSummary ? `<button class="btn btn-primary" onclick="openGenerateDialog('todo', '${SOURCE_ID}')">✅ 生成 Todo 列表</button>` : ''}
           <button class="btn btn-danger" onclick="deleteArticle('${SOURCE_ID}')">🗑 删除文章</button>
           ${readInfo}
         </div>
@@ -75,9 +78,23 @@
         <div class="markdown-body">${d.html_body}</div>
         <div class="detail-footer muted">文件:${escapeHtml(d.path)}</div>
       `;
+      // 检查是否已有日历事项,更新按钮
+      checkExistingCalendar();
     } catch (e) {
       wrap.innerHTML = `<div class="error">加载失败:${escapeHtml(e.message)}</div>`;
     }
+  }
+
+  async function checkExistingCalendar() {
+    try {
+      const res = await fetch('/api/calendar');
+      const data = await res.json();
+      const item = (data.items || []).find(i => i.source_id === SOURCE_ID);
+      if (item) {
+        existingCalendarItem = item;
+        updateCalendarBtn(item.date);
+      }
+    } catch(e) {}
   }
 
   async function addTagFromInput() {
@@ -157,6 +174,85 @@
     } finally {
       btn.disabled = false;
       btn.textContent = '🗑 删除 summary';
+    }
+  }
+
+  // ===== 日历功能 =====
+  let detectedDates = [];
+  let recommendedDate = null;
+  let existingCalendarItem = null;
+
+  async function openCalendarDialog() {
+    // 先检查是否已有日历事项
+    try {
+      const calRes = await fetch('/api/calendar');
+      const calData = await calRes.json();
+      existingCalendarItem = (calData.items || []).find(i => i.source_id === SOURCE_ID);
+    } catch(e) {}
+
+    if (existingCalendarItem) {
+      // 编辑模式
+      openCalendarEventForm({
+        mode: 'edit',
+        entry: 'calendar-edit',
+        item: existingCalendarItem,
+        onSaved: function(item) { existingCalendarItem = item; updateCalendarBtn(item.date); },
+        onDeleted: function() { existingCalendarItem = null; updateCalendarBtn(null); },
+      });
+      return;
+    }
+
+    // 获取推荐日期
+    const btn = document.getElementById('calendar-btn');
+    btn.textContent = '📅 识别中...';
+    try {
+      const res = await fetch(`/api/article/${SOURCE_ID}/detected-dates`);
+      const data = await res.json();
+      detectedDates = data.candidates || [];
+      recommendedDate = data.recommended;
+    } catch(e) {
+      recommendedDate = null;
+    }
+    btn.textContent = '📅 添加到日历';
+
+    // 获取当前文章标题和类型
+    let articleTitle = '';
+    let articleType = '';
+    try {
+      const sumRes = await fetch(`/api/summary/${SOURCE_ID}`);
+      const sumData = await sumRes.json();
+      articleTitle = sumData.title || '';
+      articleType = (sumData.meta || {}).source_type || '';
+    } catch(e) {}
+
+    // 打开统一表单(创建模式)
+    openCalendarEventForm({
+      mode: 'create',
+      entry: 'knowledge-detail',
+      sourceId: SOURCE_ID,
+      sourceType: articleType,
+      sourceTitle: articleTitle,
+      defaultTitle: recommendedDate ? (recommendedDate.event_title || articleTitle) : articleTitle,
+      defaultDate: recommendedDate ? recommendedDate.normalized_date : null,
+      recommendedDate: recommendedDate,
+      onSaved: function(item) {
+        existingCalendarItem = item;
+        updateCalendarBtn(item.date);
+      },
+      onDeleted: function() {
+        existingCalendarItem = null;
+        updateCalendarBtn(null);
+      },
+    });
+  }
+
+  function updateCalendarBtn(dateStr) {
+    const btn = document.getElementById('calendar-btn');
+    if (!btn) return;
+    if (dateStr) {
+      btn.textContent = '📅 已添加 · ' + dateStr;
+    } else {
+      btn.textContent = '📅 添加到日历';
     }
   }
 

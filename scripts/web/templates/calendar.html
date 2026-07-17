@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block title %}日历 · 知识库{% endblock %}
+{% block content %}
+<h1 class="page-title">📅 日历</h1>
+
+<div class="cal-toolbar">
+  <div class="cal-view-tabs">
+    <button class="btn btn-sm {% if not view or view == 'month' %}btn-primary{% else %}btn-secondary{% endif %}" onclick="switchView('month')">月视图</button>
+    <button class="btn btn-sm {% if view == 'list' %}btn-primary{% else %}btn-secondary{% endif %}" onclick="switchView('list')">列表视图</button>
+  </div>
+  <button class="btn btn-primary btn-sm" onclick="openCreateDialog()">+ 新建事项</button>
+</div>
+
+<!-- 月视图 -->
+<div id="cal-month-view" class="cal-month-view">
+  <div class="cal-month-nav">
+    <button class="btn btn-sm" onclick="changeMonth(-1)">◀ 上月</button>
+    <span id="cal-month-label" class="cal-month-label"></span>
+    <button class="btn btn-sm" onclick="changeMonth(1)">下月 ▶</button>
+    <button class="btn btn-sm btn-ghost" onclick="goToday()">今天</button>
+  </div>
+  <div class="cal-weekdays">
+    <div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div>六</div><div>日</div>
+  </div>
+  <div id="cal-grid" class="cal-grid"></div>
+</div>
+
+<!-- 列表视图 -->
+<div id="cal-list-view" class="cal-list-view" style="display:none;">
+  <div class="cal-list-filter">
+    <button class="btn btn-sm btn-primary" onclick="loadList('upcoming')" id="filter-upcoming">即将到来</button>
+    <button class="btn btn-sm btn-secondary" onclick="loadList('past')" id="filter-past">已过去</button>
+    <button class="btn btn-sm btn-secondary" onclick="loadList('all')" id="filter-all">全部</button>
+  </div>
+  <div id="cal-list" class="cal-list"></div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  let currentView = 'month';
+  let calYear, calMonth;  // 当前显示的年月(0-indexed month)
+  let allItems = [];
+  let currentListFilter = 'upcoming';  // 列表视图当前筛选,删除后保持
+
+  // 事件配色:按来源类型映射(与 style.css 中 --ev-* 令牌对应)
+  const EV_COLORS = {
+    github: '#2563eb', wechat: '#16a34a', x: '#1f2937',
+    douyin: '#db2777', gpt_chat: '#d97706', web: '#4f46e5',
+  };
+  function evColor(t) { return EV_COLORS[t] || '#64748b'; }
+
+  const today = new Date();
+  calYear = today.getFullYear();
+  calMonth = today.getMonth();
+
+  function switchView(view) {
+    currentView = view;
+    document.getElementById('cal-month-view').style.display = view === 'month' ? '' : 'none';
+    document.getElementById('cal-list-view').style.display = view === 'list' ? '' : 'none';
+    // 更新 tab 样式
+    document.querySelectorAll('.cal-view-tabs button').forEach(b => {
+      b.className = 'btn btn-sm ' + (b.textContent.includes(view === 'month' ? '月' : '列') ? 'btn-primary' : 'btn-secondary');
+    });
+    if (view === 'month') renderMonth();
+    else loadList('upcoming');
+  }
+
+  function changeMonth(delta) {
+    calMonth += delta;
+    if (calMonth < 0) { calMonth = 11; calYear--; }
+    if (calMonth > 11) { calMonth = 0; calYear++; }
+    renderMonth();
+  }
+
+  function goToday() {
+    calYear = today.getFullYear();
+    calMonth = today.getMonth();
+    renderMonth();
+  }
+
+  async function loadCalendarItems() {
+    try {
+      const res = await fetch('/api/calendar');
+      const data = await res.json();
+      allItems = data.items || [];
+    } catch(e) { allItems = []; }
+  }
+
+  function renderMonth() {
+    const grid = document.getElementById('cal-grid');
+    const label = document.getElementById('cal-month-label');
+    const monthNames = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+    label.textContent = calYear + '年 ' + monthNames[calMonth];
+
+    // 计算月历网格
+    const firstDay = new Date(calYear, calMonth, 1);
+    const lastDay = new Date(calYear, calMonth + 1, 0);
+    const daysInMonth = lastDay.getDate();
+    // 周一=0(我们的网格从周一开始)
+    let startWeekday = firstDay.getDay() - 1;
+    if (startWeekday < 0) startWeekday = 6;
+
+    const todayStr = today.toISOString().slice(0, 10);
+
+    let html = '';
+    // 上月尾部
+    const prevLastDay = new Date(calYear, calMonth, 0).getDate();
+    for (let i = startWeekday - 1; i >= 0; i--) {
+      html += `<div class="cal-day cal-day-other">${prevLastDay - i}</div>`;
+    }
+    // 本月
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const dayItems = allItems.filter(i => i.date === dateStr);
+      const isToday = dateStr === todayStr;
+      let itemsHtml = '';
+      dayItems.slice(0, 3).forEach(item => {
+        const ev = evColor(item.source_type);
+        itemsHtml += `<div class="cal-day-item" style="--ev:${ev}" onclick="event.stopPropagation();openEditDialog('${item.id}')" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>`;
+      });
+      if (dayItems.length > 3) {
+        itemsHtml += `<div class="cal-day-more" onclick="event.stopPropagation();showDayItems('${dateStr}')">+${dayItems.length - 3} 更多</div>`;
+      }
+      const todayBadge = isToday ? '<span class="cal-today-badge">今天</span>' : '';
+      html += `<div class="cal-day ${isToday ? 'cal-day-today' : ''}" onclick="quickCreate('${dateStr}')">
+        <div class="cal-day-num">${d}${todayBadge}</div>
+        ${itemsHtml}
+      </div>`;
+    }
+    // 下月头部(补满 42 格)
+    const totalCells = startWeekday + daysInMonth;
+    const remaining = (7 - (totalCells % 7)) % 7;
+    for (let d = 1; d <= remaining; d++) {
+      html += `<div class="cal-day cal-day-other">${d}</div>`;
+    }
+    grid.innerHTML = html;
+  }
+
+  async function loadList(filter) {
+    currentListFilter = filter;
+    await loadCalendarItems();
+    const list = document.getElementById('cal-list');
+    const todayStr = today.toISOString().slice(0, 10);
+    let items = allItems;
+    if (filter === 'upcoming') items = allItems.filter(i => i.date >= todayStr);
+    else if (filter === 'past') items = allItems.filter(i => i.date < todayStr);
+    items.sort((a, b) => filter === 'past' ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date));
+
+    // 更新 filter 按钮
+    ['upcoming','past','all'].forEach(f => {
+      const btn = document.getElementById('filter-' + f);
+      btn.className = 'btn btn-sm ' + (f === filter ? 'btn-primary' : 'btn-secondary');
+    });
+
+    if (items.length === 0) {
+      list.innerHTML = '<div class="empty">还没有日历事项。从知识详情页添加重要日期,或在这里手动创建。</div>';
+      return;
+    }
+    list.innerHTML = items.map(item => `
+      <div class="cal-list-item" style="--ev:${evColor(item.source_type)}" onclick="openEditDialog('${item.id}')">
+        <div class="cal-list-date">${item.date}</div>
+        <div class="cal-list-body">
+          <div class="cal-list-title">${escapeHtml(item.title)}</div>
+          ${item.source_title ? `<div class="cal-list-source muted">来源:${escapeHtml(item.source_title)}</div>` : ''}
+          ${item.note ? `<div class="cal-list-note muted">${escapeHtml(item.note)}</div>` : ''}
+        </div>
+        ${item.source_id ? `<a href="/summary/${encodeURIComponent(item.source_id)}" class="cal-list-link" onclick="event.stopPropagation()">查看关联 →</a>` : ''}
+        <button class="cal-list-del" title="删除" aria-label="删除事项" onclick="event.stopPropagation();deleteCalendarItem('${item.id}')">✕</button>
+      </div>
+    `).join('');
+  }
+
+  function showDayItems(dateStr) {
+    const dayItems = allItems.filter(i => i.date === dateStr);
+    let msg = dateStr + ' 的事项:\n\n';
+    dayItems.forEach(i => msg += '• ' + i.title + (i.source_title ? ' (来源:' + i.source_title + ')' : '') + '\n');
+    alert(msg);
+  }
+
+  function quickCreate(dateStr) {
+    openCalendarEventForm({
+      mode: 'create',
+      entry: 'calendar-day',
+      defaultDate: dateStr,
+      onSaved: refreshAfterChange,
+      onDeleted: refreshAfterChange,
+    });
+  }
+
+  function openCreateDialog() {
+    openCalendarEventForm({
+      mode: 'create',
+      entry: 'calendar-create',
+      onSaved: refreshAfterChange,
+      onDeleted: refreshAfterChange,
+    });
+  }
+
+  async function openEditDialog(itemId) {
+    const item = allItems.find(i => i.id === itemId);
+    if (!item) return;
+    openCalendarEventForm({
+      mode: 'edit',
+      entry: 'calendar-edit',
+      item: item,
+      onSaved: refreshAfterChange,
+      onDeleted: refreshAfterChange,
+    });
+  }
+
+  async function refreshAfterChange() {
+    await loadCalendarItems();
+    if (currentView === 'month') renderMonth();
+    else loadList(currentListFilter);
+  }
+
+  async function deleteCalendarItem(itemId) {
+    const item = allItems.find(i => i.id === itemId);
+    const name = item ? item.title : '这个事项';
+    if (!confirm('确定删除「' + name + '」吗?此操作不可撤销。')) return;
+    try {
+      const res = await fetch('/api/calendar/' + itemId, { method: 'DELETE' });
+      if (res.ok) {
+        await refreshAfterChange();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert('删除失败:' + (data.detail || ''));
+      }
+    } catch (e) {
+      alert('网络错误:' + e.message);
+    }
+  }
+
+  // 初始化
+  loadCalendarItems().then(() => renderMonth());
+</script>
+{% endblock %}
