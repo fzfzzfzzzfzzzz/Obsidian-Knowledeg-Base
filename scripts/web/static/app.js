@@ -251,7 +251,7 @@ function renderArticleCard(item) {
         </label>
         <span class="tag tag-${item.source_type}">${item.source_type}</span>
       </div>
-      <a class="card-link" href="/summary/${encodeURIComponent(item.source_id)}">
+      <a class="card-link" href="/summary/${encodeURIComponent(item.source_id)}" target="_blank" rel="noopener">
         <h3 class="card-title">${escapeHtml(item.title)}</h3>
         <p class="card-excerpt">${item.excerpt ? escapeHtml(item.excerpt) : '<span class="muted">(无摘要)</span>'}</p>
         <div class="card-footer">
