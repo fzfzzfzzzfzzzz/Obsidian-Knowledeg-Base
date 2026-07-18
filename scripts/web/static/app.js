@@ -39,6 +39,56 @@ function initTheme() {
   });
 }
 
+/* ====================== 会话状态持久化(返回时恢复) ====================== */
+// 用 sessionStorage:关闭标签页即清空,不污染下次打开,贴合「返回时恢复」的语义。
+// 用于:仪表盘标签页 / 搜索筛选 / 收藏夹选中文件夹 / 各列表页滚动位置。
+const KBState = {
+  get(key, fallback) {
+    try {
+      const v = sessionStorage.getItem(key);
+      return v == null ? fallback : JSON.parse(v);
+    } catch (e) { return fallback; }
+  },
+  set(key, val) {
+    try { sessionStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
+  },
+  del(key) { try { sessionStorage.removeItem(key); } catch (e) {} },
+};
+
+// 各列表页 → 滚动位置存储 key
+const SCROLL_KEYS = {
+  '/': 'kb-scroll-index',
+  '/search': 'kb-scroll-search',
+  '/articles': 'kb-scroll-articles',
+  '/recent': 'kb-scroll-recent',
+  '/favorites': 'kb-scroll-favorites',
+};
+
+// 记录当前列表页的滚动位置(节流,避免高频写 sessionStorage)
+let _scrollSaveTimer = null;
+function _onListScroll() {
+  const key = SCROLL_KEYS[window.location.pathname];
+  if (!key) return;
+  if (_scrollSaveTimer) return;
+  _scrollSaveTimer = setTimeout(function () {
+    _scrollSaveTimer = null;
+    KBState.set(key, window.scrollY || 0);
+  }, 150);
+}
+window.addEventListener('scroll', _onListScroll, { passive: true });
+
+// 在列表页数据渲染完成后调用:恢复上次离开时的滚动位置
+// rAF 双帧,确保 DOM 已撑开高度再滚,避免 scrollTo 无效。
+function restoreScroll() {
+  const key = SCROLL_KEYS[window.location.pathname];
+  if (!key) return;
+  const y = KBState.get(key, 0);
+  if (!y) return;
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () { window.scrollTo(0, y); });
+  });
+}
+
 /* ====================== 汉堡抽屉导航 ====================== */
 function initNav() {
   const toggle = document.getElementById('navToggle');
@@ -113,6 +163,47 @@ function confirmModal(message, opts) {
     confirmText: opts.confirmText || '确定',
     cancelText: opts.cancelText || '取消',
     danger: !!opts.danger,
+  });
+}
+
+// 返回 Promise<string|null>:确定返回输入文本,取消/关闭返回 null
+function promptModal(title, hint, initialValue) {
+  return new Promise(function (resolve) {
+    const overlay = document.getElementById('modalOverlay');
+    const box = document.getElementById('modalBox');
+    if (!overlay || !box) { resolve(null); return; }
+    document.getElementById('modalTitle').textContent = title || '请输入';
+    box.classList.remove('modal--danger');
+    const body = document.getElementById('modalBody');
+    const actions = document.getElementById('modalActions');
+    body.innerHTML = '';
+    actions.innerHTML = '';
+    const hintEl = document.createElement('div');
+    hintEl.className = 'modal-prompt-hint muted';
+    hintEl.textContent = hint || '';
+    body.appendChild(hintEl);
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'modal-prompt-input';
+    input.value = initialValue || '';
+    input.maxLength = 40;
+    body.appendChild(input);
+    const c = document.createElement('button');
+    c.className = 'btn btn-ghost';
+    c.textContent = '取消';
+    c.onclick = function () { overlay.hidden = true; resolve(null); };
+    const ok = document.createElement('button');
+    ok.className = 'btn btn-primary';
+    ok.textContent = '确定';
+    ok.onclick = function () { overlay.hidden = true; resolve(input.value); };
+    actions.appendChild(c);
+    actions.appendChild(ok);
+    overlay.hidden = false;
+    setTimeout(function () { input.focus(); input.select(); }, 30);
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { overlay.hidden = true; resolve(input.value); }
+      if (e.key === 'Escape') { overlay.hidden = true; resolve(null); }
+    });
   });
 }
 
@@ -419,7 +510,10 @@ function formatSuggestionBody(body) {
 }
 
 async function updateStatus(type, itemId, newStatus, btn) {
-  if (!await confirmModal(`确认将状态改为「${statusLabel(newStatus)}」?`)) return;
+  // 拒绝=直接删除,不需二次确认;其他状态变更(接受/本周/本月...)仍确认
+  if (newStatus !== 'rejected') {
+    if (!await confirmModal(`确认将状态改为「${statusLabel(newStatus)}」?`)) return;
+  }
   const card = document.getElementById('card-' + itemId);
   if (card) card.querySelectorAll('button').forEach(b => b.disabled = true);
   try {
@@ -434,6 +528,7 @@ async function updateStatus(type, itemId, newStatus, btn) {
       if (card) card.querySelectorAll('button').forEach(b => b.disabled = false);
       return;
     }
+    if (data.deleted) toast('✓ 已删除该候选', 'success');
     loadSuggestions(type);
   } catch (e) {
     toast('网络错误:' + e.message, 'error');
@@ -575,6 +670,84 @@ function openTodoCalendar(todoItem, mode) {
   });
 }
 
+/* ====================== 详情页:加入文件夹(收藏夹) ====================== */
+
+// 弹窗:选择文章要加入的文件夹(多选),保存调 POST /api/article/{id}/collections
+async function openAddToCollections(sourceId) {
+  let collections = [];
+  let currentIds = [];
+  try {
+    const [colRes, artRes] = await Promise.all([
+      fetch('/api/collections'), fetch('/api/summary/' + sourceId),
+    ]);
+    const colData = await colRes.json();
+    collections = colData.items || [];
+    const artData = await artRes.json();
+    currentIds = (artData.collection_ids) || [];
+  } catch (e) { toast('加载失败:' + e.message, 'error'); return; }
+
+  if (collections.length === 0) {
+    if (!await confirmModal('还没有任何文件夹。先去收藏夹页新建一个文件夹?', {title: '没有文件夹', confirmText: '去收藏夹'})) return;
+    window.location.href = '/favorites';
+    return;
+  }
+
+  // 复用 modal,注入 checkbox 列表
+  const overlay = document.getElementById('modalOverlay');
+  const box = document.getElementById('modalBox');
+  if (!overlay || !box) { toast('弹窗不可用', 'error'); return; }
+  document.getElementById('modalTitle').textContent = '加入文件夹';
+  box.classList.remove('modal--danger');
+  const body = document.getElementById('modalBody');
+  const actions = document.getElementById('modalActions');
+  const currentSet = new Set(currentIds);
+  body.innerHTML = '<div class="modal-prompt-hint muted">勾选要加入的文件夹(可多选),取消勾选则移出。</div>';
+  const listEl = document.createElement('div');
+  listEl.className = 'modal-check-list';
+  collections.forEach(col => {
+    const label = document.createElement('label');
+    label.className = 'modal-check-item';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.value = col.id;
+    cb.checked = currentSet.has(col.id);
+    const span = document.createElement('span');
+    span.textContent = '📂 ' + col.name + ' (' + col.count + ')';
+    label.appendChild(cb);
+    label.appendChild(span);
+    listEl.appendChild(label);
+  });
+  body.appendChild(listEl);
+  actions.innerHTML = '';
+  const c = document.createElement('button');
+  c.className = 'btn btn-ghost';
+  c.textContent = '取消';
+  c.onclick = function () { overlay.hidden = true; };
+  const ok = document.createElement('button');
+  ok.className = 'btn btn-primary';
+  ok.textContent = '保存';
+  ok.onclick = async function () {
+    const selected = Array.from(listEl.querySelectorAll('input[type=checkbox]:checked')).map(cb => cb.value);
+    ok.disabled = true; ok.textContent = '保存中...';
+    try {
+      const res = await fetch('/api/article/' + sourceId + '/collections', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({collection_ids: selected}),
+      });
+      const data = await res.json();
+      overlay.hidden = true;
+      if (!res.ok) { toast('保存失败:' + (data.detail || ''), 'error'); return; }
+      toast('✓ 已更新文件夹归属', 'success');
+    } catch (e) {
+      toast('网络错误:' + e.message, 'error');
+      overlay.hidden = true;
+    }
+  };
+  actions.appendChild(c);
+  actions.appendChild(ok);
+  overlay.hidden = false;
+}
+
 /* ====================== 仪表盘(标签页 + 骨架屏) ====================== */
 const DASH = { unread: [], read: [], readlater: [], visible: { unread: 12, read: 12, readlater: 12 } };
 
@@ -622,11 +795,15 @@ function switchTab(tab) {
     t.setAttribute('aria-selected', on ? 'true' : 'false');
   });
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
+  KBState.set('kb-dash-tab', tab);
 }
 
 async function initDashboard() {
   // 标签切换
   document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+  // 恢复上次查看的标签(HTML 默认 unread,有会话记录则覆盖)
+  const lastTab = KBState.get('kb-dash-tab', 'unread');
+  if (lastTab !== 'unread') switchTab(lastTab);
   // 显示更多
   document.querySelectorAll('.show-more').forEach(b => b.addEventListener('click', () => {
     const tab = b.dataset.tab;
@@ -671,6 +848,7 @@ async function initDashboard() {
     renderPanel('unread');
     renderPanel('read');
     renderPanel('readlater');
+    restoreScroll();
   } catch (e) {
     document.getElementById('grid-unread').innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
   }
@@ -699,6 +877,7 @@ function openCalendarEventForm(opts) {
   let sourceId = opts.sourceId || '';
   let sourceType = opts.sourceType || '';
   let sourceTitle = opts.sourceTitle || '';
+  let category = '';  // v0.4.2: 事件类别
   let itemId = '';
 
   if (isEdit && opts.item) {
@@ -708,7 +887,11 @@ function openCalendarEventForm(opts) {
     sourceId = opts.item.source_id || '';
     sourceType = opts.item.source_type || '';
     sourceTitle = opts.item.source_title || '';
+    category = opts.item.category || '';
     itemId = opts.item.id || '';
+  } else if (sourceType === 'todo') {
+    // v0.4.2: 从 todo 创建的事项默认归类为 todolist
+    category = 'todolist';
   }
 
   // 推荐日期说明(仅 knowledge-detail 入口)
@@ -738,6 +921,29 @@ function openCalendarEventForm(opts) {
       '</div>';
   }
 
+  // v0.4.2: 类别选择器(预设 6 类 + 自定义)
+  const CAT_PRESETS = [
+    { value: 'todolist', icon: '📋', label: 'todolist', color: '#64748b' },
+    { value: '会议', icon: '📅', label: '会议', color: '#2563eb' },
+    { value: '财报', icon: '💰', label: '财报', color: '#16a34a' },
+    { value: '截止日期', icon: '⏰', label: '截止日期', color: '#dc2626' },
+    { value: '发布', icon: '🚀', label: '发布', color: '#8b5cf6' },
+    { value: '其他', icon: '📌', label: '其他', color: '#d97706' },
+  ];
+  let selectedCategory = category || '';  // 单一真源,点击直接更新此变量
+  const isPreset = CAT_PRESETS.some(p => p.value === selectedCategory);
+  const catCustom = isPreset ? '' : selectedCategory;
+  const catPickerHtml =
+    '<div class="cal-form-field"><label>类别</label>' +
+    '<div class="cal-cat-picker" id="cal-cat-picker">' +
+    CAT_PRESETS.map(p =>
+      '<button type="button" class="cal-cat-opt' + (selectedCategory === p.value ? ' is-selected' : '') + '" ' +
+      'data-cat-value="' + p.value + '" style="--ev:' + p.color + '">' +
+      '<span>' + p.icon + ' ' + p.label + '</span></button>'
+    ).join('') +
+    '<input type="text" id="cal-form-cat-custom" class="cal-cat-custom" value="' + escapeHtml(catCustom) + '" maxlength="20" placeholder="或自定义…">' +
+    '</div></div>';
+
   const formTitle = isEdit ? '编辑事件' : (opts.entry === 'knowledge-detail' ? '添加到日历' : '新建事件');
   const deleteBtn = isEdit ? '<button class="btn btn-danger" id="cal-form-delete">删除事件</button>' : '';
   const saveLabel = isEdit ? '保存' : (opts.entry === 'knowledge-detail' ? '添加' : '保存');
@@ -750,6 +956,7 @@ function openCalendarEventForm(opts) {
     '<input type="text" id="cal-form-title-input" value="' + escapeHtml(title) + '" maxlength="120" placeholder="请输入标题"></div>' +
     '<div class="cal-form-field"><label>日期 <span class="required">*</span></label>' +
     '<input type="date" id="cal-form-date-input" value="' + eventDate + '"></div>' +
+    catPickerHtml +
     sourceHtml +
     '<div class="cal-form-field"><label>备注</label>' +
     '<textarea id="cal-form-note-input" rows="3" maxlength="2000" placeholder="添加备注...">' + escapeHtml(note) + '</textarea></div>' +
@@ -781,6 +988,30 @@ function openCalendarEventForm(opts) {
     };
   }
 
+  // v0.4.2: 类别选择交互 —— 按钮直接更新 selectedCategory,与自定义输入互斥
+  const catCustomInput = document.getElementById('cal-form-cat-custom');
+  const catPicker = document.getElementById('cal-cat-picker');
+  const catButtons = catPicker ? catPicker.querySelectorAll('.cal-cat-opt') : [];
+  catButtons.forEach(btn => {
+    btn.onclick = function() {
+      selectedCategory = this.dataset.catValue;
+      catCustomInput.value = '';  // 选预设清空自定义
+      catButtons.forEach(b => b.classList.toggle('is-selected', b === this));
+    };
+  });
+  if (catCustomInput) {
+    catCustomInput.oninput = function() {
+      selectedCategory = this.value.trim();
+      // 输入自定义时清除预设选中态
+      catButtons.forEach(b => b.classList.remove('is-selected'));
+    };
+  }
+  // 读取当前选中的类别(自定义优先,否则 selectedCategory,否则空串)
+  function readCategory() {
+    if (catCustomInput && catCustomInput.value.trim()) return catCustomInput.value.trim();
+    return selectedCategory || '';
+  }
+
   // 取消
   document.getElementById('cal-form-cancel').onclick = function() {
     overlay.hidden = true;
@@ -792,6 +1023,7 @@ function openCalendarEventForm(opts) {
     const t = document.getElementById('cal-form-title-input').value.trim();
     const d = document.getElementById('cal-form-date-input').value;
     const n = document.getElementById('cal-form-note-input').value.trim();
+    const cat = readCategory();
     if (!t) { alert('标题不能为空'); return; }
     if (!d || !d.match(/^\d{4}-\d{2}-\d{2}$/)) { alert('日期格式错误'); return; }
 
@@ -801,13 +1033,13 @@ function openCalendarEventForm(opts) {
       if (isEdit) {
         res = await fetch('/api/calendar/' + itemId, {
           method: 'PATCH', headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({title: t, date: d, note: n, source_id: sourceId}),
+          body: JSON.stringify({title: t, date: d, note: n, category: cat, source_id: sourceId}),
         });
       } else {
         res = await fetch('/api/calendar', {
           method: 'POST', headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({
-            title: t, date: d, note: n,
+            title: t, date: d, note: n, category: cat,
             source_id: sourceId, source_type: sourceType, source_title: sourceTitle,
             date_source: rec ? 'detected' : 'manual',
             date_confidence: rec ? rec.confidence : '',

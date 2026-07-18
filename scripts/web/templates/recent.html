@@ -19,6 +19,7 @@
         return;
       }
       grid.innerHTML = data.items.map(item => renderArticleCard(item)).join('');
+      restoreScroll();
     } catch (e) {
       grid.innerHTML = `<div class="error">加载失败:${escapeHtml(e.message)}</div>`;
     }

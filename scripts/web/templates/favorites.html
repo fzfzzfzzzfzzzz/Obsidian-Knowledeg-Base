@@ -2,27 +2,150 @@
 {% block title %}收藏夹 · 知识库{% endblock %}
 {% block content %}
 <h1 class="page-title">⭐ 收藏夹</h1>
-<p class="page-hint muted">你主动收藏的重要文章。点文章卡片或详情页的 ⭐ 按钮收藏。</p>
-<div id="favorites-grid" class="card-grid">
-  <div class="loading">加载中...</div>
+<p class="page-hint muted">按文件夹分类管理收藏的文章。左侧选文件夹,右侧看文章;点文章卡片或详情页的 ⭐ 收藏。详情页可「📂 加入文件夹」。</p>
+
+<div class="collections-layout">
+  <aside class="collections-sidebar">
+    <button class="btn btn-primary btn-sm col-new-btn" onclick="openCreateCollection()">+ 新建文件夹</button>
+    <ul id="collection-list" class="collection-list">
+      <li class="loading">加载中...</li>
+    </ul>
+  </aside>
+  <main class="collections-main">
+    <div class="collections-main-head">
+      <h2 id="current-col-title" class="collections-main-title">全部收藏</h2>
+      <span id="current-col-count" class="count-badge"></span>
+    </div>
+    <div id="collection-articles" class="card-grid">
+      <div class="muted">选择左侧文件夹查看文章</div>
+    </div>
+  </main>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
-  async function loadFavorites() {
-    const grid = document.getElementById('favorites-grid');
+  let _activeCollection = KBState.get('kb-fav-col', 'all');
+  let _collectionsCache = [];
+
+  // 加载左侧文件夹列表
+  async function loadCollections() {
+    const list = document.getElementById('collection-list');
     try {
-      const res = await fetch('/api/favorites');
+      const res = await fetch('/api/collections');
       const data = await res.json();
-      if (!data.items || data.items.length === 0) {
-        grid.innerHTML = '<div class="empty">还没有收藏。点文章卡片右上角的 ⭐ 加入收藏。</div>';
-        return;
-      }
-      grid.innerHTML = data.items.map(item => renderArticleCard(item)).join('');
+      _collectionsCache = data.items || [];
+      // 「全部收藏」固定在最前
+      let html = '<li class="collection-item' + (_activeCollection === 'all' ? ' active' : '') + '" data-col="all" onclick="selectCollection(\'all\')">' +
+        '<span class="collection-name">⭐ 全部收藏</span>' +
+        '<span class="collection-count" id="count-all">-</span></li>';
+      _collectionsCache.forEach(col => {
+        const safeName = escapeHtml(col.name).replace(/'/g, '&#39;');
+        html += '<li class="collection-item' + (_activeCollection === col.id ? ' active' : '') + '" data-col="' + col.id + '" onclick="selectCollection(\'' + col.id + '\')">' +
+          '<span class="collection-name">📂 ' + escapeHtml(col.name) + '</span>' +
+          '<span class="collection-count">' + col.count + '</span>' +
+          '<span class="collection-ops">' +
+            '<button class="col-op-btn" title="重命名" onclick="event.stopPropagation();renameCollection(\'' + col.id + '\',\'' + safeName + '\')">✎</button>' +
+            '<button class="col-op-btn" title="删除" onclick="event.stopPropagation();deleteCollection(\'' + col.id + '\',\'' + safeName + '\')">🗑</button>' +
+          '</span></li>';
+      });
+      list.innerHTML = html;
+      // 更新「全部收藏」计数
+      fetch('/api/collections/all/articles').then(r => r.json()).then(d => {
+        const el = document.getElementById('count-all');
+        if (el) el.textContent = (d.items || []).length;
+      }).catch(()=>{});
     } catch (e) {
-      grid.innerHTML = `<div class="error">加载失败:${escapeHtml(e.message)}</div>`;
+      list.innerHTML = '<li class="error">加载失败:' + escapeHtml(e.message) + '</li>';
     }
   }
-  loadFavorites();
+
+  // 选文件夹 → 右侧加载文章
+  async function selectCollection(colId) {
+    _activeCollection = colId;
+    KBState.set('kb-fav-col', colId);
+    // 切文件夹时清掉旧滚动位置,避免新列表滚到错误位置
+    KBState.del('kb-scroll-favorites');
+    document.querySelectorAll('.collection-item').forEach(li => {
+      li.classList.toggle('active', li.dataset.col === colId);
+    });
+    const titleEl = document.getElementById('current-col-title');
+    const countEl = document.getElementById('current-col-count');
+    const grid = document.getElementById('collection-articles');
+    if (colId === 'all') {
+      titleEl.textContent = '全部收藏';
+    } else {
+      const col = _collectionsCache.find(c => c.id === colId);
+      titleEl.textContent = col ? '📂 ' + col.name : '文件夹';
+    }
+    countEl.textContent = '';
+    grid.innerHTML = '<div class="loading">加载中...</div>';
+    try {
+      const res = await fetch('/api/collections/' + encodeURIComponent(colId) + '/articles');
+      const data = await res.json();
+      const items = data.items || [];
+      countEl.textContent = items.length;
+      if (items.length === 0) {
+        grid.innerHTML = '<div class="empty">这个文件夹还没有文章。在文章详情页点「📂 加入文件夹」。</div>';
+        return;
+      }
+      grid.innerHTML = items.map(renderArticleCard).join('');
+      restoreScroll();
+    } catch (e) {
+      grid.innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
+    }
+  }
+
+  async function openCreateCollection() {
+    const name = await promptModal('新建文件夹', '输入文件夹名称(如:金融)', '');
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed) { toast('名称不能为空', 'warning'); return; }
+    try {
+      const res = await fetch('/api/collections', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: trimmed}),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast('新建失败:' + (data.detail || ''), 'error'); return; }
+      toast('✓ 已新建文件夹「' + trimmed + '」', 'success');
+      await loadCollections();
+    } catch (e) { toast('网络错误:' + e.message, 'error'); }
+  }
+
+  async function renameCollection(colId, oldName) {
+    const name = await promptModal('重命名文件夹', '输入新名称', oldName);
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === oldName) return;
+    try {
+      const res = await fetch('/api/collections/' + colId, {
+        method: 'PATCH', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: trimmed}),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast('重命名失败:' + (data.detail || ''), 'error'); return; }
+      toast('✓ 已重命名', 'success');
+      await loadCollections();
+      if (_activeCollection === colId) selectCollection(colId);
+    } catch (e) { toast('网络错误:' + e.message, 'error'); }
+  }
+
+  async function deleteCollection(colId, name) {
+    if (!await confirmModal('确认删除文件夹「' + name + '」?\n\n文章不会被删除,只是从该文件夹移出。', {title: '删除文件夹', danger: true, confirmText: '删除'})) return;
+    try {
+      const res = await fetch('/api/collections/' + colId, {method: 'DELETE'});
+      if (!res.ok) { const d = await res.json(); toast('删除失败:' + (d.detail || ''), 'error'); return; }
+      toast('✓ 已删除文件夹', 'success');
+      if (_activeCollection === colId) _activeCollection = 'all';
+      await loadCollections();
+      selectCollection(_activeCollection);
+    } catch (e) { toast('网络错误:' + e.message, 'error'); }
+  }
+
+  // 兼容 refreshCurrentPage
+  async function loadFavorites() { await loadCollections(); selectCollection(_activeCollection); }
+
+  loadCollections();
+  selectCollection(_activeCollection);
 </script>
 {% endblock %}

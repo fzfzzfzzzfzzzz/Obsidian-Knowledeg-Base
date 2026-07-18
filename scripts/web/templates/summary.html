@@ -52,6 +52,7 @@
             onclick="toggleReadLater('${SOURCE_ID}')">${rl ? '📖✓ 已加入稍后读' : '📖 稍后阅读'}</button>
           <button class="btn detail-action-btn ${fav ? 'active-fav' : ''}" data-field="is_favorite"
             onclick="toggleFavorite('${SOURCE_ID}')">${fav ? '⭐✓ 已收藏' : '⭐ 收藏'}</button>
+          <button class="btn" onclick="openAddToCollections('${SOURCE_ID}')">📂 加入文件夹</button>
           <button class="btn" id="calendar-btn" onclick="openCalendarDialog()">📅 添加到日历</button>
           ${hasSummary ? `<button class="btn btn-warn" id="regen-btn" onclick="regenerateSummary(this)">🔄 重新生成</button>` : ''}
           ${hasSummary ? `<button class="btn btn-ghost" onclick="deleteSummary(this)">🗑 删除 summary</button>` : ''}

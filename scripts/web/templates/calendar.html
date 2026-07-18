@@ -3,10 +3,18 @@
 {% block content %}
 <h1 class="page-title">📅 日历</h1>
 
+<!-- v0.4.2: 标签筛选条(影响月/列表/时间轴三视图) -->
+<div class="cal-filter-bar" id="cal-filter-bar">
+  <span class="cal-filter-label muted">显示类别:</span>
+  <span id="cal-filter-chips" style="display: contents;"></span>
+  <button class="cal-filter-clear" id="cal-filter-clear" type="button">全选</button>
+</div>
+
 <div class="cal-toolbar">
   <div class="cal-view-tabs">
-    <button class="btn btn-sm {% if not view or view == 'month' %}btn-primary{% else %}btn-secondary{% endif %}" onclick="switchView('month')">月视图</button>
-    <button class="btn btn-sm {% if view == 'list' %}btn-primary{% else %}btn-secondary{% endif %}" onclick="switchView('list')">列表视图</button>
+    <button class="btn btn-sm btn-primary" data-view="month" onclick="switchView('month')">月视图</button>
+    <button class="btn btn-sm btn-secondary" data-view="list" onclick="switchView('list')">列表视图</button>
+    <button class="btn btn-sm btn-secondary" data-view="timeline" onclick="switchView('timeline')">时间轴</button>
   </div>
   <button class="btn btn-primary btn-sm" onclick="openCreateDialog()">+ 新建事项</button>
 </div>
@@ -35,6 +43,17 @@
   <div id="cal-list" class="cal-list"></div>
 </div>
 
+<!-- 时间轴视图(v0.4.2) -->
+<div id="cal-timeline-view" class="cal-timeline-view" style="display:none;">
+  <div class="cal-timeline-subtabs">
+    <button class="btn btn-sm btn-primary" data-tl="vertical" onclick="switchTimeline('vertical')">垂直</button>
+    <button class="btn btn-sm btn-secondary" data-tl="horizontal" onclick="switchTimeline('horizontal')">水平</button>
+  </div>
+  <div class="cal-timeline-scroll">
+    <div id="cal-timeline"></div>
+  </div>
+</div>
+
 {% endblock %}
 {% block scripts %}
 <script>
@@ -42,28 +61,55 @@
   let calYear, calMonth;  // 当前显示的年月(0-indexed month)
   let allItems = [];
   let currentListFilter = 'upcoming';  // 列表视图当前筛选,删除后保持
-
-  // 事件配色:按来源类型映射(与 style.css 中 --ev-* 令牌对应)
-  const EV_COLORS = {
-    github: '#2563eb', wechat: '#16a34a', x: '#1f2937',
-    douyin: '#db2777', gpt_chat: '#d97706', web: '#4f46e5',
-  };
-  function evColor(t) { return EV_COLORS[t] || '#64748b'; }
+  let currentTimelineOrient = 'vertical';  // 时间轴布局:vertical | horizontal
+  let activeFilters = null;  // Set<category> 或 null(未初始化=全选)
 
   const today = new Date();
   calYear = today.getFullYear();
   calMonth = today.getMonth();
+  const todayStr = today.toISOString().slice(0, 10);
+
+  // v0.4.2: category 配色(预设 6 类)。与 style.css 中 --cat-* 令牌对应。
+  const CAT_META = {
+    'todolist':  { color: '#64748b', icon: '📋', label: 'todolist' },
+    '会议':      { color: '#2563eb', icon: '📅', label: '会议' },
+    '财报':      { color: '#16a34a', icon: '💰', label: '财报' },
+    '截止日期':  { color: '#dc2626', icon: '⏰', label: '截止日期' },
+    '发布':      { color: '#8b5cf6', icon: '🚀', label: '发布' },
+    '其他':      { color: '#d97706', icon: '📌', label: '其他' },
+  };
+  const CAT_ORDER = ['todolist', '会议', '财报', '截止日期', '发布', '其他'];
+
+  // 自定义类别回退:基于字符串 hash 取一个稳定颜色
+  function catColor(cat) {
+    if (cat && CAT_META[cat]) return CAT_META[cat].color;
+    if (!cat) return CAT_META['其他'].color;
+    let h = 0;
+    for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) | 0;
+    const palette = ['#0ea5e9', '#9333ea', '#ea580c', '#0d9488', '#be185d', '#4f46e5', '#65a30d'];
+    return palette[Math.abs(h) % palette.length];
+  }
+  function catIcon(cat) {
+    return (cat && CAT_META[cat]) ? CAT_META[cat].icon : '📌';
+  }
+  // 前端兜底 resolveCategory:与后端 _resolve_category 对齐
+  function resolveCategory(item) {
+    if (item.category) return item.category;
+    return item.source_type === 'todo' ? 'todolist' : '其他';
+  }
 
   function switchView(view) {
     currentView = view;
     document.getElementById('cal-month-view').style.display = view === 'month' ? '' : 'none';
     document.getElementById('cal-list-view').style.display = view === 'list' ? '' : 'none';
+    document.getElementById('cal-timeline-view').style.display = view === 'timeline' ? '' : 'none';
     // 更新 tab 样式
     document.querySelectorAll('.cal-view-tabs button').forEach(b => {
-      b.className = 'btn btn-sm ' + (b.textContent.includes(view === 'month' ? '月' : '列') ? 'btn-primary' : 'btn-secondary');
+      b.className = 'btn btn-sm ' + (b.dataset.view === view ? 'btn-primary' : 'btn-secondary');
     });
     if (view === 'month') renderMonth();
-    else loadList('upcoming');
+    else if (view === 'list') loadList(currentListFilter);
+    else renderTimeline();
   }
 
   function changeMonth(delta) {
@@ -85,6 +131,66 @@
       const data = await res.json();
       allItems = data.items || [];
     } catch(e) { allItems = []; }
+    // 加载后重建筛选条(类别集合可能变化)
+    rebuildFilterBar();
+  }
+
+  // ===== v0.4.2: 标签筛选 =====
+  function collectCategories() {
+    const set = new Set(CAT_ORDER);
+    allItems.forEach(i => set.add(resolveCategory(i)));
+    return [...set];
+  }
+
+  function rebuildFilterBar() {
+    const cats = collectCategories();
+    // 首次初始化:恢复持久化状态,否则全选
+    if (activeFilters === null) {
+      const saved = KBState.get('kb-cal-filters');
+      if (Array.isArray(saved) && saved.length) activeFilters = new Set(saved);
+      else activeFilters = new Set(cats);
+    }
+    const wrap = document.getElementById('cal-filter-chips');
+    wrap.innerHTML = cats.map(cat => {
+      const on = activeFilters.has(cat);
+      const c = catColor(cat);
+      const label = (CAT_META[cat] && CAT_META[cat].label) || cat;
+      return `<label class="cal-chip ${on ? '' : 'cal-chip-off'}" style="--ev:${c}" title="显示/隐藏「${escapeHtml(label)}」类事项">`
+        + `<input type="checkbox" data-cat="${escapeHtml(cat)}" ${on ? 'checked' : ''} onchange="onFilterChange()">`
+        + `<span class="cal-chip-dot" style="background:${c}"></span>`
+        + `<span>${catIcon(cat)} ${escapeHtml(label)}</span>`
+        + `</label>`;
+    }).join('');
+  }
+
+  function onFilterChange() {
+    const inputs = document.querySelectorAll('#cal-filter-chips input[type=checkbox]');
+    activeFilters = new Set();
+    inputs.forEach(inp => { if (inp.checked) activeFilters.add(inp.dataset.cat); });
+    // 同步样式(灰显)
+    document.querySelectorAll('#cal-filter-chips .cal-chip').forEach(chip => {
+      const inp = chip.querySelector('input');
+      chip.classList.toggle('cal-chip-off', !inp.checked);
+    });
+    KBState.set('kb-cal-filters', [...activeFilters]);
+    // 重渲染当前视图
+    if (currentView === 'month') renderMonth();
+    else if (currentView === 'list') loadList(currentListFilter);
+    else renderTimeline();
+  }
+
+  document.getElementById('cal-filter-clear').onclick = function() {
+    activeFilters = new Set(collectCategories());
+    KBState.set('kb-cal-filters', [...activeFilters]);
+    rebuildFilterBar();
+    if (currentView === 'month') renderMonth();
+    else if (currentView === 'list') loadList(currentListFilter);
+    else renderTimeline();
+  };
+
+  function applyFilter(items) {
+    if (!activeFilters || activeFilters.size === 0) return items;
+    return items.filter(i => activeFilters.has(resolveCategory(i)));
   }
 
   function renderMonth() {
@@ -101,8 +207,6 @@
     let startWeekday = firstDay.getDay() - 1;
     if (startWeekday < 0) startWeekday = 6;
 
-    const todayStr = today.toISOString().slice(0, 10);
-
     let html = '';
     // 上月尾部
     const prevLastDay = new Date(calYear, calMonth, 0).getDate();
@@ -110,14 +214,16 @@
       html += `<div class="cal-day cal-day-other">${prevLastDay - i}</div>`;
     }
     // 本月
+    const visibleItems = applyFilter(allItems);
     for (let d = 1; d <= daysInMonth; d++) {
       const dateStr = `${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      const dayItems = allItems.filter(i => i.date === dateStr);
+      const dayItems = visibleItems.filter(i => i.date === dateStr);
       const isToday = dateStr === todayStr;
       let itemsHtml = '';
       dayItems.slice(0, 3).forEach(item => {
-        const ev = evColor(item.source_type);
-        itemsHtml += `<div class="cal-day-item" style="--ev:${ev}" onclick="event.stopPropagation();openEditDialog('${item.id}')" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>`;
+        const cat = resolveCategory(item);
+        const ev = catColor(cat);
+        itemsHtml += `<div class="cal-day-item" style="--ev:${ev}" onclick="event.stopPropagation();openEditDialog('${item.id}')" title="${escapeHtml(item.title)}">${catIcon(cat)} ${escapeHtml(item.title)}</div>`;
       });
       if (dayItems.length > 3) {
         itemsHtml += `<div class="cal-day-more" onclick="event.stopPropagation();showDayItems('${dateStr}')">+${dayItems.length - 3} 更多</div>`;
@@ -141,10 +247,9 @@
     currentListFilter = filter;
     await loadCalendarItems();
     const list = document.getElementById('cal-list');
-    const todayStr = today.toISOString().slice(0, 10);
-    let items = allItems;
-    if (filter === 'upcoming') items = allItems.filter(i => i.date >= todayStr);
-    else if (filter === 'past') items = allItems.filter(i => i.date < todayStr);
+    let items = applyFilter(allItems);
+    if (filter === 'upcoming') items = items.filter(i => i.date >= todayStr);
+    else if (filter === 'past') items = items.filter(i => i.date < todayStr);
     items.sort((a, b) => filter === 'past' ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date));
 
     // 更新 filter 按钮
@@ -154,25 +259,111 @@
     });
 
     if (items.length === 0) {
-      list.innerHTML = '<div class="empty">还没有日历事项。从知识详情页添加重要日期,或在这里手动创建。</div>';
+      list.innerHTML = '<div class="empty">还没有日历事项,或当前筛选条件下没有事项。从知识详情页添加重要日期,或在这里手动创建。</div>';
       return;
     }
-    list.innerHTML = items.map(item => `
-      <div class="cal-list-item" style="--ev:${evColor(item.source_type)}" onclick="openEditDialog('${item.id}')">
+    list.innerHTML = items.map(item => {
+      const cat = resolveCategory(item);
+      const ev = catColor(cat);
+      return `
+      <div class="cal-list-item" style="--ev:${ev}" onclick="openEditDialog('${item.id}')">
         <div class="cal-list-date">${item.date}</div>
         <div class="cal-list-body">
-          <div class="cal-list-title">${escapeHtml(item.title)}</div>
+          <div class="cal-list-title">${catIcon(cat)} ${escapeHtml(item.title)}</div>
           ${item.source_title ? `<div class="cal-list-source muted">来源:${escapeHtml(item.source_title)}</div>` : ''}
           ${item.note ? `<div class="cal-list-note muted">${escapeHtml(item.note)}</div>` : ''}
         </div>
+        <span class="tl-item-cat" style="--ev:${ev}">${escapeHtml(cat)}</span>
         ${item.source_id ? `<a href="/summary/${encodeURIComponent(item.source_id)}" class="cal-list-link" onclick="event.stopPropagation()">查看关联 →</a>` : ''}
         <button class="cal-list-del" title="删除" aria-label="删除事项" onclick="event.stopPropagation();deleteCalendarItem('${item.id}')">✕</button>
-      </div>
-    `).join('');
+      </div>`;
+    }).join('');
+  }
+
+  // ===== v0.4.2: 时间轴视图 =====
+  function switchTimeline(orient) {
+    currentTimelineOrient = orient;
+    KBState.set('kb-cal-tl-orient', orient);
+    document.querySelectorAll('.cal-timeline-subtabs button').forEach(b => {
+      b.className = 'btn btn-sm ' + (b.dataset.tl === orient ? 'btn-primary' : 'btn-secondary');
+    });
+    renderTimeline();
+  }
+
+  function fmtWeekday(dateStr) {
+    try {
+      const d = new Date(dateStr + 'T00:00:00');
+      return ['周日','周一','周二','周三','周四','周五','周六'][d.getDay()];
+    } catch(e) { return ''; }
+  }
+  function fmtDateLabel(dateStr) {
+    // YYYY-MM-DD -> "7月16日"
+    const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return dateStr;
+    return parseInt(m[2], 10) + '月' + parseInt(m[3], 10) + '日';
+  }
+
+  function renderTimeline() {
+    const container = document.getElementById('cal-timeline');
+    if (!container) return;
+    const items = applyFilter(allItems).slice().sort((a, b) => a.date.localeCompare(b.date));
+
+    if (items.length === 0) {
+      container.innerHTML = '<div class="empty">还没有日历事项,或当前筛选条件下没有事项。</div>';
+      return;
+    }
+
+    // 按日期分组(保持升序)
+    const groups = {};
+    items.forEach(i => {
+      if (!groups[i.date]) groups[i.date] = [];
+      groups[i.date].push(i);
+    });
+    const dates = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+
+    const renderNode = (dateStr) => {
+      const isToday = dateStr === todayStr;
+      const itemsHtml = groups[dateStr].map(item => {
+        const cat = resolveCategory(item);
+        const ev = catColor(cat);
+        const meta = [];
+        if (item.source_title) meta.push('来源:' + item.source_title);
+        if (item.note) meta.push(item.note);
+        const metaHtml = meta.length ? `<div class="tl-item-meta">${escapeHtml(meta.join(' · '))}</div>` : '';
+        return `
+          <div class="tl-item" style="--ev:${ev}" onclick="openEditDialog('${item.id}')">
+            <span class="tl-item-icon">${catIcon(cat)}</span>
+            <div class="tl-item-body">
+              <div class="tl-item-title">${escapeHtml(item.title)}</div>
+              ${metaHtml}
+            </div>
+            <span class="tl-item-cat" style="--ev:${ev}">${escapeHtml(cat)}</span>
+          </div>`;
+      }).join('');
+      return `
+        <div class="tl-node ${isToday ? 'is-today' : ''}">
+          <div class="tl-date">
+            ${escapeHtml(fmtDateLabel(dateStr))}
+            <span class="tl-weekday">${escapeHtml(fmtWeekday(dateStr))}</span>
+            ${isToday ? '<span class="tl-today-tag">今天</span>' : ''}
+          </div>
+          ${itemsHtml}
+        </div>`;
+    };
+
+    if (currentTimelineOrient === 'horizontal') {
+      container.innerHTML = '<div class="tl-horizontal-scroll"><div class="tl-horizontal">'
+        + dates.map(renderNode).join('')
+        + '</div></div>';
+    } else {
+      container.innerHTML = '<div class="tl-vertical">'
+        + dates.map(renderNode).join('')
+        + '</div>';
+    }
   }
 
   function showDayItems(dateStr) {
-    const dayItems = allItems.filter(i => i.date === dateStr);
+    const dayItems = applyFilter(allItems).filter(i => i.date === dateStr);
     let msg = dateStr + ' 的事项:\n\n';
     dayItems.forEach(i => msg += '• ' + i.title + (i.source_title ? ' (来源:' + i.source_title + ')' : '') + '\n');
     alert(msg);
@@ -212,7 +403,8 @@
   async function refreshAfterChange() {
     await loadCalendarItems();
     if (currentView === 'month') renderMonth();
-    else loadList(currentListFilter);
+    else if (currentView === 'list') loadList(currentListFilter);
+    else renderTimeline();
   }
 
   async function deleteCalendarItem(itemId) {
@@ -233,6 +425,17 @@
   }
 
   // 初始化
-  loadCalendarItems().then(() => renderMonth());
+  (async function init() {
+    // 恢复时间轴布局偏好
+    const savedOrient = KBState.get('kb-cal-tl-orient');
+    if (savedOrient === 'horizontal' || savedOrient === 'vertical') {
+      currentTimelineOrient = savedOrient;
+      document.querySelectorAll('.cal-timeline-subtabs button').forEach(b => {
+        b.className = 'btn btn-sm ' + (b.dataset.tl === savedOrient ? 'btn-primary' : 'btn-secondary');
+      });
+    }
+    await loadCalendarItems();
+    renderMonth();
+  })();
 </script>
 {% endblock %}

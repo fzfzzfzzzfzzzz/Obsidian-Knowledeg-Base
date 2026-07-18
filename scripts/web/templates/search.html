@@ -69,6 +69,9 @@
         return;
       }
       grid.innerHTML = data.items.map(item => renderArticleCard(item)).join('');
+      // 保存当前筛选,返回时恢复
+      KBState.set('kb-search-filters', { q, status, fav, type, tags });
+      restoreScroll();
     } catch (e) {
       grid.innerHTML = '<div class="error">搜索失败:' + escapeHtml(e.message) + '</div>';
     }
@@ -92,10 +95,20 @@
   document.getElementById('filter-type').addEventListener('change', doSearch);
   document.getElementById('filter-tags').addEventListener('change', doSearch);
 
-  // 从 URL 参数预填
+  // 恢复上次筛选:URL 参数 ?q= 优先,否则用 sessionStorage(返回时恢复)
   const urlParams = new URLSearchParams(window.location.search);
-  if (urlParams.get('q')) {
-    document.getElementById('search-q').value = urlParams.get('q');
+  const urlQ = urlParams.get('q');
+  if (urlQ) {
+    document.getElementById('search-q').value = urlQ;
+  } else {
+    const saved = KBState.get('kb-search-filters', null);
+    if (saved) {
+      document.getElementById('search-q').value = saved.q || '';
+      document.getElementById('filter-status').value = saved.status || '';
+      document.getElementById('filter-favorite').value = saved.fav || '';
+      document.getElementById('filter-type').value = saved.type || '';
+      document.getElementById('filter-tags').value = saved.tags || '';
+    }
   }
   doSearch();
 </script>
