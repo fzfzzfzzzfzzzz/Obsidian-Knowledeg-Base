@@ -88,7 +88,7 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
 # 阅读状态管理(稍后阅读 / 最近阅读 / 收藏)
 # ---------------------------------------------------------------------------
 
-READING_FIELDS = ("read_later", "is_favorite", "last_read_at", "read_count", "reading_status")
+READING_FIELDS = ("read_later", "is_favorite", "last_read_at", "read_count", "reading_status", "collection_ids")
 VALID_READING_STATUS = ("to_read", "reading", "read")
 
 
@@ -101,6 +101,7 @@ def _ensure_reading_fields(source_record: dict) -> dict:
     r.setdefault("read_count", 0)
     r.setdefault("reading_status", "to_read")
     r.setdefault("tags", [])
+    r.setdefault("collection_ids", [])
     return r
 
 
@@ -361,6 +362,7 @@ def _summary_card_from_source(source_id: str, rec: dict) -> dict[str, Any]:
         "read_count": rec.get("read_count", 0),
         "reading_status": rec.get("reading_status", "to_read"),
         "tags": rec.get("tags", []),
+        "collection_ids": rec.get("collection_ids", []),
     }
 
 
@@ -424,6 +426,84 @@ def _build_favorites() -> list[dict[str, Any]]:
     """收藏夹:有 summary + is_favorite。"""
     cards = _summary_cards_only()
     return [c for c in cards if c["is_favorite"]]
+
+
+# ---------------------------------------------------------------------------
+# 收藏夹文件夹(collections)
+# ---------------------------------------------------------------------------
+
+
+def _get_collections(state: dict) -> dict[str, dict]:
+    """从 state 取 collections 字典,不存在则返回空 dict(不修改 state)。"""
+    cols = state.get("collections")
+    if not isinstance(cols, dict):
+        return {}
+    return cols
+
+
+def _migrate_default_collection(state: dict) -> bool:
+    """一次性迁移:若 state 无 collections,且存在 is_favorite=true 的文章,
+    自动建一个「默认收藏夹」把它们放进去。返回是否有改动。
+    """
+    if state.get("collections") is not None:
+        return False  # 已初始化过(哪怕为空)
+    fav_ids = [
+        sid for sid, rec in state.get("sources", {}).items()
+        if rec.get("is_favorite")
+    ]
+    state["collections"] = {}
+    if fav_ids:
+        import uuid
+        col_id = "col_" + uuid.uuid4().hex[:10]
+        state["collections"][col_id] = {
+            "id": col_id,
+            "name": "默认收藏夹",
+            "created_at": date.today().isoformat(),
+            "source_ids": fav_ids,
+        }
+        # 反向写回 source.collection_ids
+        for sid in fav_ids:
+            state["sources"][sid].setdefault("collection_ids", [])
+            if col_id not in state["sources"][sid]["collection_ids"]:
+                state["sources"][sid]["collection_ids"].append(col_id)
+    return True
+
+
+def _build_collections_list() -> list[dict[str, Any]]:
+    """所有收藏夹文件夹 + 每个的文章数。含一次性迁移。"""
+    state = kb.load_state()
+    if _migrate_default_collection(state):
+        kb.save_state(state)
+    cols = _get_collections(state)
+    items = []
+    for cid, col in cols.items():
+        # source_ids 里过滤掉已不存在的 source(防孤儿)
+        valid = [s for s in col.get("source_ids", []) if s in state.get("sources", {})]
+        items.append({
+            "id": cid,
+            "name": col.get("name", "(未命名)"),
+            "created_at": col.get("created_at", ""),
+            "count": len(valid),
+            "source_ids": valid,
+        })
+    items.sort(key=lambda x: x.get("created_at", ""))
+    return items
+
+
+def _build_collection_articles(col_id: str) -> list[dict[str, Any]]:
+    """某个收藏夹内的文章卡片(含无 summary 的,因为收藏夹要能看到全部)。"""
+    state = kb.load_state()
+    cols = _get_collections(state)
+    col = cols.get(col_id)
+    if not col:
+        return []
+    sources = state.get("sources", {})
+    cards = []
+    for sid in col.get("source_ids", []):
+        rec = sources.get(sid)
+        if rec:
+            cards.append(_summary_card_from_source(sid, rec))
+    return cards
 
 
 def _build_pending_summaries() -> list[dict[str, Any]]:
@@ -844,9 +924,15 @@ def _update_suggestion_status(
         raise HTTPException(404, f"文件里没有 {kind} 块")
 
     found = False
+    deleted = False
     new_blocks: list[str] = []
     for raw, meta, body in raw_blocks:
         if meta.get("id") == item_id or meta.get("id", "").endswith(item_id):
+            found = True
+            if new_status == "rejected":
+                # 拒绝 = 直接删除该块(不 append),而非标成 rejected 保留
+                deleted = True
+                continue
             # 替换该块的 status 行
             old_status = meta.get("status", "pending_review")
             updated = re.sub(
@@ -856,7 +942,6 @@ def _update_suggestion_status(
                 flags=re.MULTILINE,
             )
             new_blocks.append(updated)
-            found = True
         else:
             new_blocks.append(raw)
 
@@ -872,7 +957,7 @@ def _update_suggestion_status(
     new_content = header + "\n".join(new_blocks) + "\n"
     path.write_text(new_content, encoding=ENC)
 
-    return {"ok": True, "id": item_id, "new_status": new_status}
+    return {"ok": True, "id": item_id, "new_status": new_status, "deleted": deleted}
 
 
 # ---------------------------------------------------------------------------
@@ -1513,6 +1598,7 @@ class CalendarItemCreate(BaseModel):
     detected_date_id: str = ""
     date_source: str = "manual"  # detected | manual
     date_confidence: str = ""
+    category: str = ""  # v0.4.2: 事件类别(todolist/会议/财报/截止日期/发布/其他/自定义)
 
 
 class CalendarItemUpdate(BaseModel):
@@ -1520,13 +1606,28 @@ class CalendarItemUpdate(BaseModel):
     date: str = ""
     note: str = ""
     source_id: str | None = None  # None=不改,None 以外的值(含空串)=更新关联
+    category: str | None = None  # v0.4.2: None=不改,其余(含空串)=更新类别
+
+
+def _resolve_category(item: dict) -> str:
+    """v0.4.2: 推导事项的 category。
+    - 已有非空 category 原样返回
+    - 否则按 source_type 回填:todo → todolist,其余 → 其他
+    - 仅运行时计算,不写盘(避免改动旧用户数据)。
+    """
+    if item.get("category"):
+        return item["category"]
+    return "todolist" if item.get("source_type") == "todo" else "其他"
 
 
 @app.get("/api/calendar")
 async def api_calendar_list(start: str = "", end: str = ""):
-    """获取日历事项(可按日期范围筛选)。"""
+    """获取日历事项(可按日期范围筛选)。category 字段运行时回填。"""
     cal = kb.load_calendar()
     items = list(cal.get("items", {}).values())
+    # v0.4.2: 运行时回填 category,供前端筛选/着色使用(不写盘)
+    for it in items:
+        it["category"] = _resolve_category(it)
     if start:
         items = [i for i in items if i.get("date", "") >= start]
     if end:
@@ -1537,11 +1638,13 @@ async def api_calendar_list(start: str = "", end: str = ""):
 
 @app.get("/api/calendar/{item_id}")
 async def api_calendar_get(item_id: str):
-    """获取单个日历事项。"""
+    """获取单个日历事项。category 字段运行时回填。"""
     cal = kb.load_calendar()
     item = cal.get("items", {}).get(item_id)
     if not item:
         raise HTTPException(404, f"找不到日历事项:{item_id}")
+    item = dict(item)
+    item["category"] = _resolve_category(item)  # v0.4.2: 运行时回填
     return JSONResponse(item)
 
 
@@ -1579,12 +1682,16 @@ async def api_calendar_create(payload: CalendarItemCreate):
         "detected_date_id": payload.detected_date_id,
         "date_source": payload.date_source,
         "date_confidence": payload.date_confidence,
+        "category": payload.category,  # v0.4.2: 事件类别(空串=不指定,落库留空)
         "created_at": now,
         "updated_at": now,
     }
     cal["items"][item_id] = item
     kb.save_calendar(cal)
-    return JSONResponse({"ok": True, "item": item})
+    # 响应里回填 category,供前端直接渲染
+    resp_item = dict(item)
+    resp_item["category"] = _resolve_category(item)
+    return JSONResponse({"ok": True, "item": resp_item})
 
 
 @app.patch("/api/calendar/{item_id}")
@@ -1612,11 +1719,16 @@ async def api_calendar_update(item_id: str, payload: CalendarItemUpdate):
             # 移除关联:同时清空 source_type/source_title
             item["source_type"] = ""
             item["source_title"] = ""
+    # v0.4.2: 更新事件类别(None=不改,其余含空串=更新)
+    if payload.category is not None:
+        item["category"] = payload.category
     item["updated_at"] = datetime.now().isoformat(timespec="seconds")
 
     cal["items"][item_id] = item
     kb.save_calendar(cal)
-    return JSONResponse({"ok": True, "item": item})
+    resp_item = dict(item)
+    resp_item["category"] = _resolve_category(item)
+    return JSONResponse({"ok": True, "item": resp_item})
 
 
 @app.delete("/api/calendar/{item_id}")
@@ -1651,6 +1763,118 @@ async def api_recent():
 async def api_favorites():
     """收藏夹列表。"""
     return JSONResponse({"items": _build_favorites()})
+
+
+# ---------------------------------------------------------------------------
+# 收藏夹文件夹(collections)API
+# ---------------------------------------------------------------------------
+
+
+class CollectionNameRequest(BaseModel):
+    name: str
+
+
+class ArticleCollectionsRequest(BaseModel):
+    collection_ids: list[str]
+
+
+@app.get("/api/collections")
+async def api_collections_list():
+    """所有收藏夹文件夹(+ 每个的文章数)。含一次性默认夹迁移。"""
+    return JSONResponse({"items": _build_collections_list()})
+
+
+@app.post("/api/collections")
+async def api_collections_create(payload: CollectionNameRequest):
+    """新建收藏夹文件夹。"""
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(400, "文件夹名称不能为空")
+    if len(name) > 40:
+        raise HTTPException(400, "文件夹名称过长(最多 40 字)")
+    state = kb.load_state()
+    _migrate_default_collection(state)
+    cols = state.setdefault("collections", {})
+    # 同名也允许(用户责任),但 id 唯一
+    import uuid
+    col_id = "col_" + uuid.uuid4().hex[:10]
+    cols[col_id] = {
+        "id": col_id,
+        "name": name,
+        "created_at": date.today().isoformat(),
+        "source_ids": [],
+    }
+    kb.save_state(state)
+    return JSONResponse({"ok": True, "item": cols[col_id]})
+
+
+@app.patch("/api/collections/{col_id}")
+async def api_collections_rename(col_id: str, payload: CollectionNameRequest):
+    """重命名收藏夹文件夹。"""
+    name = (payload.name or "").strip()
+    if not name:
+        raise HTTPException(400, "文件夹名称不能为空")
+    state = kb.load_state()
+    cols = _get_collections(state)
+    if col_id not in cols:
+        raise HTTPException(404, f"找不到文件夹:{col_id}")
+    cols[col_id]["name"] = name
+    kb.save_state(state)
+    return JSONResponse({"ok": True, "item": cols[col_id]})
+
+
+@app.delete("/api/collections/{col_id}")
+async def api_collections_delete(col_id: str):
+    """删除收藏夹文件夹(文章不删,只解除关联)。"""
+    state = kb.load_state()
+    cols = _get_collections(state)
+    if col_id not in cols:
+        raise HTTPException(404, f"找不到文件夹:{col_id}")
+    # 清理所有 source 的 collection_ids 里对该夹的引用
+    for rec in state.get("sources", {}).values():
+        cids = rec.get("collection_ids", [])
+        if col_id in cids:
+            rec["collection_ids"] = [c for c in cids if c != col_id]
+    del cols[col_id]
+    kb.save_state(state)
+    return JSONResponse({"ok": True, "id": col_id})
+
+
+@app.get("/api/collections/{col_id}/articles")
+async def api_collection_articles(col_id: str):
+    """某收藏夹内的文章卡片。"""
+    if col_id == "all":
+        # 「全部收藏」= 所有 is_favorite=true
+        return JSONResponse({"items": _build_favorites()})
+    return JSONResponse({"items": _build_collection_articles(col_id)})
+
+
+@app.post("/api/article/{source_id}/collections")
+async def api_article_set_collections(source_id: str, payload: ArticleCollectionsRequest):
+    """设置某文章的文件夹归属(全量替换 collection_ids)。同步更新各夹的 source_ids。"""
+    state = kb.load_state()
+    sources = state.get("sources", {})
+    if source_id not in sources:
+        raise HTTPException(404, f"找不到 source:{source_id}")
+    cols = _get_collections(state)
+    new_ids = [c for c in payload.collection_ids if c in cols]
+    rec = sources[source_id]
+    old_ids = set(rec.get("collection_ids", []))
+    new_set = set(new_ids)
+    # 加进新夹
+    for cid in new_set - old_ids:
+        sids = cols[cid].setdefault("source_ids", [])
+        if source_id not in sids:
+            sids.append(source_id)
+    # 从旧夹移除
+    for cid in old_ids - new_set:
+        if cid in cols:
+            cols[cid]["source_ids"] = [
+                s for s in cols[cid].get("source_ids", []) if s != source_id
+            ]
+    rec["collection_ids"] = new_ids
+    kb.save_state(state)
+    return JSONResponse({"ok": True, "source_id": source_id, "collection_ids": new_ids})
 
 
 @app.post("/api/article/{source_id}/read-later")

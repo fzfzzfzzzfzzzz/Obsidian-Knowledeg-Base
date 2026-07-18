@@ -139,3 +139,5 @@ def test_todo_calendar_linkage_roundtrip(client):
     assert len(linked) == 1
     assert linked[0]["date"] == "2026-07-20"
     assert linked[0]["source_type"] == "todo"
+    # v0.4.2: todo 来源事项运行时回填 category=todolist
+    assert linked[0]["category"] == "todolist"

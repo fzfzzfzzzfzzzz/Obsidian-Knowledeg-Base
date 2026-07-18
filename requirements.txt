@@ -1,7 +1,9 @@
 # Obsidian KB 运行依赖
 # 安装: pip install -r requirements.txt
+# 首次还需装浏览器二进制: python -m playwright install chromium
 requests>=2.28
 fastapi>=0.100
 uvicorn>=0.23
 markdown>=3.4
 python-multipart>=0.0.6
+playwright>=1.40  # 抓取兜底:requests 抓不到(JS 渲染站点)时用浏览器渲染

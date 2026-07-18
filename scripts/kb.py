@@ -14,7 +14,7 @@ Obsidian 本地知识库 CLI —— MVP Phase 0 + Phase 1
     python scripts/kb.py accept-todos  [Phase 4 占位] 未实现
 
 设计原则(对应 plan.md 第 13 节 Codex 工作规则):
-    - 纯标准库,零第三方依赖
+    - 核心逻辑用标准库;网页抓取在 requests 不足时用 playwright 兜底
     - 所有路径相对 vault 根,不硬编码
     - 文件读写一律 UTF-8(避免 Windows 下中文乱码)
     - destructive 操作只 append / 移动到 processed.md,绝不删除用户原文
@@ -664,7 +664,6 @@ Build a local-first Obsidian knowledge base for summarizing frontier technical m
 - Only user-accepted suggestions may be moved into formal idea lists or weekly/monthly todo files.
 - MVP must not require external LLM APIs.
 - MVP must support manually pasted text in Inbox.
-- Do not implement platform-specific scrapers for X, Douyin, or WeChat in MVP.
 
 ## MVP Commands
 
@@ -1088,6 +1087,15 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         source_type = (meta.get("source_type", "manual").strip() or "manual").lower()
         if source_type not in SOURCE_TYPES:
             source_type = "manual"
+        # X 推文去噪:用户从 X 网页粘贴会带站点导航/交互数据/压缩重复段,
+        # 在入库时清洗掉(原始文本仍保留在 item["raw"] → processed.md 供追溯)
+        if source_type == "x" and _LLM_AVAILABLE:
+            try:
+                cleaned = kb_llm.clean_x_text(item["body"])
+                if cleaned.strip():
+                    item["body"] = cleaned
+            except Exception as e:
+                print(f"[ingest] item #{idx}: X 去噪失败({e}),保留原文")
         filename = make_source_filename(source_id, created_at, title)
         note_path = VAULT_ROOT / "01_Sources" / source_type / filename
         write_text(note_path, build_source_note(source_id, meta, item["body"], item["metadata_source"]))
@@ -1982,6 +1990,64 @@ def _ensure_monthly_file(path: Path, month_tag: str) -> None:
     write_text(path, content)
 
 
+def cmd_clean_x(args: argparse.Namespace) -> int:
+    """清洗已入库的 X source 正文(就地重写「## 原始内容」段,frontmatter 不动)。
+
+    供修复历史数据用:ingest 阶段的 X 去噪只对新入库生效,本命令把存量 X source
+    也洗一遍。幂等——已清洗的再跑不变。
+
+    用法:
+        python scripts/kb.py clean-x            # 实际清洗
+        python scripts/kb.py clean-x --dry-run  # 只打印效果,不写文件
+    """
+    if not _LLM_AVAILABLE:
+        print("[clean-x] 需要 kb_llm 模块,无法运行。")
+        return 1
+
+    x_dir = VAULT_ROOT / "01_Sources" / "x"
+    if not x_dir.exists():
+        print(f"[clean-x] 目录不存在:{x_dir}")
+        return 1
+
+    files = sorted(x_dir.glob("*.md"))
+    if not files:
+        print("[clean-x] 没有 X source 文件。")
+        return 0
+
+    dry = bool(getattr(args, "dry_run", False))
+    total_before = total_after = changed = 0
+    for f in files:
+        text = read_text(f)
+        # 定位「## 原始内容」段
+        m = re.search(r"(##\s*原始内容\s*\n)(.*)", text, re.DOTALL)
+        if not m:
+            print(f"  跳过(无「原始内容」段):{f.name}")
+            continue
+        head_marker, body = m.group(1), m.group(2).strip()
+        cleaned = kb_llm.clean_x_text(body)
+        total_before += len(body)
+        total_after += len(cleaned)
+        if cleaned == body:
+            continue  # 无变化
+        changed += 1
+        # 重写:替换「原始内容」之后的全部内容
+        prefix = text[: m.start()] + head_marker
+        new_text = prefix + cleaned + "\n"
+        if dry:
+            print(f"  [dry-run] {f.name}: {len(body)} -> {len(cleaned)}")
+        else:
+            write_text(f, new_text)
+            print(f"  ✓ {f.name}: {len(body)} -> {len(cleaned)}")
+
+    print(
+        f"[clean-x] 共 {len(files)} 个 X source,本次修改 {changed} 个;"
+        f"正文 {total_before} -> {total_after}"
+        f"(-{100 * (1 - total_after / total_before):.0f}%)"
+        + (" [dry-run,未写入]" if dry else "")
+    )
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     """启动知识库阅读前端(FastAPI)。
 
@@ -2065,6 +2131,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve.add_argument("--port", type=int, default=5173, help="监听端口(默认 5173)")
     p_serve.add_argument("--reload", action="store_true", help="开发模式(代码变更自动重载)")
     p_serve.set_defaults(func=cmd_serve)
+
+    p_cx = sub.add_parser("clean-x", help="清洗已入库的 X source 正文(去站点噪声/压缩重复)")
+    p_cx.add_argument("--dry-run", action="store_true", help="只预览效果,不写文件")
+    p_cx.set_defaults(func=cmd_clean_x)
 
     return p
 

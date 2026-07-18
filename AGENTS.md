@@ -12,7 +12,6 @@ Build a local-first Obsidian knowledge base for summarizing frontier technical m
 - Only user-accepted suggestions may be moved into formal idea lists or weekly/monthly todo files.
 - MVP must not require external LLM APIs.
 - MVP must support manually pasted text in Inbox.
-- Do not implement platform-specific scrapers for X, Douyin, or WeChat in MVP.
 
 ## MVP Commands
 

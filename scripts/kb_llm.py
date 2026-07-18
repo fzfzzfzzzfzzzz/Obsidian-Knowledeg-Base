@@ -90,6 +90,10 @@ def load_config() -> dict[str, Any]:
         "base_url": base_url.strip().rstrip("/") + "/",
         "timeout": timeout,
         "available": bool(api_key.strip()),
+        # X 登录态(抓 X Article 长文用;从浏览器开发者工具复制 cookie)。
+        # auth_token 是登录主凭证,ct0 是 CSRF token(两者都在 x.com 的 cookie 里)。
+        "x_auth_token": (os.environ.get("X_AUTH_TOKEN") or env.get("X_AUTH_TOKEN", "")).strip(),
+        "x_ct0": (os.environ.get("X_CT0") or env.get("X_CT0", "")).strip(),
     }
 
 
@@ -223,6 +227,177 @@ def _html_to_text(html: str) -> str:
         return re.sub(r"\s+", " ", text).strip()
 
 
+# ---------------------------------------------------------------------------
+# X / Twitter 粘贴正文清洗
+# ---------------------------------------------------------------------------
+# 用户从 X 网页复制推文时,会把站点导航/交互数据/页脚噪声一起粘进来,且
+# 同一条推文会出现两遍(<title> 渲染版 + 正文渲染版)。这里做确定性清洗,
+# 不调 LLM,只去站点噪声和重复段,保留推文正文与引用评论楼层。
+#
+# 实测噪声结构(见 01_Sources/x/ 下样本):
+#   1. 重复:`XX on X: "..." / X  XX on X: "..." / X` + `Post Log in Sign up...`
+#      + `XX @handle 正文...(正文渲染版)` —— 正文版信息更全,保留它
+#   2. 导航:`Post Log in Sign up Log inSign upPost`
+#   3. 时间戳:`22:40 · 2026年6月28日`
+#   4. 交互数据:`14.5万 Views`、`Read 8 replies`、`Show more`、纯数字计数串
+#   5. 页脚:`Don't miss what's happening ... Trending now`(结尾固定)
+
+
+def _strip_x_noise(text: str) -> str:
+    """对单段 X 文本做正则去噪(内部用)。"""
+    # HTML 实体(X 的 title 经 HTML 转义,&quot; 很常见)
+    text = text.replace("&quot;", '"').replace("&amp;", "&")
+    text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&#39;", "'")
+
+    # 页脚固定块(贪心匹配到结尾)——先删,避免它干扰后续判断
+    text = re.sub(
+        r"Don't miss what's happening.*?Trending now",
+        " ",
+        text,
+        flags=re.DOTALL,
+    )
+    # 结尾常残留的孤立导航
+    text = re.sub(r"Log ?in\s*Sign ?up.*$", " ", text, flags=re.DOTALL)
+
+    # 导航噪声
+    text = re.sub(r"Post\s*Log ?in\s*Sign ?up\s*(Log ?in\s*Sign ?up\s*)?Post", " ", text)
+    text = re.sub(r"Log ?inSign ?up", " ", text)
+
+    # 时间戳:`22:40 · 2026年6月28日` / `13:02 · 2026年6月29日` / `17:09 · 2026 ...`(压缩版年份后可能断开)
+    # 前缀用 (?<![\d:]) 避免匹配时间片段里的小时,也兼容粘连到字母后的情形(com14:48)
+    text = re.sub(r"(?<![\d:])\d{1,2}:\d{2}\s*[·•・]?\s*\d{4}(?:年[-]?\s*\d{1,2}(?:月\d{1,2}日?)?)?", " ", text)
+    # 时间戳粘连(如 `Show more13:02 · 2026年6月29日` 残留)
+    text = re.sub(r"(?<![\d:])\d{1,2}:\d{2}\s*[·•・]?\s*\d{4}年\d+月\d+日", " ", text)
+    # 残留的中文月日碎片:`月28日`、`月15日`、以及单独的 `年7` 这种被切断的年份碎片
+    text = re.sub(r"月\d{1,2}日", " ", text)
+    text = re.sub(r"年\d{1,2}(?!月|日)", " ", text)
+
+    # 交互数据
+    text = re.sub(r"\d+(?:\.\d+)?万?\s*Views", " ", text)
+    text = re.sub(r"Read\s+\d+\s+repl(?:y|ies)", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bShow more\b", " ", text, flags=re.IGNORECASE)
+    # 中文互动计数:`557070702811281281557557` 这种粘连数字串
+    text = re.sub(r"\b\d{10,}\b", " ", text)
+    # 粘连的大数字+K/M 计数(如 `353587872.3K`)
+    text = re.sub(r"\b\d{6,}(?:\.\d+)?[KMkm]\b", " ", text)
+    # 互动计数串:连续被空格分隔的短数字/带 K.M 后缀的计数(评论/转发/点赞/收藏)
+    # 形如 `5 7 0 70 2 8 1 281` / `6 . 4 K 6.4K` / `8 6 9 69 3 1 5 315 3 9 399`
+    text = re.sub(r"(?:\b\d+(?:\.\d+)?[KMkm]?\b\s*\.?\s*){4,}", " ", text)
+
+    return text
+
+
+def clean_x_text(text: str) -> str:
+    """清洗 X 推文正文(用户粘贴 / 系统抓取两种来源),去站点噪声与重复段,保留正文和引用评论。
+
+    X 文本的重复结构(来源不同,份数不同):
+      - 用户粘贴:通常 2 份 —— title 版(`XX on X: "..." / X`)+ 正文版(`@handle 正文`)
+      - 系统抓取:通常 3 份 —— title 版 + 正文版 + 压缩版(`名字@handle正文` 无空格)
+      正文版信息最全(带空格、@handle、楼层),保留它;其余重复份去掉。
+
+    算法(保守,只删重复/噪声,不删正文):
+        1. 提取可选的 `URL:/标题:/正文:` 头部(ingest 拼的),清洗后拼回。
+        2. 定位「正文版」:第一个形如 `@handle `(带空格)的位置,丢弃它之前的 title 段。
+           若无此特征(如纯 title),保留原文。
+        3. 正则去导航 / 时间戳 / 交互数据 / 页脚。
+        4. 去压缩版重复:按 @handle 分段,用去空白指纹比对,删掉是已保留段子串的重复段。
+        5. 折叠多余空白。
+
+    幂等:对已清洗文本再跑一次,结果不变。
+    """
+    if not text or not text.strip():
+        return text
+
+    body = text
+
+    # —— 1. 提取可选 header ——
+    header = ""
+    m_head = re.match(r"(URL:\s*\S+\s*\n标题:[^\n]*\n*\n正文:\s*)", body)
+    if m_head:
+        header = m_head.group(1)
+        body = body[m_head.end():]
+
+    # —— 2. 定位正文版,丢弃前导 title 段 ——
+    # 正文版特征:`@handle ` 后接空格(title 版是 `XX on X:`,压缩版是 `名字@handle` 无空格)。
+    # 找第一个 `@handle `(@ 后词字符 + 紧跟空格),它标记正文版起点。
+    body = _drop_x_title_prefix(body)
+
+    # —— 3. 去站点噪声 ——
+    body = _strip_x_noise(body)
+
+    # —— 4. 去压缩版/重复段 ——
+    body = _dedupe_x_segments(body)
+
+    # —— 5. 折叠空白 ——
+    body = re.sub(r"[ \t]+", " ", body)
+    body = re.sub(r"\n{3,}", "\n\n", body)
+    body = body.strip()
+
+    return (header + body) if header else body
+
+
+def _drop_x_title_prefix(body: str) -> str:
+    """丢弃正文版之前的 title 段(`XX on X: "..." / X ... Post Log in...`)。
+
+    正文版的可靠特征:出现 `@handle`(词字符)且其后紧跟空格(title 版里的 @ 在引号内、
+    无此空格;压缩版的 @ 前紧贴名字、@ 后无空格)。定位第一个这样的 @handle,截取其后。
+    若找不到(纯 title 或已清洗),原样返回。
+    """
+    # @handle 后紧跟空格 = 正文版锚点。允许多种 handle 字符。
+    m = re.search(r"@([A-Za-z0-9_]{2,})\s", body)
+    if not m:
+        return body
+    # 只在 @handle 前面确实存在 title 段特征时才截取,避免误删正文开头
+    prefix = body[: m.start()]
+    if "on X:" in prefix or "/ X" in prefix or "Post" in prefix or "Log in" in prefix:
+        return body[m.start():]
+    return body
+
+
+def _dedupe_x_segments(text: str) -> str:
+    """去掉 X 的重复段(压缩版 / 多份渲染)。
+
+    X 页面会把同一条推文渲染多份,其中一份是「正文版」(带空格、最完整),其余是
+    压缩版或 title 残留。按 @handle 把文本切段,对每段算去空白指纹;若某段指纹是
+    已保留段指纹的子串(或反过来),判为重复,删除。第一段总是保留。
+    """
+    # 按 @handle 切段(连同其前面的「名字」一起归入该段,避免名字碎片)
+    # 用 finditer 找所有 @handle 位置,在每两个 @handle 之间断开
+    at_positions = [m.start() for m in re.finditer(r"@[A-Za-z0-9_]{2,}", text)]
+    if len(at_positions) < 2:
+        return text  # 只有一段(或没有),无需去重
+
+    # 切段:第一段 = 开头到第二个 @handle 前;之后每段从一个 @handle 到下一个
+    segments = []
+    # 第一个 @handle 之前若有内容,并入第一段
+    first_at = at_positions[0]
+    segments.append(text[:at_positions[1]])  # 含两个 @handle 之间的部分作为第一段
+    for i in range(1, len(at_positions)):
+        end = at_positions[i + 1] if i + 1 < len(at_positions) else len(text)
+        segments.append(text[at_positions[i]:end])
+
+    def fp(s: str) -> str:
+        return re.sub(r"\s+", "", s)
+
+    kept = [segments[0]]
+    kept_fps = [fp(segments[0])]
+    for seg in segments[1:]:
+        f = fp(seg)
+        if len(f) < 8:
+            # 太短的名字碎片:若它紧贴前一段(去空白后是前段尾缀),跳过
+            if any(kf.endswith(f) or f in kf[-len(f) * 2:] for kf in kept_fps if kf):
+                continue
+            kept.append(seg)
+            kept_fps.append(f)
+            continue
+        # 是已保留任一段的子串,或已保留段是它的子串 → 重复
+        is_dup = any(f in kf or kf in f for kf in kept_fps)
+        if not is_dup:
+            kept.append(seg)
+            kept_fps.append(f)
+    return "".join(kept)
+
+
 def fetch_url_text(url: str, *, timeout: int = 20) -> dict[str, str]:
     """抓取 URL 的网页正文。
 
@@ -261,6 +436,17 @@ def fetch_url_text(url: str, *, timeout: int = 20) -> dict[str, str]:
         title = re.sub(r"\s+", " ", m.group(1)).strip()
 
     text = _html_to_text(html)
+    # X / Twitter 页面 HTML 会把同一条推文在 <title>、<noscript>、JSON-LD 等多处
+    # 重复渲染,且带站点导航/交互数据噪声。在抓取源头就清洗掉,保证 enriched text、
+    # raw_text、source note 全是干净的(只对 X URL 生效,不影响 web/wechat/github)。
+    # 先从原始 HTML 提取 t.co 短链(清洗后的 text 会丢掉 a 标签里的链接),
+    # 供「纯链接推文」场景跟踪外部正文用。
+    tco_links: list[str] = []
+    if _is_x_url(url) or _is_x_url(resp.url):
+        for sl in re.findall(r"https?://t\.co/[A-Za-z0-9]+", html):
+            if sl not in tco_links:
+                tco_links.append(sl)
+        text = clean_x_text(text)
     # 截断,避免过长
     if len(text) > FETCH_MAX_CHARS:
         text = text[:FETCH_MAX_CHARS]
@@ -270,7 +456,242 @@ def fetch_url_text(url: str, *, timeout: int = 20) -> dict[str, str]:
         "title": title,
         "text": text,
         "ok": bool(text and len(text) > 80),  # 太短视为没抓到正文
+        "tco_links": tco_links,
     }
+
+
+def _is_x_url(url: str) -> bool:
+    """判断 URL 是否为 X / Twitter(X 需登录但公开推文可抓,且页面有固定重复结构)。"""
+    if not url:
+        return False
+    u = url.lower()
+    return "://x.com/" in u or "://twitter.com/" in u or "://www.x.com/" in u or "://www.twitter.com/" in u
+
+
+# ---------------------------------------------------------------------------
+# Playwright 兜底抓取(requests 拿不到足够正文时降级用浏览器渲染 JS)
+# ---------------------------------------------------------------------------
+# 单例化:浏览器启动开销大(秒级),复用同一个 browser/context,避免每次抓取都重启。
+# 进程结束时由 atexit 关闭。首次调用时 lazy init。
+_PW_PLAYWRIGHT = None  # sync_playwright().start() 返回的上下文
+_PW_BROWSER = None     # Browser 实例
+
+
+def _get_pw_browser():
+    """惰性初始化并复用 playwright 的 browser 实例。返回 (playwright_ctx, browser)。
+    未安装 playwright 时抛 LLMError,调用方负责降级。"""
+    global _PW_PLAYWRIGHT, _PW_BROWSER
+    if _PW_BROWSER is not None:
+        return _PW_PLAYWRIGHT, _PW_BROWSER
+    try:
+        from playwright.sync_api import sync_playwright  # type: ignore
+    except ImportError as e:
+        raise LLMError(
+            "playwright 未安装。运行: pip install playwright && playwright install chromium"
+        ) from e
+    _PW_PLAYWRIGHT = sync_playwright().start()
+    _PW_BROWSER = _PW_PLAYWRIGHT.chromium.launch(headless=True)
+    return _PW_PLAYWRIGHT, _PW_BROWSER
+
+
+import atexit as _atexit
+
+
+def _close_pw():
+    global _PW_PLAYWRIGHT, _PW_BROWSER
+    try:
+        if _PW_BROWSER:
+            _PW_BROWSER.close()
+        if _PW_PLAYWRIGHT:
+            _PW_PLAYWRIGHT.stop()
+    except Exception:
+        pass
+    _PW_BROWSER = None
+    _PW_PLAYWRIGHT = None
+
+
+_atexit.register(_close_pw)
+
+
+def fetch_url_playwright(url: str, *, timeout: int = 30) -> dict[str, str]:
+    """用 playwright(headless chromium)抓取 URL,等 JS 渲染后取正文。
+
+    用于 requests 抓不到足够正文(JS 渲染站点)的兜底。复用单例 browser,
+    每次 new_context + new_page(隔离 cookie/状态,避免串扰)。
+
+    返回格式同 fetch_url_text。失败抛 LLMError,调用方负责回退。
+    """
+    _, browser = _get_pw_browser()
+    context = browser.new_context(
+        user_agent=_FETCH_HEADERS["User-Agent"],
+        locale="zh-CN",
+    )
+    # X 登录态注入(抓 X Article 长文必须登录):若配了 cookie 且是 X URL,注入。
+    cfg = load_config()
+    if (_is_x_url(url)) and cfg.get("x_auth_token"):
+        cookies = [
+            {"name": "auth_token", "value": cfg["x_auth_token"],
+             "domain": ".x.com", "path": "/"},
+            {"name": "ct0", "value": cfg["x_ct0"], "domain": ".x.com", "path": "/"},
+        ]
+        try:
+            context.add_cookies(cookies)
+        except Exception:
+            pass
+    page = context.new_page()
+    try:
+        # X 带登录态时,直接深链访问 article 会被反爬拦("Something went wrong")。
+        # 先访问 home 暖会话(激活 cookie / 建立 CSRF 上下文),再 goto 目标。
+        if _is_x_url(url) and cfg.get("x_auth_token"):
+            try:
+                page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=15000)
+                page.wait_for_timeout(1500)
+            except Exception:
+                pass
+        # 用 domcontentloaded 而非 networkidle:X/微信等站点有持续网络活动,
+        # networkidle 会一直等不到而超时。DOM 就绪后短暂等待让 JS 渲染正文。
+        page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
+        try:
+            page.wait_for_timeout(2500)  # 给 JS 渲染/懒加载时间
+        except Exception:
+            pass
+        html = page.content()
+        final_url = page.url
+        title = page.title() or ""
+    finally:
+        context.close()
+
+    text = _html_to_text(html)
+    tco_links: list[str] = []
+    if _is_x_url(url) or _is_x_url(final_url):
+        for sl in re.findall(r"https?://t\.co/[A-Za-z0-9]+", html):
+            if sl not in tco_links:
+                tco_links.append(sl)
+        text = clean_x_text(text)
+    if len(text) > FETCH_MAX_CHARS:
+        text = text[:FETCH_MAX_CHARS]
+    return {
+        "url": final_url,
+        "title": title,
+        "text": text,
+        "ok": bool(text and len(text) > 80),
+        "tco_links": tco_links,
+    }
+
+
+def _is_likely_preview(text: str) -> bool:
+    """判断抓到的正文是否疑似「预览/截断」(不够完整,值得降级或跟踪短链)。
+
+    信号:1) 过短;2) 以省略号/截断符结尾(X 的 line-clamp 预览常以 ... 结尾)。
+    """
+    if not text:
+        return True
+    t = text.strip()
+    if len(t) < 200:
+        return True
+    # 结尾是省略号(中英文)或被截断的 t.co 残留
+    if t.endswith(("...", "…", "… ", ". . .")) or re.search(r"https?://t\.co/\S*$", t):
+        return True
+    return False
+
+
+def _resolve_tco_and_fetch(tco_links: list[str]) -> dict[str, str] | None:
+    """对 t.co 短链解析重定向目标,抓取真实外部正文。
+
+    用于「纯链接推文」(推文正文就是个链接):X 页面只显示链接卡片预览,
+    真正的正文在 t.co 跳转后的目标。返回抓取结果,无有效目标/抓失败返回 None。
+
+    t.co 常用 JS 重定向(location.replace),requests 跟不上;但响应 body 的
+    <noscript>/<title> 里暴露了真实目标,这里 GET 后正则解析。
+    目标可能是外部文章(直接抓),也可能是 X Article(x.com/i/article/,需登录,
+    会递归走 fetch_url_with_fallback → playwright 带 cookie)。
+    """
+    requests = _import_requests()
+    for sl in tco_links:
+        try:
+            # GET 而非 HEAD:t.co 常用 JS 跳转,HEAD 拿不到目标;GET body 里有真实 URL
+            r = requests.get(sl, headers=_FETCH_HEADERS, timeout=15, allow_redirects=True)
+            target = r.url
+            if "t.co" in target:
+                # 没发生 HTTP 重定向(JS 跳转),从 body 解析真实目标
+                body = r.text or ""
+                m = re.search(
+                    r"https?://[^\s\"'<>]+/(?:i/article/|statuses/|status/)?[^\s\"'<>]*",
+                    body,
+                )
+                # 优先匹配 noscript meta refresh / title 里的 URL
+                m2 = re.search(r"(?:URL=|<title>)(https?://[^\s\"'<>]+)", body)
+                target = (m2.group(1) if m2 else (m.group(0) if m else target))
+            if target and "t.co" not in target:
+                # 递归抓(外部站走 requests/playwright;X Article 走带 cookie 的 playwright)
+                return fetch_url_with_fallback(target)
+        except Exception:
+            continue
+    return None
+
+
+def _is_x_article_url(url: str) -> bool:
+    """X Article 长文 URL(x.com/i/article/... 或 x.com/<user>/article/...)。
+    这类 URL 强制登录,requests 抓不到(还会触发反爬污染后续 playwright),
+    必须直接用带 cookie 的 playwright。"""
+    if not url:
+        return False
+    u = url.lower()
+    return ("/i/article/" in u) or ("/article/" in u and ("x.com" in u or "twitter.com" in u))
+
+
+def fetch_url_with_fallback(url: str, *, timeout: int = 20) -> dict[str, str]:
+    """抓取统一入口:requests 为主,正文不够时依次尝试 ① t.co 跟踪 ② playwright。
+
+    判定「正文够不够」见 _is_likely_preview。返回值同 fetch_url_text,
+    额外字段 fetched_via(“requests”/“tco”/“playwright”)记录实际用的路径。
+
+    例外:X Article URL 强制登录,跳过 requests 直接用带 cookie 的 playwright
+    (requests 抓会触发反爬,污染后续 playwright 请求)。
+    """
+    # 0. X Article → 直接 playwright(带 cookie),不走 requests
+    if _is_x_article_url(url):
+        try:
+            pw_page = fetch_url_playwright(url, timeout=30)
+            if pw_page["ok"]:
+                pw_page["fetched_via"] = "playwright"
+                return pw_page
+        except LLMError:
+            pass  # playwright 失败则继续走下面的常规流程
+
+    # 1. requests 抓
+    try:
+        page = fetch_url_text(url, timeout=timeout)
+    except LLMError:
+        page = {"url": url, "title": "", "text": "", "ok": False}
+
+    if page["ok"] and not _is_likely_preview(page["text"]):
+        page["fetched_via"] = "requests"
+        return page
+
+    # 2. requests 不够 → 纯链接推文?尝试 t.co 跟踪外部文章
+    if _is_x_url(url):
+        try:
+            tco_page = _resolve_tco_and_fetch(page.get("tco_links") or [])
+            if tco_page and tco_page.get("ok") and not _is_likely_preview(tco_page["text"]):
+                tco_page["fetched_via"] = "tco"
+                return tco_page
+        except Exception:
+            pass
+
+    # 3. 仍不够 → playwright 兜底(渲染 JS)
+    try:
+        pw_page = fetch_url_playwright(url, timeout=30)
+        # playwright 比 requests 好(更长/非预览)才用它,否则保留 requests 的结果
+        if pw_page["ok"] and len(pw_page["text"]) > len(page["text"]) + 50:
+            pw_page["fetched_via"] = "playwright"
+            return pw_page
+    except LLMError:
+        pass  # playwright 不可用,回退
+
+    # 4. 都不行,返回 requests 的结果(可能是预览,但总比空好)
+    page["fetched_via"] = "requests"
+    return page
 
 
 def chat(
@@ -279,6 +700,7 @@ def chat(
     temperature: float = 0.3,
     max_tokens: int | None = None,
     retries: int = 1,
+    thinking: str = "disabled",
 ) -> dict[str, Any]:
     """调用 chat completions,返回标准化结果。
 
@@ -287,6 +709,10 @@ def chat(
         temperature: 采样温度,默认 0.3(识别任务偏确定性)
         max_tokens: 可选上限
         retries: 网络错误重试次数(默认 1 次)
+        thinking: 思考模式开关。默认 "disabled"(关闭思考)。
+            GLM-4.7-flash 是思考模型,默认关掉以:省 token、加速、避免思考
+            把 max_tokens 吃光导致输出空内容。可选 "enabled" 开启思考。
+            仅对支持 thinking 参数的 GLM 模型生效,旧模型忽略此字段。
 
     返回:
         {
@@ -317,6 +743,7 @@ def chat(
         "model": cfg["model"],
         "messages": messages,
         "temperature": temperature,
+        "thinking": {"type": thinking},
     }
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
@@ -519,7 +946,7 @@ def extract_metadata_smart(text: str) -> tuple[dict[str, str], dict[str, Any], s
     if url and len(non_url_text) < 60:
         fetch_info["fetched"] = True
         try:
-            page = fetch_url_text(url)
+            page = fetch_url_with_fallback(url)
             fetch_info["fetch_ok"] = page["ok"]
             fetch_info["fetched_title"] = page["title"]
             fetch_info["fetched_chars"] = len(page["text"])
@@ -565,6 +992,11 @@ _SUMMARY_OUTLINES: dict[str, str] = {
     "douyin": (
         "# 一句话结论\n\n# 视频内容概括\n\n# 关键信息点\n\n"
         "# 展示的工具 / 方法 / 项目\n\n# 是否值得进一步验证"
+    ),
+    "x": (
+        "# 一句话结论\n\n# 推文核心内容\n\n"
+        "# 展示的工具 / 项目 / 方法\n\n# 关键细节(数据、参数、链接)\n\n"
+        "# 是否值得跟进 / 验证\n\n# 相关链接"
     ),
     "gpt_chat": (
         "# 一句话结论\n\n# 这段对话讨论了什么\n\n# 已经形成的结论\n\n"
