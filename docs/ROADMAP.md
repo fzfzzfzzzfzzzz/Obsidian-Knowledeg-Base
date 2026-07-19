@@ -2,17 +2,18 @@
 
 > 本文件汇总所有版本 PRD 中提到的后续迭代方向 + 已知限制的改进计划。
 > 按优先级分层,供评审和规划参考。
-> 最后更新:2026-07-19(v0.4.3 后)
+> 最后更新:2026-07-19(v0.4.4 后)
 
 ---
 
-## 当前版本:v0.4.3
+## 当前版本:v0.4.4
 
-已实现:采集→总结→idea/todo→review→阅读管理→搜索/标签/批量→日历→详情页手动生成 idea/todo→批量投稿 + Idea/Todo 待定/已确定拆分 + Todo→日历链接→日历时间轴视图 + category 字段 + 标签筛选→**rebuild-index 数据自愈 + Web accept 接受即搬运 + 路径配置云端就绪 + 测试网补齐(161 passed)**。
+已实现:采集→总结→idea/todo→review→阅读管理→搜索/标签/批量→日历→详情页手动生成 idea/todo→批量投稿 + Idea/Todo 待定/已确定拆分 + Todo→日历链接→日历时间轴视图 + category 字段 + 标签筛选→rebuild-index 数据自愈 + Web accept 接受即搬运 + 路径配置云端就绪 + 测试网补齐→**kb_web.py 按域拆 8 个 APIRouter + kb.py 公共工具抽取(纯结构重构,172 passed)**。
 - v0.4.0:详情页「生成 Idea/Todo 列表」按钮 + 引导弹窗(见 `docs/v0.4.0/`)
 - v0.4.1:投稿页批量投稿(URL 提取)、/ideas /todos 拆「待定/已确定」tab、已确认 todo 放入日历(见 `docs/v0.4.1/`)
 - v0.4.2:日历「时间轴」视图(垂直+水平)、category 字段(6 预设+自定义)、标签筛选条影响三个视图(见 `docs/v0.4.2/`)
 - v0.4.3:rebuild-index 命令、Web accept 自动搬运、6 路径常量环境变量覆盖、文档同步、+61 测试(见 `docs/v0.4.3/`)
+- v0.4.4:kb_web.py 2117→74 行装配文件 + web/ 包(9 router + 4 service)、kb.py 抽公共工具、+11 测试(见 `docs/v0.4.4/`)
 完整功能清单见 `PRODUCT.md`。
 
 ---
@@ -27,10 +28,9 @@
 - **结果**:`python scripts/kb.py rebuild-index` 已实现,支持 --dry-run / --tags-only / --summary-path-only,写前自动备份,不碰用户行为数据。
 - **文档**:`docs/v0.4.3/changelog.md` 第 1 节
 
-### 3. kb_web.py 按域拆 8 个 APIRouter(v0.4.4 主体)
-- **状态**:PRD/checklist 已就绪,待实现(见 `docs/v0.4.4/`)
-- **要做**:2117 行单文件拆成 9 个 router + 4 个 service 子模块,主文件 < 300 行;同步抽 kb.py 公共工具
-- **价值**:降低后续维护成本,改一个域不用全文搜索
+### 3. ~~kb_web.py 按域拆 8 个 APIRouter~~ ✅ v0.4.4 完成
+- **结果**:`kb_web.py` 2117 → 74 行装配文件,拆出 `scripts/web/` 包(9 个 APIRouter + 4 个 service + models/utils)。同步抽 kb.py 公共工具(hash_from_source_id / make_note_filename / _strip_inbox_header_lines / _count_status_in_file)。172 passed,零回归。
+- **文档**:`docs/v0.4.4/changelog.md`
 
 ### 4. 日期识别基准优化
 - **现状**:用当前日期做年份推断和相对日期基准

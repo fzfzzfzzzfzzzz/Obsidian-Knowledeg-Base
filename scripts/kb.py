@@ -195,29 +195,36 @@ def append_to_inbox(items: list[str]) -> None:
     write_text(inbox_path, header.rstrip() + "\n\n" + combined.strip() + "\n")
 
 
-def make_source_filename(source_id: str, created_at: str, title: str) -> str:
-    """生成可读文件名:source_YYYYMMDD_<可读标题>.md。
+def hash_from_source_id(sid: str) -> str:
+    """从 source_id 提取可读 hash 段(去掉 source_ff_ / source_ 前缀)。
 
-    幂等性不靠文件名(靠 source_id),所以文件名只追求可读性。
-    标题做 slug 处理,无标题时回退到 source_id 的 hash 段。
+    用于无标题时生成文件名唯一后缀。替代散落在 make_source_filename /
+    make_summary_filename 等处的魔法 replace 链。
+    """
+    return sid.replace("source_ff_", "").replace("source_", "")
+
+
+def make_note_filename(prefix: str, source_id: str, created_at: str, title: str) -> str:
+    """生成可读笔记文件名:<prefix>_YYYYMMDD_<slug>.md。
+
+    prefix 为 'source' 或 'summary'。标题做 slug 处理;无标题时回退到
+    source_id 的 hash 段保证唯一性。幂等性靠 source_id,文件名只追求可读性。
     """
     date_compact = created_at.replace("-", "")
     slug = make_slug(title, max_len=40)
     if not slug:
-        # 无标题:用 source_id 的 hash 段保证唯一性
-        hash_part = source_id.replace("source_ff_", "").replace("source_", "")
-        slug = f"untitled_{hash_part[:6]}"
-    return f"source_{date_compact}_{slug}.md"
+        slug = f"untitled_{hash_from_source_id(source_id)[:6]}"
+    return f"{prefix}_{date_compact}_{slug}.md"
+
+
+def make_source_filename(source_id: str, created_at: str, title: str) -> str:
+    """生成可读文件名:source_YYYYMMDD_<可读标题>.md(见 make_note_filename)。"""
+    return make_note_filename("source", source_id, created_at, title)
 
 
 def make_summary_filename(source_id: str, created_at: str, title: str) -> str:
-    """生成可读 summary 文件名:summary_YYYYMMDD_<可读标题>.md。"""
-    date_compact = created_at.replace("-", "")
-    slug = make_slug(title, max_len=40)
-    if not slug:
-        hash_part = source_id.replace("source_ff_", "").replace("source_", "")
-        slug = f"untitled_{hash_part[:6]}"
-    return f"summary_{date_compact}_{slug}.md"
+    """生成可读 summary 文件名:summary_YYYYMMDD_<可读标题>.md(见 make_note_filename)。"""
+    return make_note_filename("summary", source_id, created_at, title)
 
 
 # ---------------------------------------------------------------------------
@@ -310,16 +317,7 @@ def parse_freeform_items(inbox_text: str) -> list[dict]:
     """
     lines = inbox_text.splitlines()
     # 去掉头部说明区
-    body_start = 0
-    in_header = True
-    cleaned: list[str] = []
-    for line in lines:
-        if in_header:
-            stripped = line.strip()
-            if stripped == "" or _INBOX_HEADER_RE.match(stripped):
-                continue
-            in_header = False
-        cleaned.append(line)
+    cleaned = _strip_inbox_header_lines(lines)
 
     text = "\n".join(cleaned).strip()
     if not text:
@@ -352,15 +350,7 @@ def has_kb_item_markers(inbox_text: str) -> bool:
           否则说明文字里展示的格式范例会污染检测
     """
     # 逐行过滤掉头部说明区(以 # 或 > 开头)
-    body_lines = []
-    in_header = True
-    for line in inbox_text.splitlines():
-        if in_header:
-            stripped = line.strip()
-            if stripped == "" or _INBOX_HEADER_RE.match(stripped):
-                continue
-            in_header = False
-        body_lines.append(line)
+    body_lines = _strip_inbox_header_lines(inbox_text.splitlines())
     body = "\n".join(body_lines)
     return bool(re.search(r"<!--\s*KB_ITEM_START\s*-->", body))
 
@@ -1168,9 +1158,14 @@ def _INBOX_HEADER_BLOCK() -> str:
 """
 
 
-def _strip_inbox_header(text: str) -> str:
-    """去掉文本开头的 inbox 头部说明区(以 # 或 > 开头的连续行 + 空行)。"""
-    lines = text.splitlines()
+def _strip_inbox_header_lines(lines: list[str]) -> list[str]:
+    """去掉文本开头的 inbox 头部说明区(以 # / > 开头的连续行 + 空行),返回剩余行。
+
+    头部区判定:从首行开始,凡是空行或匹配 _INBOX_HEADER_RE 的行都跳过,
+    直到遇到第一个非说明行;之后的所有行(含其后的空行)全部保留。
+    这是 parse_freeform_items / has_kb_item_markers / _strip_inbox_header 三处
+    共用的剥离逻辑,集中在此避免重复。
+    """
     out: list[str] = []
     in_header = True
     for line in lines:
@@ -1180,7 +1175,22 @@ def _strip_inbox_header(text: str) -> str:
                 continue
             in_header = False
         out.append(line)
-    return "\n".join(out)
+    return out
+
+
+def _strip_inbox_header(text: str) -> str:
+    """去掉文本开头的 inbox 头部说明区(以 # 或 > 开头的连续行 + 空行)。"""
+    return "\n".join(_strip_inbox_header_lines(text.splitlines()))
+
+
+def _count_status_in_file(path, prefix: str) -> int:
+    """统计 suggestion 文件中含 `status: <prefix>` 的行数(文件不存在返回 0)。
+
+    替代 cmd_status 中 4 段重复的 read_text(...).count(...) 写法。
+    """
+    if not path.exists():
+        return 0
+    return read_text(path).count(f"status: {prefix}")
 
 
 def cmd_status(args: argparse.Namespace) -> int:
@@ -1217,26 +1227,10 @@ def cmd_status(args: argparse.Namespace) -> int:
     # 统计待 review 的 suggestion
     idea_sug = VAULT_ROOT / "03_Ideas" / "idea_suggestions.md"
     todo_sug = VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
-    idea_pending = (
-        read_text(idea_sug).count("status: pending_review")
-        if idea_sug.exists()
-        else 0
-    )
-    todo_pending = (
-        read_text(todo_sug).count("status: pending_review")
-        if todo_sug.exists()
-        else 0
-    )
-    idea_accepted = (
-        read_text(idea_sug).count("status: accepted_")
-        if idea_sug.exists()
-        else 0
-    )
-    todo_accepted = (
-        read_text(todo_sug).count("status: accepted_")
-        if todo_sug.exists()
-        else 0
-    )
+    idea_pending = _count_status_in_file(idea_sug, "pending_review")
+    todo_pending = _count_status_in_file(todo_sug, "pending_review")
+    idea_accepted = _count_status_in_file(idea_sug, "accepted_")
+    todo_accepted = _count_status_in_file(todo_sug, "accepted_")
     print(f" Idea suggestions pending review : {idea_pending}")
     print(f" Todo suggestions pending review  : {todo_pending}")
     if idea_accepted or todo_accepted:
@@ -1709,8 +1703,8 @@ def _extract_source_body(note_text: str) -> str:
 
 
 def _extract_summary_body(summary_text: str) -> str:
-    """从 summary 文件提取正文(去 frontmatter)。"""
-    return re.sub(r"^---.*?---\s*", "", summary_text, flags=re.DOTALL).strip()
+    """从 summary 文件提取正文(去 frontmatter),复用 parsefrontmatter。"""
+    return parsefrontmatter(summary_text)[1]
 
 
 def _write_summary(sid: str, info: dict, body: str) -> Path:
@@ -1764,7 +1758,7 @@ def _write_prompt_file(sid: str, info: dict, source_text: str) -> Path:
     prompts_dir = KB_DIR / "prompts"
     prompts_dir.mkdir(parents=True, exist_ok=True)
     path = prompts_dir / f"{sid}_summary_prompt.md"
-    outline = kb_llm._summary_outline(info["source_type"])
+    outline = kb_llm.summary_outline(info["source_type"])
     content = f"""# Summary Prompt for {sid}
 
 > 把本文件全部内容复制到 ChatGPT / GLM 运行,把模型输出保存到
