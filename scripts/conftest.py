@@ -15,6 +15,8 @@ def isolate_vault(tmp_path, monkeypatch):
 
     load_state/save_state 等使用的是模块级预计算的 STATE_FILE(基于 VAULT_ROOT 在导入时算出),
     因此只 monkeypatch VAULT_ROOT 不够,必须把所有衍生路径一并重定向。
+    同时也重定向 kb_web.VAULT_ROOT(它从 kb 复制了 import-time 副本),让 Web 路由
+    测试也能用同一个 fixture。
     """
     kb_dir = tmp_path / ".kb"
     monkeypatch.setattr(kb, "VAULT_ROOT", tmp_path)
@@ -23,4 +25,9 @@ def isolate_vault(tmp_path, monkeypatch):
     monkeypatch.setattr(kb, "CALENDAR_FILE", kb_dir / "calendar.json")
     monkeypatch.setattr(kb, "RAW_TEXT_DIR", kb_dir / "raw_text")
     monkeypatch.setattr(kb, "LOGS_DIR", kb_dir / "logs")
+    # kb_web 在 import 时拷贝了 kb.VAULT_ROOT,需要单独 patch(若已被 import)
+    kb_web = sys.modules.get("kb_web")
+    if kb_web is not None:
+        monkeypatch.setattr(kb_web, "VAULT_ROOT", tmp_path)
     return tmp_path
+

@@ -1,19 +1,23 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-Obsidian 本地知识库 CLI —— MVP Phase 0 + Phase 1
+Obsidian 本地知识库 CLI
 
-依据 obsidian_kb_codex_implementation_plan.md 第 15 节实现。
+本地优先的 Markdown 知识库:采集 → 总结 → idea/todo 建议 → 用户确认 → 正式清单。
 
 命令:
-    python scripts/kb.py init          创建 vault 目录结构 / 模板 / 空文件 / state.json
-    python scripts/kb.py ingest        解析 00_Inbox/inbox.md 中的 KB_ITEM block,生成 source note
-    python scripts/kb.py status        输出当前知识库状态统计
-    python scripts/kb.py make-prompts  [Phase 2 占位] 未实现
-    python scripts/kb.py accept-ideas  [Phase 4 占位] 未实现
-    python scripts/kb.py accept-todos  [Phase 4 占位] 未实现
+    python scripts/kb.py init                 创建 vault 目录结构 / 模板 / 空文件 / state.json
+    python scripts/kb.py ingest               解析 00_Inbox/inbox.md(自由文本或 KB_ITEM),生成 source note
+    python scripts/kb.py status               输出当前知识库状态统计
+    python scripts/kb.py llm-test             测试 LLM API 连通性
+    python scripts/kb.py make-prompts         生成 summary 提示(手动 / --auto 自动调 LLM / --reconcile 回填)
+    python scripts/kb.py extract-suggestions  从已生成的 summary 抽 idea/todo 候选,append 到 review 队列
+    python scripts/kb.py accept-ideas         把 accepted 的 idea suggestion 搬到正式 idea list
+    python scripts/kb.py accept-todos         把 accepted 的 todo suggestion 搬到 weekly/monthly/someday
+    python scripts/kb.py clean-x              清洗已入库 X source 正文(就地重写「## 原始内容」段)
+    python scripts/kb.py serve                启动 FastAPI 阅读前端(uvicorn)
 
-设计原则(对应 plan.md 第 13 节 Codex 工作规则):
+设计原则:
     - 核心逻辑用标准库;网页抓取在 requests 不足时用 playwright 兜底
     - 所有路径相对 vault 根,不硬编码
     - 文件读写一律 UTF-8(避免 Windows 下中文乱码)
@@ -26,7 +30,9 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
+import shutil
 import sys
 from datetime import date
 from pathlib import Path
@@ -47,14 +53,16 @@ except Exception:  # kb_llm 不可用(requests 缺失等)时仍可离线运行
 # ---------------------------------------------------------------------------
 
 # vault 根目录 = kb.py 所在目录的上一级 (scripts/ 的父目录)
-VAULT_ROOT = Path(__file__).resolve().parent.parent
+# 云端部署时可用环境变量 KB_VAULT_ROOT 覆盖（指向挂载的 vault 卷）。
+VAULT_ROOT = Path(os.environ.get('KB_VAULT_ROOT') or Path(__file__).resolve().parent.parent)
 
 # 机器运行目录(可被 Obsidian 隐藏)
-KB_DIR = VAULT_ROOT / ".kb"
-STATE_FILE = KB_DIR / "state.json"
-CALENDAR_FILE = KB_DIR / "calendar.json"
-RAW_TEXT_DIR = KB_DIR / "raw_text"
-LOGS_DIR = KB_DIR / "logs"
+# 每个派生路径都支持独立环境变量覆盖,便于云端部署时把 state/raw/logs 分卷挂载。
+KB_DIR = Path(os.environ.get('KB_DIR') or (VAULT_ROOT / ".kb"))
+STATE_FILE = Path(os.environ.get('KB_STATE_FILE') or (KB_DIR / "state.json"))
+CALENDAR_FILE = Path(os.environ.get('KB_CALENDAR_FILE') or (KB_DIR / "calendar.json"))
+RAW_TEXT_DIR = Path(os.environ.get('KB_RAW_TEXT_DIR') or (KB_DIR / "raw_text"))
+LOGS_DIR = Path(os.environ.get('KB_LOGS_DIR') or (KB_DIR / "logs"))
 
 # 常用编码
 ENC = "utf-8"
@@ -649,52 +657,6 @@ updated_at:
 }
 
 
-# 顶层文档
-AGENTS_MD = """# AGENTS.md
-
-## Project Goal
-
-Build a local-first Obsidian knowledge base for summarizing frontier technical materials, extracting idea suggestions, and generating weekly/monthly todo suggestions.
-
-## Hard Rules
-
-- Markdown files are the primary data layer.
-- Do not silently overwrite user-authored notes.
-- AI-generated ideas and todos must go into suggestion files first.
-- Only user-accepted suggestions may be moved into formal idea lists or weekly/monthly todo files.
-- MVP must not require external LLM APIs.
-- MVP must support manually pasted text in Inbox.
-
-## MVP Commands
-
-- Initialize vault structure: `python scripts/kb.py init`
-- Parse inbox: `python scripts/kb.py ingest`
-- Generate manual LLM prompts: `python scripts/kb.py make-prompts`
-- Move accepted ideas: `python scripts/kb.py accept-ideas`
-- Move accepted todos: `python scripts/kb.py accept-todos`
-- Show status: `python scripts/kb.py status`
-
-## Completion Criteria
-
-A task is complete only if:
-
-1. It preserves existing user content.
-2. It creates readable Markdown output.
-3. It updates status fields consistently.
-4. It includes a short usage note.
-5. It has been tested with at least one sample Inbox item.
-
-## Current Phase Status
-
-- Phase 0 (init): **done**
-- Phase 1 (ingest parser): **done**(支持自由文本 + KB_ITEM 双格式,可接 LLM)
-- Phase 2 (make-prompts): pending
-- Phase 3 (manual output import): pending
-- Phase 4 (accept-ideas / accept-todos): pending
-- Phase 5 (status dashboard): **done** (basic version)
-"""
-
-
 ENV_EXAMPLE_CONTENT = """# Obsidian KB —— LLM 配置
 # 复制本文件为 .env,填入你的真实 API key。.env 不会入库(.gitignore 已忽略)。
 
@@ -894,10 +856,11 @@ def cmd_init(args: argparse.Namespace) -> int:
         created_files.append(".kb/calendar.json")
 
     # ---- 顶层文档(只创建缺失的)----
+    # AGENTS.md 是仓库根目录已有的权威文件,不在代码里内嵌副本(避免双源真理)。
+    # 若用户在空 vault 里 init 导致缺失,给出提示。
     agents = VAULT_ROOT / "AGENTS.md"
     if not agents.exists():
-        write_text(agents, AGENTS_MD)
-        created_files.append("AGENTS.md")
+        created_files.append("AGENTS.md (skipped: see repo root for canonical content)")
 
     # ---- LLM 配置文件(只创建缺失的)----
     env_example = VAULT_ROOT / ".env.example"
@@ -1288,12 +1251,6 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_not_implemented(name: str, phase: str) -> int:
-    print(f"[{name}] 该命令属于 {phase},当前 MVP(Phase 0+1)尚未实现。")
-    print(f"[{name}] 参见 obsidian_kb_codex_implementation_plan.md 第 15 节。")
-    return 0
-
-
 def cmd_llm_test(args: argparse.Namespace) -> int:
     """测试 LLM API 连通性:发一句话,打印模型回复和配置摘要。"""
     if not _LLM_AVAILABLE:
@@ -1529,107 +1486,209 @@ def cmd_extract_suggestions(args):
     return 0
 
 
+def _list_accepted_suggestion_ids(kind: str) -> list[tuple[str, str, dict, str, str]]:
+    """扫描 review 队列文件,返回所有 accepted_* 块的元信息。
+
+    kind: "Idea Suggestion" 或 "Todo Suggestion"
+    返回 [(item_id, status, meta, body, raw_block), ...]
+    item_id 优先用 meta["id"],否则用 title slug。
+    """
+    if "Idea" in kind:
+        sug_file = VAULT_ROOT / "03_Ideas" / "idea_suggestions.md"
+        header_kind = "idea"
+    else:
+        sug_file = VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
+        header_kind = "todo"
+    if not sug_file.exists():
+        return []
+    text = read_text(sug_file)
+    blocks = _split_suggestion_blocks(text, kind)
+    out = []
+    for raw, meta, body in blocks:
+        status = meta.get("status", "").strip()
+        if status.startswith("accepted_"):
+            item_id = meta.get("id", "").strip() or meta.get("title", "")
+            out.append((item_id, status, meta, body, raw))
+    return out
+
+
+def _rewrite_suggestion_file(kind: str, item_ids_to_moved: dict[str, str]) -> None:
+    """回写 suggestion 文件:把指定 item_id 的块 status 替换为新值(通常 "moved")。
+
+    item_ids_to_moved: {item_id: new_status}
+    """
+    if "Idea" in kind:
+        sug_file = VAULT_ROOT / "03_Ideas" / "idea_suggestions.md"
+        header_kind = "idea"
+        header_title = "Idea Suggestions (Review Queue)"
+    else:
+        sug_file = VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
+        header_kind = "todo"
+        header_title = "Todo Suggestions (Review Queue)"
+    if not sug_file.exists():
+        return
+    text = read_text(sug_file)
+    blocks = _split_suggestion_blocks(text, kind)
+    new_blocks = []
+    for raw, meta, body in blocks:
+        item_id = meta.get("id", "").strip() or meta.get("title", "")
+        if item_id in item_ids_to_moved:
+            old_status = meta.get("status", "").strip()
+            new_status = item_ids_to_moved[item_id]
+            new_blocks.append(_replace_status_in_block(raw, old_status, new_status))
+        else:
+            new_blocks.append(raw)
+    header = _suggestion_header(header_title, header_kind)
+    write_text(sug_file, header + "\n".join(new_blocks) + "\n")
+
+
+def move_accepted_idea(item_id: str) -> dict:
+    """把单个 accepted_* 的 idea suggestion 搬到正式 idea list。
+
+    幂等:已是 moved 状态的不重复搬;非 accepted_* 的不搬。
+    返回:
+        {moved: bool, item_id, area, target, reason}
+        reason 描述跳过原因(如 "not_accepted" / "already_moved" / "not_found")。
+    """
+    accepted = _list_accepted_suggestion_ids("Idea Suggestion")
+    target_for = None
+    target_meta = None
+    target_body = None
+    target_status = None
+    for iid, status, meta, body, raw in accepted:
+        if iid == item_id or iid.endswith(item_id):
+            target_for = iid
+            target_meta = meta
+            target_body = body
+            target_status = status
+            break
+    if target_for is None:
+        return {"moved": False, "item_id": item_id,
+                "reason": "not_found_or_not_accepted"}
+
+    area = target_status.removeprefix("accepted_")  # research / productivity
+    target_file = VAULT_ROOT / "03_Ideas" / f"{area}_ideas.md"
+    formal = _format_formal_idea(target_meta, target_body, area)
+    _append_section(target_file, formal)
+    # 把原 suggestion 块标 moved
+    _rewrite_suggestion_file("Idea Suggestion", {target_for: "moved"})
+    return {
+        "moved": True,
+        "item_id": target_for,
+        "area": area,
+        "target": target_file.relative_to(VAULT_ROOT).as_posix(),
+    }
+
+
+def move_accepted_todo(item_id: str) -> dict:
+    """把单个 accepted_* 的 todo suggestion 搬到 weekly/monthly/someday。
+
+    幂等:已是 moved 状态的不重复搬;非 accepted_* 的不搬。
+    返回:{moved, item_id, plan, target, reason}
+    """
+    accepted = _list_accepted_suggestion_ids("Todo Suggestion")
+    target_for = None
+    target_meta = None
+    target_body = None
+    target_status = None
+    for iid, status, meta, body, raw in accepted:
+        if iid == item_id or iid.endswith(item_id):
+            target_for = iid
+            target_meta = meta
+            target_body = body
+            target_status = status
+            break
+    if target_for is None:
+        return {"moved": False, "item_id": item_id,
+                "reason": "not_found_or_not_accepted"}
+
+    plan = target_status.removeprefix("accepted_")  # weekly/monthly/someday
+    today = date.today()
+    iso_year, iso_week, _ = today.isocalendar()
+    week_tag = f"{iso_year}-W{iso_week:02d}"
+    month_tag = today.strftime("%Y-%m")
+    if plan == "weekly":
+        target_file = VAULT_ROOT / "04_Plans" / "Weekly" / f"{week_tag}.md"
+        _ensure_weekly_file(target_file, week_tag)
+    elif plan == "monthly":
+        target_file = VAULT_ROOT / "04_Plans" / "Monthly" / f"{month_tag}.md"
+        _ensure_monthly_file(target_file, month_tag)
+    else:  # someday
+        target_file = VAULT_ROOT / "04_Plans" / "someday.md"
+        if not target_file.exists():
+            write_text(target_file, "# Someday Todo\n\n> 暂存,有空再做。\n\n")
+    task = _format_weekly_task(target_meta, target_body)
+    _append_section(target_file, task)
+    _rewrite_suggestion_file("Todo Suggestion", {target_for: "moved"})
+    return {
+        "moved": True,
+        "item_id": target_for,
+        "plan": plan,
+        "target": target_file.relative_to(VAULT_ROOT).as_posix(),
+    }
+
+
 def cmd_accept_ideas(args):
-    """Phase 4:把 accepted 的 idea suggestion 移到正式 idea list。"""
+    """Phase 4:把 accepted 的 idea suggestion 移到正式 idea list。
+
+    遍历 review 队列里所有 accepted_* 块,逐个调 move_accepted_idea。
+    """
     sug_file = VAULT_ROOT / "03_Ideas" / "idea_suggestions.md"
     if not sug_file.exists():
         print("[accept-ideas] idea_suggestions.md 不存在。")
         return 1
 
-    text = read_text(sug_file)
-    blocks = _split_suggestion_blocks(text, "Idea Suggestion")
-    if not blocks:
-        print("[accept-ideas] 没有找到 idea suggestion 块。")
+    accepted = _list_accepted_suggestion_ids("Idea Suggestion")
+    if not accepted:
+        print("[accept-ideas] 没有 accepted_* 状态的 idea suggestion(可能都已 moved)。")
         return 0
 
     moved = 0
-    skipped = 0
-    new_blocks: list[str] = []  # 用于回写 sug 文件
-
-    for raw, meta, body in blocks:
-        status = meta.get("status", "").strip()
-        if status.startswith("accepted_"):
-            # 决定目标文件
-            area = status.removeprefix("accepted_")  # research / productivity
-            target = VAULT_ROOT / "03_Ideas" / f"{area}_ideas.md"
-            if not target.exists():
-                # 不支持的 area,创建一个通用的
-                target = VAULT_ROOT / "03_Ideas" / f"{area}_ideas.md"
-            formal = _format_formal_idea(meta, body, area)
-            _append_section(target, formal)
+    failed = 0
+    for item_id, status, meta, body, raw in accepted:
+        result = move_accepted_idea(item_id)
+        if result.get("moved"):
             moved += 1
-            print(f"  → {meta.get('title', meta.get('id','?'))} → {target.relative_to(VAULT_ROOT)}")
-            # 标记原块为 moved
-            moved_block = _replace_status_in_block(raw, status, "moved")
-            new_blocks.append(moved_block)
+            print(f"  → {meta.get('title', item_id)} → {result['target']}")
         else:
-            skipped += 1
-            new_blocks.append(raw)
+            failed += 1
+            print(f"  ! {item_id}: {result.get('reason')}")
 
-    # 回写 sug 文件(更新过的块 + 头部)
-    if moved > 0:
-        header = _suggestion_header("Idea Suggestions (Review Queue)", "idea")
-        write_text(sug_file, header + "\n".join(new_blocks) + "\n")
-
-    append_log(f"accept-ideas: moved={moved} skipped={skipped}")
-    print(f"\n[accept-ideas] 移动 {moved} 个,跳过 {skipped} 个(非 accepted 状态)。")
+    append_log(f"accept-ideas: moved={moved} failed={failed}")
+    print(f"\n[accept-ideas] 移动 {moved} 个" + (f",失败 {failed} 个" if failed else "") + "。")
     if moved:
         print("[accept-ideas] 正式 idea list 已更新,原 suggestion 标记为 moved。")
     return 0
 
 
 def cmd_accept_todos(args):
-    """Phase 4:把 accepted 的 todo suggestion 移到 weekly/monthly/someday。"""
+    """Phase 4:把 accepted 的 todo suggestion 移到 weekly/monthly/someday。
+
+    遍历 review 队列里所有 accepted_* 块,逐个调 move_accepted_todo。
+    """
     sug_file = VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
     if not sug_file.exists():
         print("[accept-todos] todo_suggestions.md 不存在。")
         return 1
 
-    text = read_text(sug_file)
-    blocks = _split_suggestion_blocks(text, "Todo Suggestion")
-    if not blocks:
-        print("[accept-todos] 没有找到 todo suggestion 块。")
+    accepted = _list_accepted_suggestion_ids("Todo Suggestion")
+    if not accepted:
+        print("[accept-todos] 没有 accepted_* 状态的 todo suggestion(可能都已 moved)。")
         return 0
 
     moved = 0
-    skipped = 0
-    new_blocks: list[str] = []
-
-    today = date.today()
-    iso_year, iso_week, _ = today.isocalendar()
-    week_tag = f"{iso_year}-W{iso_week:02d}"
-    month_tag = today.strftime("%Y-%m")
-
-    for raw, meta, body in blocks:
-        status = meta.get("status", "").strip()
-        if status.startswith("accepted_"):
-            plan = status.removeprefix("accepted_")  # weekly/monthly/someday
-            if plan == "weekly":
-                target = VAULT_ROOT / "04_Plans" / "Weekly" / f"{week_tag}.md"
-                _ensure_weekly_file(target, week_tag)
-            elif plan == "monthly":
-                target = VAULT_ROOT / "04_Plans" / "Monthly" / f"{month_tag}.md"
-                _ensure_monthly_file(target, month_tag)
-            else:  # someday
-                target = VAULT_ROOT / "04_Plans" / "someday.md"
-                if not target.exists():
-                    write_text(target, "# Someday Todo\n\n> 暂存,有空再做。\n\n")
-            task = _format_weekly_task(meta, body)
-            _append_section(target, task)
+    failed = 0
+    for item_id, status, meta, body, raw in accepted:
+        result = move_accepted_todo(item_id)
+        if result.get("moved"):
             moved += 1
-            print(f"  → {meta.get('title', meta.get('id','?'))} → {target.relative_to(VAULT_ROOT)}")
-            moved_block = _replace_status_in_block(raw, status, "moved")
-            new_blocks.append(moved_block)
+            print(f"  → {meta.get('title', item_id)} → {result['target']}")
         else:
-            skipped += 1
-            new_blocks.append(raw)
+            failed += 1
+            print(f"  ! {item_id}: {result.get('reason')}")
 
-    if moved > 0:
-        header = _suggestion_header("Todo Suggestions (Review Queue)", "todo")
-        write_text(sug_file, header + "\n".join(new_blocks) + "\n")
-
-    append_log(f"accept-todos: moved={moved} skipped={skipped}")
-    print(f"\n[accept-todos] 移动 {moved} 个,跳过 {skipped} 个(非 accepted 状态)。")
+    append_log(f"accept-todos: moved={moved} failed={failed}")
+    print(f"\n[accept-todos] 移动 {moved} 个" + (f",失败 {failed} 个" if failed else "") + "。")
     if moved:
         print("[accept-todos] weekly/monthly/someday 已更新,原 suggestion 标记为 moved。")
     return 0
@@ -1771,6 +1830,215 @@ def _make_prompts_reconcile() -> int:
     save_state(state)
     append_log(f"make-prompts reconcile: updated={reconciled}")
     print(f"\n[make-prompts] reconcile 完成,更新 {reconciled} 个 source 的 summary_location。")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# rebuild-index:state.json ↔ summary frontmatter 自愈
+# ---------------------------------------------------------------------------
+
+
+def _parse_frontmatter_tags(raw: str) -> list[str]:
+    """把 frontmatter 里 `tags: [a, b, c]` 的字面串解析为 list。
+
+    与 kb_web._read_summary_frontmatter_tags 行为一致,但接受已解析出的字符串值
+    (避免 kb.py 反向依赖 kb_web)。
+    """
+    if not raw:
+        return []
+    cleaned = raw.strip().strip("[]").strip()
+    if not cleaned:
+        return []
+    return [t.strip().strip('"').strip("'") for t in cleaned.split(",") if t.strip()]
+
+
+def _scan_summary_frontmatter() -> list[dict]:
+    """扫描 02_Summaries/**/*.md,返回每个 summary 的 {source_id, summary_relpath, tags}。
+
+    文件名约定:`summary_<source_id>.md`(source_id 是 source_/source_ff_ 前缀的 hash)。
+    source_id 从 frontmatter 的 `source_id:` 字段读;缺失则尝试从文件名提取。
+    tags 从 `tags:` 字段读(可能不存在)。
+    """
+    summaries_dir = VAULT_ROOT / "02_Summaries"
+    if not summaries_dir.exists():
+        return []
+    out: list[dict] = []
+    for sf in summaries_dir.rglob("*.md"):
+        try:
+            content = read_text(sf)
+        except OSError:
+            continue
+        meta, _ = parsefrontmatter(content)
+        sid = meta.get("source_id", "").strip()
+        if not sid:
+            # fallback:从文件名提取 source_/source_ff_ 前缀
+            m = re.search(r"(source_(?:ff_)?[a-f0-9]+)", sf.stem)
+            if not m:
+                continue
+            sid = m.group(1)
+        rel = sf.relative_to(VAULT_ROOT).as_posix()
+        tags = _parse_frontmatter_tags(meta.get("tags", ""))
+        out.append({"source_id": sid, "summary_relpath": rel, "tags": tags})
+    return out
+
+
+def _rebuild_state_index(
+    dry_run: bool = False,
+    tags_only: bool = False,
+    summary_path_only: bool = False,
+) -> dict:
+    """核心重建逻辑(纯函数,无 print)。
+
+    数据流向:summary frontmatter → state.json(frontmatter 为准)。
+    - summary_path:state 无 → 补;state 有但不一致 → 以扫盘结果为准
+    - tags:state 无 frontmatter 有 → 补;state 有 frontmatter 无 → 不删(保留用户手加);
+            两者不一致 → 以 frontmatter 为准
+    - 不碰 is_favorite / read_count / last_read_at / collection_ids / detected_dates 等用户行为数据
+    - has_summary 不持久化(保持运行时派生),仅在 orphans 报告里列出
+
+    返回统计 dict:
+        {scanned, summary_path_backfilled, summary_path_corrected, tags_added,
+         tags_updated, orphans_in_state, written: bool, backup_path}
+    """
+    state = load_state()
+    sources = state.get("sources", {})
+    summaries = _scan_summary_frontmatter()
+    sum_by_sid = {s["source_id"]: s for s in summaries}
+
+    stats = {
+        "scanned": len(summaries),
+        "summary_path_backfilled": 0,
+        "summary_path_corrected": 0,
+        "tags_added": 0,
+        "tags_updated": 0,
+        "orphans_in_state": 0,
+        "details": [],
+        "written": False,
+        "backup_path": None,
+    }
+
+    changed = False
+    for sid, info in sources.items():
+        sum_info = sum_by_sid.get(sid)
+        if sum_info is None:
+            # state 里有 source_id 但 frontmatter 里没有 → 孤儿(可能 summary 被删)
+            # 不修改 state,只在报告里标记
+            if info.get("summary_path"):
+                stats["orphans_in_state"] += 1
+                stats["details"].append(
+                    {"source_id": sid, "issue": "orphan_summary_path",
+                     "current": info.get("summary_path")}
+                )
+            continue
+
+        # —— summary_path ——
+        if not tags_only:  # 即处理 summary_path
+            current_sp = info.get("summary_path")
+            correct_sp = sum_info["summary_relpath"]
+            if not current_sp:
+                info["summary_path"] = correct_sp
+                stats["summary_path_backfilled"] += 1
+                stats["details"].append(
+                    {"source_id": sid, "issue": "summary_path_missing",
+                     "fixed_to": correct_sp}
+                )
+                changed = True
+            elif current_sp != correct_sp:
+                info["summary_path"] = correct_sp
+                stats["summary_path_corrected"] += 1
+                stats["details"].append(
+                    {"source_id": sid, "issue": "summary_path_mismatch",
+                     "from": current_sp, "to": correct_sp}
+                )
+                changed = True
+
+        # —— tags ——
+        if not summary_path_only:
+            frontmatter_tags = sum_info["tags"]
+            state_tags = list(info.get("tags", []))
+            if frontmatter_tags and not state_tags:
+                # state 无,frontmatter 有 → 补
+                info["tags"] = list(frontmatter_tags)
+                stats["tags_added"] += 1
+                stats["details"].append(
+                    {"source_id": sid, "issue": "tags_missing_in_state",
+                     "added": frontmatter_tags}
+                )
+                changed = True
+            elif frontmatter_tags and state_tags and state_tags != frontmatter_tags:
+                # 两者都有但不一致 → 以 frontmatter 为准
+                info["tags"] = list(frontmatter_tags)
+                stats["tags_updated"] += 1
+                stats["details"].append(
+                    {"source_id": sid, "issue": "tags_mismatch",
+                     "from": state_tags, "to": frontmatter_tags}
+                )
+                changed = True
+            # frontmatter 无 tags 但 state 有 → 保留(用户可能手加),不动
+
+    if changed and not dry_run:
+        # 备份原 state
+        if STATE_FILE.exists():
+            backup_dir = LOGS_DIR / "web_backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            backup = backup_dir / f"state_rebuild_{date.today().strftime('%Y%m%d')}.json.bak"
+            shutil.copy2(STATE_FILE, backup)
+            stats["backup_path"] = str(backup)
+        save_state(state)
+        stats["written"] = True
+
+    return stats
+
+
+def cmd_rebuild_index(args: argparse.Namespace) -> int:
+    """rebuild-index:从 summary frontmatter 重建 state.json 的 tags / summary_path。
+
+    数据流向:frontmatter → state(frontmatter 为准)。
+    不碰用户行为数据(is_favorite / read_count / collection_ids 等)。
+    """
+    print(f"[rebuild-index] 扫描 {VAULT_ROOT / '02_Summaries'} ...")
+    stats = _rebuild_state_index(
+        dry_run=args.dry_run,
+        tags_only=args.tags_only,
+        summary_path_only=args.summary_path_only,
+    )
+
+    print(f"[rebuild-index] 扫描到 {stats['scanned']} 个 summary 文件")
+    print(f"[rebuild-index] summary_path 回填 {stats['summary_path_backfilled']} 个,"
+          f"修正 {stats['summary_path_corrected']} 个")
+    print(f"[rebuild-index] tags 补 {stats['tags_added']} 个,更新 {stats['tags_updated']} 个")
+    if stats["orphans_in_state"]:
+        print(f"[rebuild-index] ⚠ {stats['orphans_in_state']} 个 source 在 state 里有"
+              f" summary_path 但 02_Summaries/ 找不到对应文件(可能被手动删除)")
+
+    if args.verbose and stats["details"]:
+        print("\n[rebuild-index] 明细:")
+        for d in stats["details"]:
+            print(f"  - {d['source_id']}: {d['issue']}")
+            for k, v in d.items():
+                if k != "source_id" and k != "issue":
+                    print(f"      {k}: {v}")
+
+    if args.dry_run:
+        print("\n[rebuild-index] --dry-run 模式,未写文件。去掉 --dry-run 实际执行。")
+        append_log(
+            f"rebuild-index dry-run: scanned={stats['scanned']} "
+            f"backfill={stats['summary_path_backfilled']} "
+            f"corrected={stats['summary_path_corrected']} "
+            f"tags_added={stats['tags_added']} tags_updated={stats['tags_updated']}"
+        )
+    elif stats["written"]:
+        print(f"\n[rebuild-index] ✓ state.json 已更新。备份: {stats['backup_path']}")
+        append_log(
+            f"rebuild-index: scanned={stats['scanned']} "
+            f"backfill={stats['summary_path_backfilled']} "
+            f"corrected={stats['summary_path_corrected']} "
+            f"tags_added={stats['tags_added']} tags_updated={stats['tags_updated']} "
+            f"orphans={stats['orphans_in_state']}"
+        )
+    else:
+        print("\n[rebuild-index] 无需更新,state 已是最新。")
+
     return 0
 
 
@@ -2135,6 +2403,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_cx = sub.add_parser("clean-x", help="清洗已入库的 X source 正文(去站点噪声/压缩重复)")
     p_cx.add_argument("--dry-run", action="store_true", help="只预览效果,不写文件")
     p_cx.set_defaults(func=cmd_clean_x)
+
+    p_ri = sub.add_parser(
+        "rebuild-index",
+        help="从 summary frontmatter 重建 state.json 的 tags / summary_path",
+    )
+    p_ri.add_argument("--dry-run", action="store_true", help="只报告差异,不写文件")
+    p_ri.add_argument("--tags-only", action="store_true", help="只同步 tags,不动 summary_path")
+    p_ri.add_argument("--summary-path-only", action="store_true", help="只回填 summary_path,不动 tags")
+    p_ri.add_argument("-v", "--verbose", action="store_true", help="列出每条变更明细")
+    p_ri.set_defaults(func=cmd_rebuild_index)
 
     return p
 

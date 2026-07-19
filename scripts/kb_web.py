@@ -895,6 +895,18 @@ def _parse_formal_todos() -> list[dict[str, Any]]:
     return results
 
 
+def _check_suggestion_current_status(path: Path, kind: str, item_id: str) -> str | None:
+    """读取指定 item_id 块的当前 status。块不存在返回 None。"""
+    if not path.exists():
+        return None
+    text = path.read_text(encoding=ENC)
+    blocks = kb._split_suggestion_blocks(text, kind)
+    for raw, meta, body in blocks:
+        if meta.get("id") == item_id or meta.get("id", "").endswith(item_id):
+            return meta.get("status", "").strip()
+    return None
+
+
 def _update_suggestion_status(
     path: Path, kind: str, item_id: str, new_status: str, valid_set: set[str]
 ) -> dict[str, Any]:
@@ -1119,24 +1131,80 @@ class StatusUpdate(BaseModel):
 
 @app.post("/api/idea/{item_id}/status")
 async def api_idea_status(item_id: str, payload: StatusUpdate):
-    """修改 idea suggestion 的 status。"""
+    """修改 idea suggestion 的 status。
+
+    若 new_status 以 accepted_ 开头:先把块 status 改成 accepted_*,然后自动搬到
+    正式 idea list(调 kb.move_accepted_idea,搬运时会把原块再标 moved)。
+    rejected 会直接删块,不搬。
+
+    幂等:若该块已是 moved 状态(说明之前搬过),不再重复搬运,直接返回。
+    """
     path = VAULT_ROOT / "03_Ideas" / "idea_suggestions.md"
-    return JSONResponse(
-        _update_suggestion_status(
-            path, "Idea Suggestion", item_id, payload.status, VALID_IDEA_STATUS
-        )
+    # 先检查当前状态:已是 moved 的话,接受请求是重复的,no-op
+    pre_check = _check_suggestion_current_status(
+        path, "Idea Suggestion", item_id
     )
+    if pre_check == "moved" and payload.status.startswith("accepted_"):
+        return JSONResponse({
+            "ok": True, "id": item_id, "new_status": "moved",
+            "deleted": False, "moved": False, "move_reason": "already_moved",
+        })
+
+    result = _update_suggestion_status(
+        path, "Idea Suggestion", item_id, payload.status, VALID_IDEA_STATUS
+    )
+    # 接受即搬运:accepted_* 触发自动 move
+    if payload.status.startswith("accepted_") and not result.get("deleted"):
+        try:
+            move_result = kb.move_accepted_idea(item_id)
+            result["moved"] = move_result.get("moved", False)
+            if move_result.get("moved"):
+                result["moved_to"] = move_result.get("target")
+                result["area"] = move_result.get("area")
+            else:
+                result["move_reason"] = move_result.get("reason")
+        except Exception as e:
+            # 搬运失败不阻断 status 更新,但要告知前端
+            result["moved"] = False
+            result["move_error"] = str(e)
+    return JSONResponse(result)
 
 
 @app.post("/api/todo/{item_id}/status")
 async def api_todo_status(item_id: str, payload: StatusUpdate):
-    """修改 todo suggestion 的 status。"""
+    """修改 todo suggestion 的 status。
+
+    若 new_status 以 accepted_ 开头:先把块 status 改成 accepted_*,然后自动搬到
+    weekly/monthly/someday(调 kb.move_accepted_todo)。rejected 会直接删块,不搬。
+
+    幂等:若该块已是 moved 状态,不再重复搬运。
+    """
     path = VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
-    return JSONResponse(
-        _update_suggestion_status(
-            path, "Todo Suggestion", item_id, payload.status, VALID_TODO_STATUS
-        )
+    pre_check = _check_suggestion_current_status(
+        path, "Todo Suggestion", item_id
     )
+    if pre_check == "moved" and payload.status.startswith("accepted_"):
+        return JSONResponse({
+            "ok": True, "id": item_id, "new_status": "moved",
+            "deleted": False, "moved": False, "move_reason": "already_moved",
+        })
+
+    result = _update_suggestion_status(
+        path, "Todo Suggestion", item_id, payload.status, VALID_TODO_STATUS
+    )
+    if payload.status.startswith("accepted_") and not result.get("deleted"):
+        try:
+            move_result = kb.move_accepted_todo(item_id)
+            result["moved"] = move_result.get("moved", False)
+            if move_result.get("moved"):
+                result["moved_to"] = move_result.get("target")
+                result["plan"] = move_result.get("plan")
+            else:
+                result["move_reason"] = move_result.get("reason")
+        except Exception as e:
+            result["moved"] = False
+            result["move_error"] = str(e)
+    return JSONResponse(result)
 
 
 @app.get("/api/dashboard")

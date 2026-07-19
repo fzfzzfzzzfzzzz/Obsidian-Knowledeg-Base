@@ -1837,6 +1837,7 @@ code {
 .toast--success { border-left-color: var(--c-success); }
 .toast--error { border-left-color: var(--c-danger); }
 .toast--warning { border-left-color: var(--c-warning); }
+.toast--info { border-left-color: var(--c-accent, #3b82f6); }
 @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 
 /* ---------- 19. 骨架屏 ---------- */

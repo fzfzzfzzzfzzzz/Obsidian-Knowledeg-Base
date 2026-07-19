@@ -528,7 +528,22 @@ async function updateStatus(type, itemId, newStatus, btn) {
       if (card) card.querySelectorAll('button').forEach(b => b.disabled = false);
       return;
     }
-    if (data.deleted) toast('✓ 已删除该候选', 'success');
+    if (data.deleted) {
+      toast('✓ 已删除该候选', 'success');
+    } else if (data.moved) {
+      // 接受即搬运:给出具体去向
+      const where = data.moved_to || '';
+      const label = type === 'idea'
+        ? `已加入「${data.area || ''}」idea 列表`
+        : `已加入${data.plan === 'weekly' ? '本周' : data.plan === 'monthly' ? '本月' : 'someday'}计划`;
+      toast('✓ ' + label + (where ? `(${where})` : ''), 'success');
+    } else if (data.move_reason === 'already_moved') {
+      toast('该候选已搬运过,无需重复操作', 'info');
+    } else if (data.move_error) {
+      toast('状态已更新,但搬运失败:' + data.move_error, 'error');
+    } else {
+      toast('✓ 状态已更新为「' + statusLabel(data.new_status || newStatus) + '」', 'success');
+    }
     loadSuggestions(type);
   } catch (e) {
     toast('网络错误:' + e.message, 'error');

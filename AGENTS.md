@@ -13,14 +13,23 @@ Build a local-first Obsidian knowledge base for summarizing frontier technical m
 - MVP must not require external LLM APIs.
 - MVP must support manually pasted text in Inbox.
 
-## MVP Commands
+## Commands
 
+MVP(本地无 LLM 也能跑):
 - Initialize vault structure: `python scripts/kb.py init`
 - Parse inbox: `python scripts/kb.py ingest`
 - Generate manual LLM prompts: `python scripts/kb.py make-prompts`
 - Move accepted ideas: `python scripts/kb.py accept-ideas`
 - Move accepted todos: `python scripts/kb.py accept-todos`
 - Show status: `python scripts/kb.py status`
+
+Additional commands(require LLM / web deps, gracefully degrade when absent):
+- Test LLM connectivity: `python scripts/kb.py llm-test`
+- Auto-generate summary via LLM: `python scripts/kb.py make-prompts --auto`
+- Backfill `summary_path` from existing summaries: `python scripts/kb.py make-prompts --reconcile`
+- Extract idea/todo suggestions from summaries: `python scripts/kb.py extract-suggestions`
+- Clean X (Twitter) source body noise: `python scripts/kb.py clean-x`
+- Start FastAPI reading frontend: `python scripts/kb.py serve`
 
 ## Completion Criteria
 
@@ -35,8 +44,8 @@ A task is complete only if:
 ## Current Phase Status
 
 - Phase 0 (init): **done**
-- Phase 1 (ingest parser): **done**
-- Phase 2 (make-prompts): pending
-- Phase 3 (manual output import): pending
-- Phase 4 (accept-ideas / accept-todos): pending
-- Phase 5 (status dashboard): **done** (basic version)
+- Phase 1 (ingest parser): **done** (free-form text + KB_ITEM dual format, optional LLM)
+- Phase 2 (make-prompts): **done** (manual / `--auto` / `--reconcile` modes)
+- Phase 3 (manual output import): **done** (LLM auto-write + manual paste paths)
+- Phase 4 (accept-ideas / accept-todos): **done**
+- Phase 5 (status dashboard): **done** (CLI `status` + FastAPI web UI)

@@ -2,45 +2,41 @@
 
 > 本文件汇总所有版本 PRD 中提到的后续迭代方向 + 已知限制的改进计划。
 > 按优先级分层,供评审和规划参考。
-> 最后更新:2026-07-18(v0.4.2 后)
+> 最后更新:2026-07-19(v0.4.3 后)
 
 ---
 
-## 当前版本:v0.4.2
+## 当前版本:v0.4.3
 
-已实现:采集→总结→idea/todo→review→阅读管理→搜索/标签/批量→日历→详情页手动生成 idea/todo→批量投稿 + Idea/Todo 待定/已确定拆分 + Todo→日历链接→**日历时间轴视图 + category 字段 + 标签筛选**。
+已实现:采集→总结→idea/todo→review→阅读管理→搜索/标签/批量→日历→详情页手动生成 idea/todo→批量投稿 + Idea/Todo 待定/已确定拆分 + Todo→日历链接→日历时间轴视图 + category 字段 + 标签筛选→**rebuild-index 数据自愈 + Web accept 接受即搬运 + 路径配置云端就绪 + 测试网补齐(161 passed)**。
 - v0.4.0:详情页「生成 Idea/Todo 列表」按钮 + 引导弹窗(见 `docs/v0.4.0/`)
 - v0.4.1:投稿页批量投稿(URL 提取)、/ideas /todos 拆「待定/已确定」tab、已确认 todo 放入日历(见 `docs/v0.4.1/`)
 - v0.4.2:日历「时间轴」视图(垂直+水平)、category 字段(6 预设+自定义)、标签筛选条影响三个视图(见 `docs/v0.4.2/`)
+- v0.4.3:rebuild-index 命令、Web accept 自动搬运、6 路径常量环境变量覆盖、文档同步、+61 测试(见 `docs/v0.4.3/`)
 完整功能清单见 `PRODUCT.md`。
 
 ---
 
 ## P1:近期值得做
 
-### 1. 自动化测试
-- **现状**:整个项目零测试文件
-- **最该测**:kb_date.py 日期识别(16 种格式用例)、state.json 读写、tags 双写、日历 CRUD
-- **来源**:v0.3 Checklist P1-27~30
-- **价值**:改代码时有回归保障,日期识别逻辑复杂必须测
+### 1. ~~自动化测试~~ ✅ v0.4.3 完成
+- **结果**:从 0 → 161 passed。覆盖核心命令(accept/make-prompts/rebuild-index)、move 纯函数、Web accept 端到端、路径配置等。kb_date.py 日期识别仍有覆盖空间,但高风险命令已全部有回归网。
+- **遗留**:kb_date.py 16 种日期格式用例覆盖偏薄(已有 test_date.py 13 用例,但边界 case 可补)。
 
-### 2. rebuild-index
-- **现状**:state.json 和 frontmatter 不一致时无自动修复
-- **要做**:从 summary frontmatter 重建 state.json 的 tags / summary_path / has_summary
-- **来源**:v0.2 Checklist Phase 18(预留)
-- **价值**:数据自愈能力,防止长期使用后状态漂移
+### 2. ~~rebuild-index~~ ✅ v0.4.3 完成
+- **结果**:`python scripts/kb.py rebuild-index` 已实现,支持 --dry-run / --tags-only / --summary-path-only,写前自动备份,不碰用户行为数据。
+- **文档**:`docs/v0.4.3/changelog.md` 第 1 节
 
-### 3. 日期识别基准优化
+### 3. kb_web.py 按域拆 8 个 APIRouter(v0.4.4 主体)
+- **状态**:PRD/checklist 已就绪,待实现(见 `docs/v0.4.4/`)
+- **要做**:2117 行单文件拆成 9 个 router + 4 个 service 子模块,主文件 < 300 行;同步抽 kb.py 公共工具
+- **价值**:降低后续维护成本,改一个域不用全文搜索
+
+### 4. 日期识别基准优化
 - **现状**:用当前日期做年份推断和相对日期基准
 - **要做**:优先用文章发布时间(created_at),其次导入时间,最后当前日期
 - **来源**:v0.3 PRD 6.2.4 / 6.2.6
 - **价值**:提高日期识别精度,避免跨年误判
-
-### 4. 详情页手动生成 idea/todo(v0.4.0 主体)
-- **状态**:PRD/checklist 已就绪,待实现
-- **要做**:文章详情页加「生成 Idea/Todo 列表」按钮 + 引导弹窗(引导词 + 优先级/难度/时间等参数),作为引导传 LLM 定向抽取
-- **来源**:`docs/v0.4.0/manual_idea_todo_generation_PRD.md`
-- **价值**:把"无差别批量抽取"升级为"用户引导的定向抽取",候选贴合用户当下关注点
 
 ### 5. idea/todo 抽取的 prompt 量化标准(v0.4.0 批注后续项 A)
 - **现状**:`priority`/`feasibility`/`novelty`/`difficulty` 只给枚举可选值,无判定门槛,同份 summary 不同时间跑结果不稳定
@@ -59,6 +55,10 @@
 - **要做**:解析失败时记日志 + 在 source state 标 `extract_error`,区分"真没候选"和"解析出错"
 - **来源**:v0.4.0 PRD §1.2 批注 + §12 后续项 C
 - **价值**:抽取异常可观测,不再静默丢数据
+
+### 8. ~~Web 端 accept 自动搬运~~ ✅ v0.4.3 完成(原 P1-15)
+- **结果**:Web 端点接受按钮直接触发搬运,不再需要手动跑 CLI accept-ideas/accept-todos。
+- **文档**:`docs/v0.4.3/changelog.md` 第 2 节
 
 ---
 
@@ -104,11 +104,8 @@
 - **来源**:v0.4.0 PRD §1.2 批注 + §12 后续项 E
 - **价值**:文档与代码一致,符合 AGENTS.md "状态字段一致"要求
 
-### 15. Web 端 accept 自动搬运(v0.4.0 批注后续项 F)
-- **现状**:Web 端「接受」只改 suggestion 文件的 status,把 accepted 块搬进正式清单还需手动跑 CLI `accept-ideas`/`accept-todos`,流程割裂
-- **要做**:Web accept API 改为直接触发搬运逻辑,不再要求用户跑 CLI
-- **来源**:v0.4.0 PRD §1.2 批注 + §12 后续项 F
-- **价值**:review→accept 全流程 Web 内闭环
+### 15. ~~Web 端 accept 自动搬运~~ ✅ v0.4.3 完成(v0.4.0 批注后续项 F)
+- **结果**:Web accept API 已改为接受即搬运,不再需要跑 CLI。详见 P1 第 8 项与 `docs/v0.4.3/changelog.md` 第 2 节。
 
 ### 16. summary 重生成后允许重抽(v0.4.0 批注后续项 G)
 - **现状**:`extract-suggestions` 成功一次就把 `action_status` 置 `todo_suggested`,summary 重新生成后也无法重抽(除非手动改 state)

@@ -85,14 +85,21 @@ def test_reject_idea_deletes_block(client):
 
 
 def test_accept_todo_not_deleted(client):
-    """接受(非 rejected)仍走原逻辑:改 status 行,块保留,deleted=False。"""
+    """接受(非 rejected)不删块:块保留(标 moved),deleted=False,且自动搬到 weekly。
+
+    注:接受即搬运(阶段 4)后,原 suggestion 块的 status 会从 accepted_weekly
+    变成 moved,并被搬到 04_Plans/Weekly/。本测试验证「不删块」这一核心点。
+    """
     c, tmp = client
     r = c.post("/api/todo/todo_suggestion_20260717_aaa/status", json={"status": "accepted_weekly"})
     assert r.status_code == 200
     assert r.json()["deleted"] is False
     content = (tmp / "04_Plans" / "todo_suggestions.md").read_text(encoding="utf-8")
     assert "任务A" in content
-    assert "accepted_weekly" in content
+    # 搬运后原块标 moved(不再是 accepted_weekly)
+    assert "status: moved" in content
+    # 应已搬到 weekly
+    assert r.json().get("moved") is True
 
 
 def test_reject_not_found_404(client):
