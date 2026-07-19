@@ -62,7 +62,7 @@ from web.services.state_io import (
     _mark_read,
     _delete_one,
 )
-from web.services.status import _check_suggestion_current_status, _update_suggestion_status
+from web.services.status import _check_suggestion_current_status, _update_suggestion_status, accept_and_move
 from web.models import (
     StatusUpdate,
     IngestRequest,
@@ -140,40 +140,19 @@ async def api_ideas_confirmed():
 async def api_idea_status(item_id: str, payload: StatusUpdate):
     """修改 idea suggestion 的 status。
 
-    若 new_status 以 accepted_ 开头:先把块 status 改成 accepted_*,然后自动搬到
-    正式 idea list(调 kb.move_accepted_idea,搬运时会把原块再标 moved)。
-    rejected 会直接删块,不搬。
-
-    幂等:若该块已是 moved 状态(说明之前搬过),不再重复搬运,直接返回。
+    若 new_status 以 accepted_ 开头:事务化地改 status + 搬到正式 idea list。
+    v0.4.5: 全程持文件锁(防 TOCTOU 并发重复搬运);搬运失败时回滚 status
+    (防卡在 accepted_* 状态)。
     """
     path = kb.VAULT_ROOT / "03_Ideas" / "idea_suggestions.md"
-    # 先检查当前状态:已是 moved 的话,接受请求是重复的,no-op
-    pre_check = _check_suggestion_current_status(
-        path, "Idea Suggestion", item_id
+    result = accept_and_move(
+        kind="Idea Suggestion",
+        item_id=item_id,
+        new_status=payload.status,
+        sug_path=path,
+        valid_set=VALID_IDEA_STATUS,
+        move_func=kb.move_accepted_idea,
     )
-    if pre_check == "moved" and payload.status.startswith("accepted_"):
-        return JSONResponse({
-            "ok": True, "id": item_id, "new_status": "moved",
-            "deleted": False, "moved": False, "move_reason": "already_moved",
-        })
-
-    result = _update_suggestion_status(
-        path, "Idea Suggestion", item_id, payload.status, VALID_IDEA_STATUS
-    )
-    # 接受即搬运:accepted_* 触发自动 move
-    if payload.status.startswith("accepted_") and not result.get("deleted"):
-        try:
-            move_result = kb.move_accepted_idea(item_id)
-            result["moved"] = move_result.get("moved", False)
-            if move_result.get("moved"):
-                result["moved_to"] = move_result.get("target")
-                result["area"] = move_result.get("area")
-            else:
-                result["move_reason"] = move_result.get("reason")
-        except Exception as e:
-            # 搬运失败不阻断 status 更新,但要告知前端
-            result["moved"] = False
-            result["move_error"] = str(e)
     return JSONResponse(result)
 
 @router.post("/api/article/{source_id}/generate-ideas")

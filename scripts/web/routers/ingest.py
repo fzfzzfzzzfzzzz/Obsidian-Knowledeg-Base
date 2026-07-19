@@ -30,6 +30,7 @@ from web.utils import (
     VALID_READING_STATUS,
     VALID_BATCH_ACTIONS,
     _build_hint,
+    backup_file,
 )
 from web.services.parsing import _parse_frontmatter, _parse_suggestion_file
 from web.services.cards import (
@@ -247,10 +248,11 @@ async def api_ingest_image(
     if not ocr_text.strip() or "未检测到文字" in ocr_text:
         raise HTTPException(400, "图片中未检测到文字内容")
 
-    # 用 OCR 文字走 ingest(写入 inbox → cmd_ingest)
-    inbox_path = kb.VAULT_ROOT / "00_Inbox" / "inbox.md"
-    header = "# Inbox\n\n> web image submit\n\n"
-    inbox_path.write_text(header + ocr_text + "\n", encoding=ENC)
+    # 用 OCR 文字走 ingest(增量追加到 inbox → cmd_ingest)
+    # v0.4.5 修复:此前用 write_text 覆盖整个 inbox.md,会丢失用户此前未处理的投稿,
+    # 违反 Hard Rule "Do not silently overwrite user-authored notes"。
+    # 改用 kb.append_to_inbox 与文本投稿路径一致(增量追加)。
+    kb.append_to_inbox([ocr_text])
 
     import io
     import contextlib
@@ -344,13 +346,9 @@ async def api_batch(payload: BatchRequest):
     if payload.action not in VALID_BATCH_ACTIONS:
         raise HTTPException(400, f"非法 action:{payload.action}")
 
-    # 删除操作先备份
+    # 删除操作先备份(命名带时分秒)
     if payload.action == "delete":
-        backup_dir = kb.VAULT_ROOT / ".kb" / "logs" / "web_backups"
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        backup = backup_dir / f"state_{date.today().isoformat()}.json.bak"
-        if kb.STATE_FILE.exists():
-            shutil.copy2(kb.STATE_FILE, backup)
+        backup_file(kb.STATE_FILE, "state")
 
     state = kb.load_state()
     sources = state.get("sources", {})

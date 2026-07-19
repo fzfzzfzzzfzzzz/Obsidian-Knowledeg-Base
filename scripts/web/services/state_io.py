@@ -4,12 +4,11 @@
 from __future__ import annotations
 
 import re
-import shutil
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import HTTPException
-from web.utils import ENC
+from web.utils import ENC, backup_file
 import kb
 from web.services.parsing import _parse_frontmatter
 
@@ -40,12 +39,8 @@ def _save_reading_state(source_id: str, **updates) -> dict:
     if source_id not in sources:
         raise HTTPException(404, f"找不到 source:{source_id}")
 
-    # 备份
-    backup_dir = kb.VAULT_ROOT / ".kb" / "logs" / "web_backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    backup = backup_dir / f"state_{date.today().isoformat()}.json.bak"
-    if kb.STATE_FILE.exists():
-        shutil.copy2(kb.STATE_FILE, backup)
+    # 备份(命名带时分秒,避免同日多次写覆盖)
+    backup_file(kb.STATE_FILE, "state")
 
     rec = sources[source_id]
     for k, v in updates.items():
@@ -146,12 +141,8 @@ def _set_article_tags(source_id: str, tags: list[str]) -> list[str]:
     if source_id not in sources:
         raise HTTPException(404, f"找不到 source:{source_id}")
 
-    # 备份
-    backup_dir = kb.VAULT_ROOT / ".kb" / "logs" / "web_backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    backup = backup_dir / f"state_{date.today().isoformat()}.json.bak"
-    if kb.STATE_FILE.exists():
-        shutil.copy2(kb.STATE_FILE, backup)
+    # 备份(命名带时分秒,避免同日多次写覆盖)
+    backup_file(kb.STATE_FILE, "state")
 
     # 写 state.json
     sources[source_id]["tags"] = deduped

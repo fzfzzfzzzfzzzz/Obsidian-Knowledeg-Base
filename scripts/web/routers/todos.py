@@ -62,7 +62,7 @@ from web.services.state_io import (
     _mark_read,
     _delete_one,
 )
-from web.services.status import _check_suggestion_current_status, _update_suggestion_status
+from web.services.status import _check_suggestion_current_status, _update_suggestion_status, accept_and_move
 from web.models import (
     StatusUpdate,
     IngestRequest,
@@ -190,36 +190,18 @@ async def api_todos_confirmed():
 async def api_todo_status(item_id: str, payload: StatusUpdate):
     """修改 todo suggestion 的 status。
 
-    若 new_status 以 accepted_ 开头:先把块 status 改成 accepted_*,然后自动搬到
-    weekly/monthly/someday(调 kb.move_accepted_todo)。rejected 会直接删块,不搬。
-
-    幂等:若该块已是 moved 状态,不再重复搬运。
+    若 new_status 以 accepted_ 开头:事务化地改 status + 搬到 weekly/monthly/someday。
+    v0.4.5: 全程持文件锁(防 TOCTOU);搬运失败回滚 status。
     """
     path = kb.VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
-    pre_check = _check_suggestion_current_status(
-        path, "Todo Suggestion", item_id
+    result = accept_and_move(
+        kind="Todo Suggestion",
+        item_id=item_id,
+        new_status=payload.status,
+        sug_path=path,
+        valid_set=VALID_TODO_STATUS,
+        move_func=kb.move_accepted_todo,
     )
-    if pre_check == "moved" and payload.status.startswith("accepted_"):
-        return JSONResponse({
-            "ok": True, "id": item_id, "new_status": "moved",
-            "deleted": False, "moved": False, "move_reason": "already_moved",
-        })
-
-    result = _update_suggestion_status(
-        path, "Todo Suggestion", item_id, payload.status, VALID_TODO_STATUS
-    )
-    if payload.status.startswith("accepted_") and not result.get("deleted"):
-        try:
-            move_result = kb.move_accepted_todo(item_id)
-            result["moved"] = move_result.get("moved", False)
-            if move_result.get("moved"):
-                result["moved_to"] = move_result.get("target")
-                result["plan"] = move_result.get("plan")
-            else:
-                result["move_reason"] = move_result.get("reason")
-        except Exception as e:
-            result["moved"] = False
-            result["move_error"] = str(e)
     return JSONResponse(result)
 
 @router.post("/api/article/{source_id}/generate-todos")

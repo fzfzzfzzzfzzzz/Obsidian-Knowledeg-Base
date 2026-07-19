@@ -71,3 +71,85 @@ def test_rank_future_before_past():
 
 def test_recommend_none_when_all_past():
     assert kb_date.recommend_date("已于2020年1月1日结束", REF) is None
+
+
+# —— v0.4.5 修复的 bug 回归 ——
+
+def test_xiayuedi_next_month_end():
+    """下月底:下月最后一天(不是 1 号)。修复 +32 算式错误。"""
+    res = kb_date.detect_dates("下月底截止", REF)
+    assert res[0]["normalized_date"] == "2026-08-31"
+    assert res[0]["raw_text"] == "下月底"
+
+
+def test_xiaguedi_long_form():
+    """下个月底(4 字写法):与下月底语义一致。"""
+    res = kb_date.detect_dates("下个月底截止", REF)
+    assert res[0]["normalized_date"] == "2026-08-31"
+    assert res[0]["raw_text"] == "下个月底"
+
+
+def test_xiayuedi_february_non_leap():
+    """下月底遇 2 月非闰年:28 号。"""
+    res = kb_date.detect_dates("下月底截止", date(2026, 1, 15))
+    assert res[0]["normalized_date"] == "2026-02-28"
+
+
+def test_xiayuedi_february_leap():
+    """下月底遇 2 月闰年:29 号。"""
+    res = kb_date.detect_dates("下月底截止", date(2024, 1, 15))
+    assert res[0]["normalized_date"] == "2024-02-29"
+
+
+def test_xiayuedi_cross_year():
+    """下月底跨年:12 月说下月底 = 明年 1 月底。"""
+    res = kb_date.detect_dates("下月底截止", date(2026, 12, 15))
+    assert res[0]["normalized_date"] == "2027-01-31"
+
+
+def test_xiayuedi_31_day_month():
+    """下月底遇大月:31 号。"""
+    res = kb_date.detect_dates("下个月底截止", date(2026, 2, 15))  # 3 月
+    assert res[0]["normalized_date"] == "2026-03-31"
+
+
+def test_benzhoumo_on_saturday():
+    """本周末在周六 = 今天(本周的周末已在进行)。修复 <=0 推到下周的 bug。"""
+    res = kb_date.detect_dates("本周末截止", date(2026, 7, 18))  # 周六
+    assert res[0]["normalized_date"] == "2026-07-18"
+
+
+def test_benzhoumo_on_sunday():
+    """本周末在周日 = 今天。"""
+    res = kb_date.detect_dates("本周末截止", date(2026, 7, 19))  # 周日
+    assert res[0]["normalized_date"] == "2026-07-19"
+
+
+def test_benzhoumo_on_weekday():
+    """本周末在工作日 = 本周六。"""
+    res = kb_date.detect_dates("本周末截止", date(2026, 7, 15))  # 周三
+    assert res[0]["normalized_date"] == "2026-07-18"
+
+
+def test_xiayuechu_long_form():
+    """下个月初(4 字):与下月初语义一致。"""
+    res = kb_date.detect_dates("下个月初截止", REF)
+    assert res[0]["normalized_date"] == "2026-08-01"
+
+
+def test_xiayue_alone_not_swallowed():
+    """下月 单用不应被下月底/下月初的正则吞掉。"""
+    res = kb_date.detect_dates("下月截止", REF)
+    assert res[0]["normalized_date"] == "2026-08-01"
+    assert res[0]["raw_text"] == "下月"
+
+
+def test_xiagexingqiyi_not_broken():
+    """下周X 不受相对日期改动影响(回归保护)。
+
+    注:当前代码"下周X"语义是"下下周X"(always +7),这是已知设计分歧,
+    本测试只验证改动不破坏现有行为,不断言语义正确性。
+    """
+    res = kb_date.detect_dates("下周一开会", REF)
+    # 周三(2026-07-15)说"下周一":当前实现返回下下周一(2026-07-27)
+    assert res[0]["normalized_date"] == "2026-07-27"

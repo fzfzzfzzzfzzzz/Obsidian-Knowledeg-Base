@@ -30,6 +30,7 @@ from web.utils import (
     VALID_READING_STATUS,
     VALID_BATCH_ACTIONS,
     _build_hint,
+    backup_file,
 )
 from web.services.parsing import _parse_frontmatter, _parse_suggestion_file
 from web.services.cards import (
@@ -224,12 +225,8 @@ async def api_delete_article(source_id: str):
 
     删除前备份 state.json。物理文件直接删除(不可恢复)。
     """
-    # 备份
-    backup_dir = kb.VAULT_ROOT / ".kb" / "logs" / "web_backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    backup = backup_dir / f"state_{date.today().isoformat()}.json.bak"
-    if kb.STATE_FILE.exists():
-        shutil.copy2(kb.STATE_FILE, backup)
+    # 备份(命名带时分秒)
+    backup_file(kb.STATE_FILE, "state")
 
     state = kb.load_state()
     if source_id not in state.get("sources", {}):

@@ -34,6 +34,7 @@ import os
 import re
 import shutil
 import sys
+import threading
 from datetime import date
 from pathlib import Path
 
@@ -77,9 +78,29 @@ SOURCE_TYPES = ("github", "x", "wechat", "douyin", "gpt_chat", "web", "manual")
 
 
 def write_text(path: Path, text: str) -> None:
-    """以 UTF-8 写入文件,自动创建父目录。"""
+    """以 UTF-8 写入文件,自动创建父目录。
+
+    v0.4.5: 改为原子写(写临时文件 + os.replace)。
+    优点:并发读时不会读到截断内容(写入中途被读要么是旧版要么是新版)。
+    限制:os.replace 在同一文件系统内是原子的;跨文件系统可能 fallback 为 copy+remove,
+    但我们的临时文件与目标在同一目录,必然同文件系统。
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding=ENC, newline="\n")
+    # 用同目录临时文件,保证 os.replace 是真原子(不跨卷)
+    tmp = path.with_suffix(path.suffix + f".tmp_{os.getpid()}_{threading.get_ident()}")
+    try:
+        with tmp.open("w", encoding=ENC, newline="\n") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())  # 确保数据落盘
+        os.replace(tmp, path)  # 原子替换
+    except Exception:
+        # 任何异常都要清理临时文件,避免残留
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def read_text(path: Path) -> str:
@@ -87,8 +108,97 @@ def read_text(path: Path) -> str:
     return path.read_text(encoding=ENC)
 
 
+# ---------------------------------------------------------------------------
+# 文件锁(跨平台,零外部依赖)
+# ---------------------------------------------------------------------------
+# 用于串行化对 state.json / calendar.json / suggestion 文件的 read-modify-write。
+# Unix: fcntl.flock(建议锁,只在同进程/协作进程间有效)
+# Windows: msvcrt.locking(强制锁,但同一进程内对同一文件多次加锁会失败,所以用 os.open + 句柄)
+#
+# 设计要点:
+# - 锁文件单独存放(<path>.lock),不污染数据文件
+# - timeout 内重试,超时抛 TimeoutError,不无限等待
+# - 同进程内可重入(用 threading.local 记录持有者)
+
+
+import contextlib
+
+
+@contextlib.contextmanager
+def _file_lock(lock_path: Path, timeout: float = 5.0):
+    """获取 lock_path 上的独占文件锁,超时抛 TimeoutError。
+
+    跨平台:Unix 用 fcntl.flock,Windows 用 msvcrt.locking。
+    锁随 with 退出自动释放(包括异常)。
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o644)
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            try:
+                _try_lock(fd)
+                break  # 拿到锁
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"等待文件锁超时({timeout}s):{lock_path}"
+                    )
+                time.sleep(0.05)
+        yield
+    finally:
+        try:
+            _release_lock(fd)
+        finally:
+            os.close(fd)
+
+
+def _try_lock(fd: int) -> None:
+    """尝试对 fd 加独占锁。失败抛 OSError。"""
+    if sys.platform == "win32":
+        # Windows: msvcrt.locking 对文件区域加锁
+        import msvcrt
+        try:
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+        except OSError:
+            raise
+    else:
+        # Unix: fcntl.flock
+        import fcntl
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+def _release_lock(fd: int) -> None:
+    """释放 fd 上的锁。"""
+    if sys.platform == "win32":
+        import msvcrt
+        try:
+            # 释放前要把指针回到加锁位置(0)
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except OSError:
+            pass
+    else:
+        import fcntl
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+
+
+import time  # noqa: E402  (延迟 import 避免顶部过于拥挤)
+
+
 def load_state() -> dict:
-    """读取 .kb/state.json,不存在则返回空骨架。"""
+    """读取 .kb/state.json,不存在则返回空骨架。
+
+    v0.4.5: state.json 损坏(JSONDecodeError / OSError)时不再静默返回空骨架。
+    而是:
+      1. 把损坏文件备份到 .kb/logs/corrupt_state_<ts>.json
+      2. 记日志(append_log)
+      3. 返回空骨架 + 加 "_corrupt": True 标记,调用方可识别
+    防止 rebuild-index 等命令误以为"state 已是最新"而掩盖数据丢失。
+    """
     if not STATE_FILE.exists():
         return {
             "version": 1,
@@ -97,11 +207,29 @@ def load_state() -> dict:
         }
     try:
         return json.loads(read_text(STATE_FILE))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, OSError) as e:
+        # 备份损坏文件,便于事后分析
+        try:
+            backup_dir = LOGS_DIR
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            corrupt_backup = backup_dir / f"corrupt_state_{ts}.json"
+            shutil.copy2(STATE_FILE, corrupt_backup)
+            backup_msg = f"(已备份到 {corrupt_backup.name})"
+        except Exception as be:
+            backup_msg = f"(备份失败: {be})"
+        # 记日志,避免静默吞错
+        try:
+            append_log(f"WARNING: state.json 损坏({type(e).__name__}: {e}) {backup_msg}")
+        except Exception:
+            pass  # 日志本身失败不能再影响主流程
+        # 返回空骨架 + 损坏标记
         return {
             "version": 1,
             "created_at": date.today().isoformat(),
             "sources": {},
+            "_corrupt": True,
+            "_corrupt_error": str(e),
         }
 
 
@@ -110,13 +238,29 @@ def save_state(state: dict) -> None:
 
 
 def load_calendar() -> dict:
-    """读取 .kb/calendar.json,不存在则返回空骨架。"""
+    """读取 .kb/calendar.json,不存在则返回空骨架。
+
+    v0.4.5: 损坏时备份 + 记日志 + 加 _corrupt 标记(与 load_state 同款)。
+    """
     if not CALENDAR_FILE.exists():
         return {"version": 1, "items": {}}
     try:
         return json.loads(read_text(CALENDAR_FILE))
-    except (json.JSONDecodeError, OSError):
-        return {"version": 1, "items": {}}
+    except (json.JSONDecodeError, OSError) as e:
+        try:
+            backup_dir = LOGS_DIR
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            corrupt_backup = backup_dir / f"corrupt_calendar_{ts}.json"
+            shutil.copy2(CALENDAR_FILE, corrupt_backup)
+            backup_msg = f"(已备份到 {corrupt_backup.name})"
+        except Exception as be:
+            backup_msg = f"(备份失败: {be})"
+        try:
+            append_log(f"WARNING: calendar.json 损坏({type(e).__name__}: {e}) {backup_msg}")
+        except Exception:
+            pass
+        return {"version": 1, "items": {}, "_corrupt": True, "_corrupt_error": str(e)}
 
 
 def save_calendar(cal: dict) -> None:
@@ -1971,11 +2115,13 @@ def _rebuild_state_index(
             # frontmatter 无 tags 但 state 有 → 保留(用户可能手加),不动
 
     if changed and not dry_run:
-        # 备份原 state
+        # 备份原 state(命名带时分秒,避免同日多次 rebuild 覆盖)
         if STATE_FILE.exists():
             backup_dir = LOGS_DIR / "web_backups"
             backup_dir.mkdir(parents=True, exist_ok=True)
-            backup = backup_dir / f"state_rebuild_{date.today().strftime('%Y%m%d')}.json.bak"
+            from datetime import datetime as _dt
+            ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+            backup = backup_dir / f"state_rebuild_{ts}.json.bak"
             shutil.copy2(STATE_FILE, backup)
             stats["backup_path"] = str(backup)
         save_state(state)
@@ -1989,7 +2135,20 @@ def cmd_rebuild_index(args: argparse.Namespace) -> int:
 
     数据流向:frontmatter → state(frontmatter 为准)。
     不碰用户行为数据(is_favorite / read_count / collection_ids 等)。
+
+    v0.4.5: 检测 state.json 损坏(_corrupt 标记),明确报告而非静默吞错。
     """
+    # 先检查 state 是否损坏(load_state 已备份损坏文件)
+    pre_check = load_state()
+    if pre_check.get("_corrupt"):
+        print(f"[rebuild-index] ⚠ state.json 损坏!({pre_check.get('_corrupt_error', '未知错误')})")
+        print(f"[rebuild-index] 损坏的文件已备份到 {LOGS_DIR}/corrupt_state_*.json")
+        print(f"[rebuild-index] 当前 state 为空骨架,继续 rebuild 只能从 summary 重建 tags/summary_path,")
+        print(f"[rebuild-index] sources 的核心字段(path/source_type/created_at 等)无法恢复,")
+        print(f"[rebuild-index] 用户行为数据(is_favorite/read_count/collection_ids 等)已永久丢失。")
+        print(f"[rebuild-index] 建议手动从 .kb/logs/corrupt_state_*.json 修复,或确认接受损失后再继续。")
+        return 2  # 退出码 2 = state 损坏,需要人工确认
+
     print(f"[rebuild-index] 扫描 {VAULT_ROOT / '02_Summaries'} ...")
     stats = _rebuild_state_index(
         dry_run=args.dry_run,

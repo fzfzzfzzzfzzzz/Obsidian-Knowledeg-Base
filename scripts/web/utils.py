@@ -7,6 +7,8 @@
 """
 from __future__ import annotations
 
+import shutil
+from datetime import datetime
 from pathlib import Path
 from fastapi.templating import Jinja2Templates
 
@@ -67,3 +69,19 @@ def _build_hint(payload) -> str:
     if prompt:
         lines.append(f"引导: {prompt}")
     return "\n".join(lines)
+
+
+def backup_file(src: Path, stem: str) -> Path | None:
+    """把 src 文件备份到 .kb/logs/web_backups/<stem>_<YYYYMMDD_HHMMSS>.bak。
+
+    命名带时分秒(v0.4.5 修复),同一天多次备份不会互相覆盖。
+    返回备份文件路径;src 不存在则返回 None。
+    """
+    if not src.exists():
+        return None
+    backup_dir = kb.VAULT_ROOT / ".kb" / "logs" / "web_backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup = backup_dir / f"{stem}_{ts}.bak"
+    shutil.copy2(src, backup)
+    return backup

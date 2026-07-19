@@ -206,12 +206,17 @@ def _build_parser_class():
             if self.owner._skip_depth > 0:
                 return
             text = data.strip()
-            if text:
+            if not text:
+                return
+            if self.owner._in_keep > 0:
+                # 在 keep 标签(p/li/h/pre/blockquote/td)内:暂存到 _buf,
+                # 等 endtag 时 flush 到 parts(保持块级边界)
                 self.owner._buf.append(text)
-                # 即使不在 keep 标签内,也收集(很多正文不在 <p> 里)
-                if self.owner._in_keep == 0:
-                    if len(self.owner.parts) == 0 or self.owner.parts[-1] != text:
-                        self.owner.parts.append(text)
+            else:
+                # 非 keep 标签(裸 div/span 等):直接进 parts,不暂存 _buf
+                # (避免收尾时 _buf 残留导致重复输出)
+                if len(self.owner.parts) == 0 or self.owner.parts[-1] != text:
+                    self.owner.parts.append(text)
 
     return _P
 
@@ -1134,8 +1139,13 @@ def _with_hint(summary_text: str, hint: str | None) -> str:
     return truncated
 
 
-def _extract_json_list(text: str) -> list[dict[str, Any]]:
-    """从模型回复里容错提取 JSON 数组。"""
+def _extract_json_list(text: str) -> list[dict[str, Any]] | None:
+    """从模型回复里容错提取 JSON 数组。
+
+    返回值:
+        list[dict] - 成功解析(可能为空 [],表示 LLM 合法地没抽到候选)
+        None       - 三种容错路径都解析失败(LLM 输出格式错误,调用方应抛错或记日志)
+    """
     text = text.strip()
     # 1. 直接解析
     try:
@@ -1162,7 +1172,7 @@ def _extract_json_list(text: str) -> list[dict[str, Any]]:
                 return [x for x in obj if isinstance(x, dict)]
         except json.JSONDecodeError:
             pass
-    return []
+    return None
 
 
 def extract_ideas_from_summary(

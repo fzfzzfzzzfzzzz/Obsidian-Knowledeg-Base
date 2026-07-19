@@ -68,14 +68,17 @@ RE_RANGE = re.compile(
 )
 
 # 相对日期(PRD 6.2.4)
+# 注意:顺序敏感!"下个月"正则不允许"个"可选,否则会抢先匹配"下月底"里的"下月"
+# 子串(位置去重会让真正的"下月底"规则被丢弃)。"下月" 单用走单独的 "下月" key。
 RE_RELATIVE = {
     "今天": re.compile(r"今天"),
     "明天": re.compile(r"明天"),
     "后天": re.compile(r"后天"),
     "本月底": re.compile(r"本月底"),
-    "下个月": re.compile(r"下个?月(?:初)?"),
-    "下月初": re.compile(r"下月初"),
-    "下月底": re.compile(r"下月底"),
+    "下个月": re.compile(r"下个月(?!底|初)"),  # 排除下个月底/下个月初
+    "下月": re.compile(r"下月(?!底|初|个月)"),  # 下月 单用,排除下月底/下月初/下个月
+    "下月初": re.compile(r"下(?:月|个月)初"),  # 匹配 下月初 和 下个月初
+    "下月底": re.compile(r"下(?:月|个月)底"),  # 匹配 下月底 和 下个月底
     "本周末": re.compile(r"本周末"),
 }
 
@@ -168,14 +171,28 @@ def _resolve_relative(match_text: str, reference: date) -> date | None:
         next_month = reference.replace(day=1) + timedelta(days=32)
         return next_month.replace(day=1) - timedelta(days=1)
 
-    # 下个月 / 下月初
-    if "下月初" in match_text or ("下个" in match_text and "月初" in match_text):
+    # 下月初 / 下月底(必须先于"下月/下个月"判断,否则会被子串匹配抢先)
+    # 同时识别 "下月X" 和 "下个月X" 两种写法
+    # 下月初:下月 1 号
+    if "下月初" in match_text or "下个月初" in match_text:
         nm = reference.month + 1
         ny = reference.year
         if nm > 12:
             nm = 1
             ny += 1
         return _safe_date(ny, nm, 1)
+    # 下月底:下下月 1 号 - 1 天 = 下月最后一天(与"本月底"同款写法,避免 +32 算错大月/2月)
+    if "下月底" in match_text or "下个月底" in match_text:
+        nm = reference.month + 2  # 下下月
+        ny = reference.year
+        if nm > 12:
+            nm -= 12
+            ny += 1
+        first_of_next_next = _safe_date(ny, nm, 1)
+        if first_of_next_next:
+            return first_of_next_next - timedelta(days=1)
+
+    # 下个月 / 下月(兜底:下月 1 号)
     if "下个月" in match_text or "下月" in match_text:
         nm = reference.month + 1
         ny = reference.year
@@ -184,22 +201,13 @@ def _resolve_relative(match_text: str, reference: date) -> date | None:
             ny += 1
         return _safe_date(ny, nm, 1)
 
-    # 下月底
-    if "下月底" in match_text:
-        nm = reference.month + 1
-        ny = reference.year
-        if nm > 12:
-            nm = 1
-            ny += 1
-        first_next = _safe_date(ny, nm, 1)
-        if first_next:
-            return first_next.replace(day=1) + timedelta(days=32) - timedelta(days=1)
-
-    # 本周末(周六)
+    # 本周末(周六或周日)
+    # 语义:工作日说"本周末"指本周六;周六/周日说"本周末"指今天(本周的周末已在进行)
     if "本周末" in match_text:
-        days_ahead = 5 - reference.weekday()
-        if days_ahead <= 0:
-            days_ahead += 7
+        wd = reference.weekday()
+        if wd >= 5:  # 周六(5)或周日(6):本周末就是今天
+            return reference
+        days_ahead = 5 - wd  # 工作日:推到本周六
         return reference + timedelta(days=days_ahead)
 
     return None
