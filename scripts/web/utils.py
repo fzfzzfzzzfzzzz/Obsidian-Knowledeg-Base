@@ -85,3 +85,62 @@ def backup_file(src: Path, stem: str) -> Path | None:
     backup = backup_dir / f"{stem}_{ts}.bak"
     shutil.copy2(src, backup)
     return backup
+
+
+# —— XSS 消毒(v0.4.6) ——
+# summary 正文经 markdown.markdown 渲染后含原始 HTML(用户投稿可能带 <script> 等),
+# 必须在 innerHTML 前消毒。用 bleach 而非手写正则(手写不可靠)。
+
+ALLOWED_HTML_TAGS = {
+    # 文本结构
+    "p", "br", "hr", "span", "div",
+    # 标题
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    # 文字格式
+    "strong", "b", "em", "i", "u", "del", "sub", "sup", "mark", "small",
+    # 引用
+    "blockquote", "q", "cite",
+    # 列表
+    "ul", "ol", "li", "dl", "dt", "dd",
+    # 代码
+    "code", "pre", "kbd", "samp",
+    # 表格
+    "table", "thead", "tbody", "tfoot", "tr", "th", "td",
+    # 链接/图片
+    "a", "img",
+}
+
+ALLOWED_HTML_ATTRS = {
+    "a": ["href", "title", "name"],
+    "img": ["src", "alt", "title", "width", "height"],
+    # codehilite 加的 class
+    "code": ["class"],
+    "pre": ["class"],
+    "div": ["class"],
+    "span": ["class"],
+    "th": ["align"],
+    "td": ["align"],
+}
+
+
+def sanitize_html(html: str) -> str:
+    """用 bleach 消毒 HTML,只保留白名单标签和属性。
+
+    - script / style / iframe 等危险标签被剥离
+    - 所有 on* 事件属性(onerror/onclick/...)被剥离
+    - javascript: 协议被拒
+    bleach 不可用时退化为粗暴 strip(只剩纯文本)。
+    """
+    try:
+        import bleach
+        return bleach.clean(
+            html,
+            tags=ALLOWED_HTML_TAGS,
+            attributes=ALLOWED_HTML_ATTRS,
+            protocols=["http", "https", "mailto", "ftp"],
+            strip=True,
+        )
+    except ImportError:
+        # bleach 缺失时退化为去标签(避免完全无防护)
+        import re
+        return re.sub(r"<[^>]+>", "", html)

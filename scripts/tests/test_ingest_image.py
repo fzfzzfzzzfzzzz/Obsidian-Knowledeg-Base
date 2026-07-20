@@ -69,3 +69,44 @@ def test_ingest_image_rejects_unsupported_type(client):
     # inbox 未被动
     inbox_text = (tmp / "00_Inbox" / "inbox.md").read_text(encoding="utf-8")
     assert "用户已有的重要笔记" in inbox_text
+
+
+def test_ingest_image_rejects_forged_content_type(client):
+    """content_type 伪造(magic bytes 不匹配)应被拒。
+
+    防御:攻击者把 .exe 改名 + content_type=image/png 上传。
+    """
+    c, tmp = client
+    # 声称是 png,但内容是纯文本
+    r = c.post(
+        "/api/ingest-image",
+        files={"file": ("fake.png", b"not really an image", "image/png")},
+    )
+    assert r.status_code == 400
+
+
+def test_ingest_image_rejects_oversized(client):
+    """超过 10MB 的图片应被拒(对齐前端)。"""
+    c, tmp = client
+    # 构造 > 10MB 的"图片"(用 PNG 头 + 大量填充)
+    big_png = bytes.fromhex("89504e470d0a1a0a") + b"\x00" * (11 * 1024 * 1024)
+    r = c.post(
+        "/api/ingest-image",
+        files={"file": ("big.png", big_png, "image/png")},
+    )
+    assert r.status_code == 400
+    assert "10MB" in r.json().get("detail", "") or "超过" in r.json().get("detail", "")
+
+
+def test_ingest_image_accepts_webp_magic(client):
+    """WebP 通过 magic bytes 校验(对齐前端 ACCEPTED_TYPES)。"""
+    c, tmp = client
+    # 真正的 WebP magic(OCR 仍会失败,但类型校验应通过)
+    webp = b"RIFF" + b"\x00" * 4 + b"WEBP" + b"\x00" * 20
+    r = c.post(
+        "/api/ingest-image",
+        files={"file": ("test.webp", webp, "image/webp")},
+    )
+    # OCR 会失败(因为不是真图片),但不应是 400 类型错误
+    # 应该是 500(OCR 失败)或 200(OCR 返回空)
+    assert r.status_code != 400 or "magic" not in r.json().get("detail", "")

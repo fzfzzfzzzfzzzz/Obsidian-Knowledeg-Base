@@ -84,6 +84,29 @@ import kb_date
 router = APIRouter()
 
 
+def _sniff_image_type(data: bytes) -> str | None:
+    """通过 magic bytes 判断图片真实类型(v0.4.6 防止 content_type 伪造)。
+
+    返回 mime 类型(image/jpeg/png/webp/gif),无法识别返回 None。
+    参考:https://en.wikipedia.org/wiki/List_of_file_signatures
+    """
+    if len(data) < 12:
+        return None
+    # PNG: 89 50 4E 47 0D 0A 1A 0A
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    # JPEG: FF D8 FF
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    # GIF: "GIF87a" 或 "GIF89a"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    # WebP: RIFF .... WEBP
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
 def _generate_summary_for_source(source_id: str) -> dict[str, Any]:
     """对单个 source 生成 summary。复用 kb.py 的核心逻辑。
 
@@ -218,26 +241,32 @@ async def api_ingest_image(
     """上传图片 → OCR 提取文字 → 走 ingest 流程。
 
     图片存到 .kb/raw_text/,调 GLM-4V-Flash OCR,然后文字走现有 ingest。
+    v0.4.6: 与前端 submit.html 校验对齐(png/jpeg/webp/gif,10MB),加 magic bytes 校验。
     """
-    # 校验文件类型
-    allowed_types = {"image/jpeg", "image/png", "image/jpg"}
-    content_type = file.content_type or ""
-    if content_type not in allowed_types:
-        ext = Path(file.filename or "").suffix.lower()
-        if ext not in (".jpg", ".jpeg", ".png"):
-            raise HTTPException(400, f"不支持的文件类型:{content_type}。只支持 jpg/png。")
-        content_type = "image/jpeg" if ext in (".jpg", ".jpeg") else "image/png"
-
-    # 读图片
+    # 校验文件大小(对齐前端 MAX_SIZE = 10MB)
+    # 先读前 11 字节做 magic bytes 判断,再读完整内容
     image_bytes = await file.read()
-    if len(image_bytes) > 5 * 1024 * 1024:
-        raise HTTPException(400, "图片不能超过 5MB")
+    if len(image_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(400, "图片不能超过 10MB")
     if not image_bytes:
         raise HTTPException(400, "图片为空")
 
+    # magic bytes 校验(防 content_type 伪造)
+    # 参考:https://en.wikipedia.org/wiki/List_of_file_signatures
+    sniffed_type = _sniff_image_type(image_bytes)
+    if sniffed_type is None:
+        raise HTTPException(400, "无法识别的图片格式(magic bytes 不匹配 png/jpeg/webp/gif)")
+
+    # content_type 与 magic bytes 不一致时,以 magic bytes 为准(更可信)
+    image_mime = sniffed_type
+
     image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-    image_mime = content_type
-    ext = ".jpg" if "jpeg" in content_type or "jpg" in content_type else ".png"
+    ext = {
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+    }.get(image_mime, ".img")
 
     # OCR 提取文字
     try:

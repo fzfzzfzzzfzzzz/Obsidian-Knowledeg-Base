@@ -2460,10 +2460,11 @@ def cmd_clean_x(args: argparse.Namespace) -> int:
             write_text(f, new_text)
             print(f"  ✓ {f.name}: {len(body)} -> {len(cleaned)}")
 
+    pct = f"(-{100 * (1 - total_after / total_before):.0f}%)" if total_before > 0 else ""
     print(
         f"[clean-x] 共 {len(files)} 个 X source,本次修改 {changed} 个;"
         f"正文 {total_before} -> {total_after}"
-        f"(-{100 * (1 - total_after / total_before):.0f}%)"
+        f"{pct}"
         + (" [dry-run,未写入]" if dry else "")
     )
     return 0
@@ -2473,10 +2474,33 @@ def cmd_serve(args: argparse.Namespace) -> int:
     """启动知识库阅读前端(FastAPI)。
 
     浏览器访问 http://127.0.0.1:<port> 查看卡片仪表盘。
+
+    v0.4.6 安全加固:
+    - host 非 loopback 时打印警告,要求 KB_SERVE_CONFIRM_EXPOSE=1 才继续
+    - 建议设 KB_WEB_USER / KB_WEB_PASSWORD 启用 Basic Auth(见 kb_web.py)
     """
     print(f"[serve] 启动知识库阅读前端...")
     print(f"[serve] vault = {VAULT_ROOT}")
+
+    # 安全检查:host 暴露到外网时要求显式确认
+    safe_hosts = {"127.0.0.1", "localhost", "::1", ""}
+    if args.host not in safe_hosts:
+        print()
+        print("=" * 60)
+        print(f"[serve] ⚠ 警告:host={args.host} 将暴露到外网!")
+        print(f"[serve] 当前 FastAPI 实例{'已启用 Basic Auth' if os.environ.get('KB_WEB_USER') else '无任何认证(裸奔)'}。")
+        if not os.environ.get('KB_WEB_USER'):
+            print(f"[serve] 强烈建议设置环境变量 KB_WEB_USER / KB_WEB_PASSWORD 启用 Basic Auth。")
+        print(f"[serve] 确认要继续暴露,请设环境变量 KB_SERVE_CONFIRM_EXPOSE=1 后重跑。")
+        print("=" * 60)
+        if os.environ.get('KB_SERVE_CONFIRM_EXPOSE') != '1':
+            print(f"[serve] 已阻止启动(未确认)。如确需暴露,设置 KB_SERVE_CONFIRM_EXPOSE=1。")
+            return 1
+        print(f"[serve] 已确认暴露风险,继续启动。")
+
     print(f"[serve] 监听 http://{args.host}:{args.port}")
+    if os.environ.get('KB_WEB_USER'):
+        print(f"[serve] Basic Auth 已启用(user={os.environ.get('KB_WEB_USER')})")
     print(f"[serve] 按 Ctrl+C 停止")
     try:
         import uvicorn  # type: ignore

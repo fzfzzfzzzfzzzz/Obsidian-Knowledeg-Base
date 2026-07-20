@@ -8,7 +8,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 from fastapi import HTTPException
-from web.utils import ENC
+from web.utils import ENC, sanitize_html
 import kb
 import kb_llm
 from web.services.parsing import _parse_frontmatter
@@ -300,11 +300,11 @@ def _read_summary_detail(source_id: str) -> dict[str, Any]:
             except Exception:
                 continue
             if meta.get("source_id") == source_id or sf.stem == source_id:
-                html_body = md.markdown(
+                html_body = sanitize_html(md.markdown(
                     body,
                     extensions=["extra", "codehilite", "toc"],
                     extension_configs={"codehilite": {"guess_lang": False}},
-                )
+                ))
                 return {
                     "source_id": source_id,
                     "title": meta.get("source_title", source_id),
@@ -330,11 +330,11 @@ def _read_summary_detail(source_id: str) -> dict[str, Any]:
     # 提取 source note 里的「原始内容」区
     m = re.search(r"##\s*原始内容\s*\n(.*)", body, re.DOTALL)
     raw_body = m.group(1).strip() if m else body
-    html_body = md.markdown(
+    html_body = sanitize_html(md.markdown(
         raw_body,
         extensions=["extra", "codehilite", "toc"],
         extension_configs={"codehilite": {"guess_lang": False}},
-    )
+    ))
     return {
         "source_id": source_id,
         "title": rec.get("source_title", source_id),

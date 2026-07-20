@@ -35,17 +35,18 @@
       const data = await res.json();
       _collectionsCache = data.items || [];
       // 「全部收藏」固定在最前
-      let html = '<li class="collection-item' + (_activeCollection === 'all' ? ' active' : '') + '" data-col="all" onclick="selectCollection(\'all\')">' +
+      let html = '<li class="collection-item' + (_activeCollection === 'all' ? ' active' : '') + '" data-action="select-collection" data-col-id="all">' +
         '<span class="collection-name">⭐ 全部收藏</span>' +
         '<span class="collection-count" id="count-all">-</span></li>';
       _collectionsCache.forEach(col => {
-        const safeName = escapeHtml(col.name).replace(/'/g, '&#39;');
-        html += '<li class="collection-item' + (_activeCollection === col.id ? ' active' : '') + '" data-col="' + col.id + '" onclick="selectCollection(\'' + col.id + '\')">' +
-          '<span class="collection-name">📂 ' + escapeHtml(col.name) + '</span>' +
+        const safeId = escapeHtml(col.id);
+        const safeName = escapeHtml(col.name);
+        html += '<li class="collection-item' + (_activeCollection === col.id ? ' active' : '') + '" data-action="select-collection" data-col-id="' + safeId + '">' +
+          '<span class="collection-name">📂 ' + safeName + '</span>' +
           '<span class="collection-count">' + col.count + '</span>' +
           '<span class="collection-ops">' +
-            '<button class="col-op-btn" title="重命名" onclick="event.stopPropagation();renameCollection(\'' + col.id + '\',\'' + safeName + '\')">✎</button>' +
-            '<button class="col-op-btn" title="删除" onclick="event.stopPropagation();deleteCollection(\'' + col.id + '\',\'' + safeName + '\')">🗑</button>' +
+            '<button class="col-op-btn" title="重命名" data-action="rename-collection" data-col-id="' + safeId + '" data-col-name="' + safeName + '">✎</button>' +
+            '<button class="col-op-btn" title="删除" data-action="delete-collection" data-col-id="' + safeId + '" data-col-name="' + safeName + '">🗑</button>' +
           '</span></li>';
       });
       list.innerHTML = html;

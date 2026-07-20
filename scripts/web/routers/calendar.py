@@ -117,7 +117,7 @@ async def api_detected_dates(source_id: str):
                 _, text = _parse_frontmatter(sp.read_text(encoding=ENC))
 
         if text.strip():
-            detected = kb_date.detect_dates(text)
+            detected = kb_date.detect_dates(text, reference=kb_date._today())
             ranked = kb_date.rank_dates(detected)
             # 缓存到 state
             rec["detected_dates"] = detected
@@ -156,7 +156,7 @@ async def api_redetect_dates(source_id: str):
         if sp.exists():
             _, text = _parse_frontmatter(sp.read_text(encoding=ENC))
 
-    detected = kb_date.detect_dates(text) if text.strip() else []
+    detected = kb_date.detect_dates(text, reference=kb_date._today()) if text.strip() else []
     rec["detected_dates"] = detected
     kb.save_state(state)
 

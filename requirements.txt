@@ -7,3 +7,4 @@ uvicorn>=0.23
 markdown>=3.4
 python-multipart>=0.0.6
 playwright>=1.40  # 抓取兜底:requests 抓不到(JS 渲染站点)时用浏览器渲染
+bleach>=6.0  # XSS 消毒:summary HTML 渲染前剥离 script/onerror 等危险标签(v0.4.5)

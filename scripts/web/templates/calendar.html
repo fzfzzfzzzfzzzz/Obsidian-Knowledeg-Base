@@ -223,13 +223,14 @@
       dayItems.slice(0, 3).forEach(item => {
         const cat = resolveCategory(item);
         const ev = catColor(cat);
-        itemsHtml += `<div class="cal-day-item" style="--ev:${ev}" onclick="event.stopPropagation();openEditDialog('${item.id}')" title="${escapeHtml(item.title)}">${catIcon(cat)} ${escapeHtml(item.title)}</div>`;
+        const safeId = escapeHtml(item.id);
+        itemsHtml += `<div class="cal-day-item" style="--ev:${ev}" data-action="edit-calendar-item" data-item-id="${safeId}" title="${escapeHtml(item.title)}">${catIcon(cat)} ${escapeHtml(item.title)}</div>`;
       });
       if (dayItems.length > 3) {
-        itemsHtml += `<div class="cal-day-more" onclick="event.stopPropagation();showDayItems('${dateStr}')">+${dayItems.length - 3} 更多</div>`;
+        itemsHtml += `<div class="cal-day-more" data-action="show-day-items" data-date-str="${escapeHtml(dateStr)}">+${dayItems.length - 3} 更多</div>`;
       }
       const todayBadge = isToday ? '<span class="cal-today-badge">今天</span>' : '';
-      html += `<div class="cal-day ${isToday ? 'cal-day-today' : ''}" onclick="quickCreate('${dateStr}')">
+      html += `<div class="cal-day ${isToday ? 'cal-day-today' : ''}" data-action="quick-create" data-date-str="${escapeHtml(dateStr)}">
         <div class="cal-day-num">${d}${todayBadge}</div>
         ${itemsHtml}
       </div>`;
@@ -265,8 +266,9 @@
     list.innerHTML = items.map(item => {
       const cat = resolveCategory(item);
       const ev = catColor(cat);
+      const safeId = escapeHtml(item.id);
       return `
-      <div class="cal-list-item" style="--ev:${ev}" onclick="openEditDialog('${item.id}')">
+      <div class="cal-list-item" style="--ev:${ev}" data-action="edit-calendar-item" data-item-id="${safeId}">
         <div class="cal-list-date">${item.date}</div>
         <div class="cal-list-body">
           <div class="cal-list-title">${catIcon(cat)} ${escapeHtml(item.title)}</div>
@@ -274,8 +276,8 @@
           ${item.note ? `<div class="cal-list-note muted">${escapeHtml(item.note)}</div>` : ''}
         </div>
         <span class="tl-item-cat" style="--ev:${ev}">${escapeHtml(cat)}</span>
-        ${item.source_id ? `<a href="/summary/${encodeURIComponent(item.source_id)}" class="cal-list-link" onclick="event.stopPropagation()">查看关联 →</a>` : ''}
-        <button class="cal-list-del" title="删除" aria-label="删除事项" onclick="event.stopPropagation();deleteCalendarItem('${item.id}')">✕</button>
+        ${item.source_id ? `<a href="/summary/${encodeURIComponent(item.source_id)}" class="cal-list-link">查看关联 →</a>` : ''}
+        <button class="cal-list-del" title="删除" aria-label="删除事项" data-action="delete-calendar-item" data-item-id="${safeId}">✕</button>
       </div>`;
     }).join('');
   }
@@ -330,8 +332,9 @@
         if (item.source_title) meta.push('来源:' + item.source_title);
         if (item.note) meta.push(item.note);
         const metaHtml = meta.length ? `<div class="tl-item-meta">${escapeHtml(meta.join(' · '))}</div>` : '';
+        const safeId = escapeHtml(item.id);
         return `
-          <div class="tl-item" style="--ev:${ev}" onclick="openEditDialog('${item.id}')">
+          <div class="tl-item" style="--ev:${ev}" data-action="edit-calendar-item" data-item-id="${safeId}">
             <span class="tl-item-icon">${catIcon(cat)}</span>
             <div class="tl-item-body">
               <div class="tl-item-title">${escapeHtml(item.title)}</div>
@@ -410,7 +413,10 @@
   async function deleteCalendarItem(itemId) {
     const item = allItems.find(i => i.id === itemId);
     const name = item ? item.title : '这个事项';
-    if (!confirm('确定删除「' + name + '」吗?此操作不可撤销。')) return;
+    // v0.4.6: 改用 confirmModal(替代原生 confirm),name 走 escapeHtml 防 XSS
+    if (!await confirmModal('确定删除「' + escapeHtml(name) + '」吗?此操作不可撤销。', {
+      title: '删除事项', confirmText: '删除', danger: true
+    })) return;
     try {
       const res = await fetch('/api/calendar/' + itemId, { method: 'DELETE' });
       if (res.ok) {

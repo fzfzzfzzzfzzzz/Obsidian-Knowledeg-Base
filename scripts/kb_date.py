@@ -17,11 +17,32 @@ kb_date.py —— 日期识别模块(v0.3 日历功能)
 
 from __future__ import annotations
 
+import os
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 ENC = "utf-8"
+
+
+def _today() -> date:
+    """获取"今天",支持时区配置(v0.4.6)。
+
+    读环境变量 KB_TZ(如 "Asia/Shanghai"、"UTC"):
+    - 设置且有效 → 用该时区的当前日期
+    - 未设置或无效 → 退回本地系统时区
+
+    用于云端部署(服务器在 UTC,用户在东八区时避免日期偏一天)。
+    """
+    tz_name = os.environ.get("KB_TZ")
+    if tz_name:
+        try:
+            from zoneinfo import ZoneInfo
+            return datetime.now(ZoneInfo(tz_name)).date()
+        except Exception:
+            # 无效时区名/zoneinfo 不可用,退回系统默认
+            pass
+    return date.today()
 
 # ---------------------------------------------------------------------------
 # 关键词分级(PRD 6.2.7)
@@ -132,7 +153,7 @@ def normalize_date(
 
     返回 (date_obj, confidence)
     """
-    ref = reference or date.today()
+    ref = reference or _today()
     confidence = "high"
 
     if year is None:
@@ -378,7 +399,7 @@ def detect_dates(text: str, reference: date | None = None) -> list[dict[str, Any
         text: 要识别的正文
         reference: 参考日期(用于相对日期和年份推断),默认今天
     """
-    ref = reference or date.today()
+    ref = reference or _today()
     results: list[dict[str, Any]] = []
     seen_positions: set[int] = set()
 
@@ -485,7 +506,7 @@ def rank_dates(dates: list[dict], reference: date | None = None) -> list[dict]:
     7. 普通正文日期
     8. 过去日期
     """
-    ref = reference or date.today()
+    ref = reference or _today()
 
     def sort_key(d):
         is_future = 0 if d.get("is_future") else 1
@@ -505,7 +526,7 @@ def recommend_date(text: str, reference: date | None = None) -> dict[str, Any] |
     返回推荐的日期 dict(含 normalized_date/event_title/confidence/context),
     或 None(无可靠日期)。
     """
-    ref = reference or date.today()
+    ref = reference or _today()
     detected = detect_dates(text, ref)
     if not detected:
         return None

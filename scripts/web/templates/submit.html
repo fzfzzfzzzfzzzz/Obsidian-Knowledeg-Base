@@ -127,7 +127,7 @@
     wrap.innerHTML = `
       <div class="input-item-header">
         <span class="input-num">#${inputCount}</span>
-        <button class="btn btn-ghost btn-sm" onclick="removeInput(this)">✕ 删除</button>
+        <button class="btn btn-ghost btn-sm" data-action="remove-input">✕ 删除</button>
       </div>
       <textarea class="submit-textarea" placeholder="粘贴 URL(如 https://...) 或文章正文" rows="4"></textarea>
     `;
@@ -244,10 +244,10 @@
     list.innerHTML = batchUrls.map((item, idx) => {
       return '<div class="batch-url-item">' +
         '<label class="batch-url-label">' +
-          '<input type="checkbox" ' + (item.checked ? 'checked' : '') + ' onchange="batchToggle(' + idx + ', this.checked)">' +
+          '<input type="checkbox" data-action="batch-toggle" data-idx="' + idx + '"' + (item.checked ? ' checked' : '') + '>' +
           '<span class="batch-url-text" title="' + escapeHtml(item.url) + '">' + escapeHtml(item.url) + '</span>' +
         '</label>' +
-        '<button class="btn btn-sm btn-ghost" onclick="batchRemove(' + idx + ')">✕</button>' +
+        '<button class="btn btn-sm btn-ghost" data-action="batch-remove" data-idx="' + idx + '">✕</button>' +
       '</div>';
     }).join('');
     const checkedCount = batchUrls.filter(u => u.checked).length;
@@ -423,12 +423,12 @@
         actions.innerHTML = '';
         return;
       }
-      actions.innerHTML = '<button class="btn btn-primary" onclick="generateAllSummaries()">⚡ 全部生成(' + items.length + ')</button>';
+      actions.innerHTML = '<button class="btn btn-primary" data-action="generate-all-summaries">⚡ 全部生成(' + items.length + ')</button>';
       grid.innerHTML = items.map(function (item) {
         return '<div class="card pending-card">' +
           '<div class="card-header"><span class="tag tag-' + item.source_type + '">' + item.source_type + '</span></div>' +
           '<h3 class="card-title">' + escapeHtml(item.title) + '</h3>' +
-          '<div class="action-row"><button class="btn btn-primary btn-sm" onclick="generateSummary(\'' + item.source_id + '\', this)">生成 summary</button></div>' +
+          '<div class="action-row"><button class="btn btn-primary btn-sm" data-action="generate-summary" data-source-id="' + escapeHtml(item.source_id) + '">生成 summary</button></div>' +
           '</div>';
       }).join('');
     } catch (e) {
@@ -454,11 +454,12 @@
   }
 
   async function generateAllSummaries() {
-    const btns = document.querySelectorAll('.pending-card .btn-primary');
+    const btns = document.querySelectorAll('.pending-card [data-action="generate-summary"]');
     if (btns.length === 0) return;
     if (!await confirmModal('确认全部生成?共 ' + btns.length + ' 篇,每篇约 10-30 秒。', { title: '批量生成 summary', confirmText: '全部生成' })) return;
     for (let btn of btns) {
-      await generateSummary(btn.getAttribute('onclick').match(/'([^']+)'/)[1], btn);
+      // v0.4.6: 改用 dataset(此前用正则从 onclick 属性反解析 source_id,反模式+脆弱)
+      await generateSummary(btn.dataset.sourceId, btn);
     }
   }
 
@@ -556,14 +557,15 @@
         : item.status === 'uploading' ? '<span class="muted">⏳ 处理中...</span>'
         : item.status === 'success' ? '<span style="color:#10b981">✓ 完成</span>'
         : '<span style="color:#ef4444">✗ ' + escapeHtml(item.error) + '</span>';
-      return '<div class="image-preview-card" id="' + item.id + '">' +
+      const safeImgId = escapeHtml(item.id);
+      return '<div class="image-preview-card" id="' + safeImgId + '">' +
         '<img src="' + item.previewUrl + '" class="image-thumb">' +
         '<div class="image-preview-info">' +
           '<div class="image-preview-name">' + escapeHtml(item.file.name) + '</div>' +
           '<div class="image-preview-status">' + statusBadge + '</div>' +
-          (item.status === 'error' ? '<button class="btn btn-sm" onclick="retryImage(\'' + item.id + '\')">重试</button>' : '') +
+          (item.status === 'error' ? '<button class="btn btn-sm" data-action="retry-image" data-img-id="' + safeImgId + '">重试</button>' : '') +
         '</div>' +
-        '<button class="btn btn-sm btn-ghost" onclick="removeImage(\'' + item.id + '\')">✕</button>' +
+        '<button class="btn btn-sm btn-ghost" data-action="remove-image" data-img-id="' + safeImgId + '">✕</button>' +
       '</div>';
     }).join('');
     updateSubmitBtn();

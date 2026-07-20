@@ -18,12 +18,15 @@ kb_llm.py —— 智谱 GLM API 封装(MVP Phase 0+1 的 LLM 扩展)
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import re
+import socket
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse, urljoin
 
 ENC = "utf-8"
 
@@ -403,6 +406,43 @@ def _dedupe_x_segments(text: str) -> str:
     return "".join(kept)
 
 
+def _check_url_safe(url: str) -> None:
+    """校验 URL 不指向内网/保留地址(v0.4.6 SSRF 防护)。
+
+    拒绝:
+    - 非 http/https 协议(file:///, gopher:// 等)
+    - IP 是 private / loopback / link-local / reserved / multicast
+    - 域名解析后命中以上类别
+    - 解析失败的主机
+    """
+    try:
+        parsed = urlparse(url)
+    except Exception as e:
+        raise LLMError(f"URL 解析失败:{url}({e})")
+    if parsed.scheme not in ("http", "https"):
+        raise LLMError(f"只允许 http/https 协议,拒绝:{url}")
+    host = parsed.hostname
+    if not host:
+        raise LLMError(f"URL 缺少主机:{url}")
+
+    # 先尝试直接当 IP 解析(快路径)
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        # 域名:DNS 解析
+        try:
+            resolved = socket.gethostbyname(host)
+            ip = ipaddress.ip_address(resolved)
+        except (socket.gaierror, ValueError) as e:
+            raise LLMError(f"无法解析主机 {host} 的 IP 地址:{e}")
+
+    if (
+        ip.is_private or ip.is_loopback or ip.is_link_local
+        or ip.is_reserved or ip.is_multicast or ip.is_unspecified
+    ):
+        raise LLMError(f"URL 指向内部/保留地址,已拒绝:{ip}")
+
+
 def fetch_url_text(url: str, *, timeout: int = 20) -> dict[str, str]:
     """抓取 URL 的网页正文。
 
@@ -421,10 +461,28 @@ def fetch_url_text(url: str, *, timeout: int = 20) -> dict[str, str]:
         LLMError: 网络/HTTP 错误
     """
     requests = _import_requests()
+    # v0.4.6 SSRF 防护:入口校验 + 关闭自动重定向(每跳重新校验)
+    _check_url_safe(url)
     try:
-        resp = requests.get(url, headers=_FETCH_HEADERS, timeout=timeout, allow_redirects=True)
+        resp = requests.get(url, headers=_FETCH_HEADERS, timeout=timeout, allow_redirects=False)
     except Exception as e:
         raise LLMError(f"抓取失败(网络错误): {e}")
+
+    # 手动处理重定向:最多 5 跳,每跳对 Location 重新做 SSRF 校验
+    hops = 0
+    while resp.is_redirect or resp.is_permanent_redirect:
+        hops += 1
+        if hops > 5:
+            raise LLMError("重定向次数超过 5 次,放弃")
+        location = resp.headers.get("Location") or resp.headers.get("location")
+        if not location:
+            break
+        next_url = urljoin(resp.url, location)
+        _check_url_safe(next_url)  # 每跳重检
+        try:
+            resp = requests.get(next_url, headers=_FETCH_HEADERS, timeout=timeout, allow_redirects=False)
+        except Exception as e:
+            raise LLMError(f"抓取失败(重定向后网络错误): {e}")
 
     if resp.status_code >= 400:
         raise LLMError(f"抓取失败(HTTP {resp.status_code})")
@@ -614,8 +672,10 @@ def _resolve_tco_and_fetch(tco_links: list[str]) -> dict[str, str] | None:
     requests = _import_requests()
     for sl in tco_links:
         try:
+            # v0.4.6 SSRF 防护:t.co 是已知公网服务,但仍走校验保险(关闭自动重定向)
+            _check_url_safe(sl)
             # GET 而非 HEAD:t.co 常用 JS 跳转,HEAD 拿不到目标;GET body 里有真实 URL
-            r = requests.get(sl, headers=_FETCH_HEADERS, timeout=15, allow_redirects=True)
+            r = requests.get(sl, headers=_FETCH_HEADERS, timeout=15, allow_redirects=False)
             target = r.url
             if "t.co" in target:
                 # 没发生 HTTP 重定向(JS 跳转),从 body 解析真实目标

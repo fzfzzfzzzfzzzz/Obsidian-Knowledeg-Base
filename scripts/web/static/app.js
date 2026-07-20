@@ -247,7 +247,7 @@ function renderArticleCard(item) {
       <div class="card-top">
         <label class="card-select">
           <input type="checkbox" class="card-checkbox" data-sid="${sid}" aria-label="选择文章"
-            onchange="toggleSelect(this, '${sid}')"${selectedIds.has(sid) ? ' checked' : ''}>
+            data-action="toggle-select"${selectedIds.has(sid) ? ' checked' : ''}>
         </label>
         <span class="tag tag-${item.source_type}">${item.source_type}</span>
       </div>
@@ -261,11 +261,11 @@ function renderArticleCard(item) {
       </a>
       <div class="card-actions">
         <button class="icon-btn ${rl ? 'active-rl' : ''}" title="稍后阅读" aria-label="稍后阅读"
-          onclick="event.preventDefault();event.stopPropagation();toggleReadLater('${sid}')">${rl ? '📖✓' : '📖'}</button>
+          data-action="toggle-read-later" data-sid="${sid}">${rl ? '📖✓' : '📖'}</button>
         <button class="icon-btn ${fav ? 'active-fav' : ''}" title="收藏" aria-label="收藏"
-          onclick="event.preventDefault();event.stopPropagation();toggleFavorite('${sid}')">${fav ? '⭐✓' : '⭐'}</button>
+          data-action="toggle-favorite" data-sid="${sid}">${fav ? '⭐✓' : '⭐'}</button>
         <button class="icon-btn icon-btn-danger" title="删除" aria-label="删除文章"
-          onclick="event.preventDefault();event.stopPropagation();deleteArticle('${sid}')">🗑</button>
+          data-action="delete-article" data-sid="${sid}">🗑</button>
       </div>
     </div>
   `;
@@ -451,18 +451,19 @@ function renderSuggestionCard(item, type) {
 
   let actions = '';
   if (status === 'pending_review') {
+    const sid = escapeHtml(item.id);
     if (type === 'idea') {
       actions = `
-        <button class="btn btn-accept" onclick="updateStatus('idea','${escapeHtml(item.id)}','accepted_research',this)">接受·科研</button>
-        <button class="btn btn-accept" onclick="updateStatus('idea','${escapeHtml(item.id)}','accepted_productivity',this)">接受·效率</button>
-        <button class="btn btn-ghost" onclick="updateStatus('idea','${escapeHtml(item.id)}','rejected',this)">拒绝</button>
+        <button class="btn btn-accept" data-action="update-status" data-kind="idea" data-sid="${sid}" data-status="accepted_research">接受·科研</button>
+        <button class="btn btn-accept" data-action="update-status" data-kind="idea" data-sid="${sid}" data-status="accepted_productivity">接受·效率</button>
+        <button class="btn btn-ghost" data-action="update-status" data-kind="idea" data-sid="${sid}" data-status="rejected">拒绝</button>
       `;
     } else {
       actions = `
-        <button class="btn btn-accept" onclick="updateStatus('todo','${escapeHtml(item.id)}','accepted_weekly',this)">本周</button>
-        <button class="btn btn-accept" onclick="updateStatus('todo','${escapeHtml(item.id)}','accepted_monthly',this)">本月</button>
-        <button class="btn btn-accept" onclick="updateStatus('todo','${escapeHtml(item.id)}','accepted_someday',this)">someday</button>
-        <button class="btn btn-ghost" onclick="updateStatus('todo','${escapeHtml(item.id)}','rejected',this)">拒绝</button>
+        <button class="btn btn-accept" data-action="update-status" data-kind="todo" data-sid="${sid}" data-status="accepted_weekly">本周</button>
+        <button class="btn btn-accept" data-action="update-status" data-kind="todo" data-sid="${sid}" data-status="accepted_monthly">本月</button>
+        <button class="btn btn-accept" data-action="update-status" data-kind="todo" data-sid="${sid}" data-status="accepted_someday">someday</button>
+        <button class="btn btn-ghost" data-action="update-status" data-kind="todo" data-sid="${sid}" data-status="rejected">拒绝</button>
       `;
     }
   } else if (isAccepted) {
@@ -628,6 +629,8 @@ async function loadConfirmedTodos() {
 }
 
 function renderFormalTodoCard(item, calItem) {
+  // v0.4.6: 存全局 todoStore,点击时按 id 取回完整 item(替代 onclick=JSON.stringify 注入)
+  if (item.id) window.todoStore.set(item.id, item);
   const doneBadge = item.done ? '<span class="tag" style="background:#dcfce7;color:#166534">✓ 已完成</span>'
                               : '<span class="tag tag-area">☐ 待办</span>';
   const period = item.period ? '<span class="tag">' + escapeHtml(item.period) + '</span>' : '';
@@ -635,16 +638,17 @@ function renderFormalTodoCard(item, calItem) {
   const diff = item.difficulty ? '<span class="tag">' + escapeHtml(item.difficulty) + '</span>' : '';
   const source = item.source ? '<div class="muted">来源:' + escapeHtml(item.source) + '</div>' : '';
   const note = item.note ? '<div class="suggestion-body"><p>' + escapeHtml(item.note) + '</p></div>' : '';
+  const itemId = escapeHtml(item.id || '');
   // 日历关联区:已加入显示日期+编辑,未加入显示「放入日历」按钮
   let calSection;
   if (calItem) {
     calSection = '<div class="todo-cal-link">' +
       '<span class="tag" style="background:#dbeafe;color:#1e40af">📅 已加入日历 · ' + escapeHtml(calItem.date) + '</span>' +
-      '<button class="btn btn-sm btn-ghost" onclick=\'openTodoCalendar(' + JSON.stringify(item).replace(/'/g, "&#39;") + ', "edit")\'>编辑</button>' +
+      '<button class="btn btn-sm btn-ghost" data-action="open-todo-calendar" data-todo-id="' + itemId + '" data-mode="edit">编辑</button>' +
       '</div>';
   } else {
     calSection = '<div class="action-row">' +
-      '<button class="btn btn-sm btn-primary" onclick=\'openTodoCalendar(' + JSON.stringify(item).replace(/'/g, "&#39;") + ', "create")\'>📅 放入日历</button>' +
+      '<button class="btn btn-sm btn-primary" data-action="open-todo-calendar" data-todo-id="' + itemId + '" data-mode="create">📅 放入日历</button>' +
       '</div>';
   }
   return '<div class="card suggestion-card' + (item.done ? ' card-done' : '') + '">' +
@@ -656,7 +660,17 @@ function renderFormalTodoCard(item, calItem) {
 }
 
 // 已确认 todo 放入日历(复用统一日历表单 openCalendarEventForm)
-function openTodoCalendar(todoItem, mode) {
+function openTodoCalendar(todoItemOrId, mode) {
+  // v0.4.6: 兼容两种入参——完整 item 对象(旧调用方)或 id 字符串(事件委托)
+  // id 字符串时从全局 todoStore 取回完整 item
+  let todoItem = todoItemOrId;
+  if (typeof todoItemOrId === 'string') {
+    todoItem = window.todoStore ? window.todoStore.get(todoItemOrId) : null;
+    if (!todoItem) {
+      toast('未找到 todo 数据(可能页面已刷新)', 'warning');
+      return;
+    }
+  }
   if (mode === 'edit') {
     // 编辑模式:先查该 todo 已有的日历事项
     fetch('/api/calendar').then(r => r.json()).then(d => {
@@ -1211,4 +1225,110 @@ function openGenerateDialog(kind, sourceId) {
 
   // 聚焦引导词
   setTimeout(function () { document.getElementById('gen-prompt').focus(); }, 50);
+}
+
+/* ====================== 全局事件委托(v0.4.6: 替代 onclick 拼字符串) ======================
+ * 所有按钮通过 data-action 标记意图 + data-* 携带参数,document 级委托一次。
+ * 避免 onclick='fn("${id}")' 拼字符串的 XSS 风险(id/title 含特殊字符可能突破属性)。
+ */
+function setupGlobalDelegation() {
+  document.addEventListener('click', function (e) {
+    // 沿 DOM 树向上找最近的有 data-action 的元素(兼容按钮内嵌图标的情况)
+    let target = e.target;
+    while (target && target !== document.body) {
+      // 遇到链接(a 标签)直接放行默认跳转,不做委托处理
+      if (target.tagName === 'A') return;
+      if (target.dataset && target.dataset.action) break;
+      target = target.parentElement;
+    }
+    if (!target || !target.dataset || !target.dataset.action) return;
+
+    const action = target.dataset.action;
+    const sid = target.dataset.sid;
+    e.preventDefault();
+    e.stopPropagation();
+
+    switch (action) {
+      case 'toggle-read-later':
+        if (typeof toggleReadLater === 'function') toggleReadLater(sid);
+        break;
+      case 'toggle-favorite':
+        if (typeof toggleFavorite === 'function') toggleFavorite(sid);
+        break;
+      case 'delete-article':
+        if (typeof deleteArticle === 'function') deleteArticle(sid);
+        break;
+      case 'update-status':
+        if (typeof updateStatus === 'function') {
+          updateStatus(target.dataset.kind, sid, target.dataset.status, target);
+        }
+        break;
+      case 'open-todo-calendar':
+        if (typeof openTodoCalendar === 'function') {
+          openTodoCalendar(target.dataset.todoId, target.dataset.mode || 'edit');
+        }
+        break;
+      case 'select-collection':
+        if (typeof selectCollection === 'function') selectCollection(target.dataset.colId);
+        break;
+      case 'rename-collection':
+        if (typeof renameCollection === 'function') renameCollection(target.dataset.colId, target.dataset.colName);
+        break;
+      case 'delete-collection':
+        if (typeof deleteCollection === 'function') deleteCollection(target.dataset.colId, target.dataset.colName);
+        break;
+      case 'edit-calendar-item':
+        if (typeof openEditDialog === 'function') openEditDialog(target.dataset.itemId);
+        break;
+      case 'delete-calendar-item':
+        if (typeof deleteCalendarItem === 'function') deleteCalendarItem(target.dataset.itemId);
+        break;
+      case 'quick-create':
+        if (typeof quickCreate === 'function') quickCreate(target.dataset.dateStr);
+        break;
+      case 'show-day-items':
+        if (typeof showDayItems === 'function') showDayItems(target.dataset.dateStr);
+        break;
+      case 'generate-summary':
+        if (typeof generateSummary === 'function') generateSummary(target.dataset.sourceId, target);
+        break;
+      case 'generate-all-summaries':
+        if (typeof generateAllSummaries === 'function') generateAllSummaries();
+        break;
+      case 'batch-remove':
+        if (typeof batchRemove === 'function') batchRemove(parseInt(target.dataset.idx, 10));
+        break;
+      case 'retry-image':
+        if (typeof retryImage === 'function') retryImage(target.dataset.imgId);
+        break;
+      case 'remove-image':
+        if (typeof removeImage === 'function') removeImage(target.dataset.imgId);
+        break;
+      case 'remove-input':
+        if (typeof removeInput === 'function') removeInput(target);
+        break;
+    }
+  });
+
+  // change 事件(checkbox 等)单独委托
+  document.addEventListener('change', function (e) {
+    const el = e.target;
+    if (!el.dataset || !el.dataset.action) return;
+    if (el.dataset.action === 'toggle-select' && typeof toggleSelect === 'function') {
+      toggleSelect(el, el.dataset.sid);
+    } else if (el.dataset.action === 'batch-toggle' && typeof batchToggle === 'function') {
+      batchToggle(parseInt(el.dataset.idx, 10), el.checked);
+    }
+  });
+}
+
+// 全局 todo 存储(替代 onclick='openTodoCalendar(JSON.stringify(item))')
+// 渲染时存,点击时取,避免在 HTML 里序列化整个对象
+window.todoStore = window.todoStore || new Map();
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', setupGlobalDelegation);
+} else {
+  // DOM 已就绪(脚本在 body 末尾加载时)
+  setupGlobalDelegation();
 }

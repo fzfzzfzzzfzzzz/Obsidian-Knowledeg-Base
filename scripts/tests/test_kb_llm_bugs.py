@@ -109,3 +109,103 @@ def test_extract_json_list_explanation_text_then_array():
     out = kb_llm._extract_json_list(text)
     assert out is not None
     assert len(out) == 1
+
+
+# —— _extract_json(单对象) ——
+
+def test_extract_json_valid_dict():
+    """合法 JSON 对象正常解析。"""
+    out = kb_llm._extract_json('{"source_type": "github", "title": "x"}')
+    assert out == {"source_type": "github", "title": "x"}
+
+
+def test_extract_json_returns_none_for_array():
+    """JSON 数组不是 dict,应返回 None(类型不符)。"""
+    out = kb_llm._extract_json('[1, 2, 3]')
+    assert out is None
+
+
+def test_extract_json_returns_none_for_garbage():
+    out = kb_llm._extract_json("这不是 JSON")
+    assert out is None
+
+
+def test_extract_json_returns_none_for_empty():
+    assert kb_llm._extract_json("") is None
+
+
+def test_extract_json_markdown_code_block():
+    """```json 代码块包裹的 dict。"""
+    text = "好的:\n```json\n{\"a\": 1}\n```"
+    out = kb_llm._extract_json(text)
+    assert out == {"a": 1}
+
+
+def test_extract_json_explanation_then_braces():
+    """解释文本里嵌入 {...}。"""
+    text = "结果如下:{\"source_type\": \"x\"} 以上"
+    out = kb_llm._extract_json(text)
+    assert out == {"source_type": "x"}
+
+
+# —— _parse_env_file ——
+
+def test_parse_env_file_basic(tmp_path):
+    """KEY=VALUE 基本解析。"""
+    f = tmp_path / ".env"
+    f.write_text(
+        "ZHIPU_API_KEY=abc123\n"
+        "KB_LLM_MODEL=glm-4-flash\n",
+        encoding="utf-8",
+    )
+    out = kb_llm._parse_env_file(f)
+    assert out["ZHIPU_API_KEY"] == "abc123"
+    assert out["KB_LLM_MODEL"] == "glm-4-flash"
+
+
+def test_parse_env_file_strips_quotes(tmp_path):
+    """值两端的引号被去掉。"""
+    f = tmp_path / ".env"
+    f.write_text(
+        'KEY1="value1"\n'
+        "KEY2='value2'\n",
+        encoding="utf-8",
+    )
+    out = kb_llm._parse_env_file(f)
+    assert out["KEY1"] == "value1"
+    assert out["KEY2"] == "value2"
+
+
+def test_parse_env_file_ignores_comments(tmp_path):
+    """# 注释和空行被忽略。"""
+    f = tmp_path / ".env"
+    f.write_text(
+        "# 这是注释\n"
+        "\n"
+        "KEY=val\n"
+        "  # 带缩进的注释\n",
+        encoding="utf-8",
+    )
+    out = kb_llm._parse_env_file(f)
+    assert out == {"KEY": "val"}
+
+
+def test_parse_env_file_skips_lines_without_equals(tmp_path):
+    """没有 = 的行被跳过(不抛错)。"""
+    f = tmp_path / ".env"
+    f.write_text("orphan_line\nKEY=val\n", encoding="utf-8")
+    out = kb_llm._parse_env_file(f)
+    assert out == {"KEY": "val"}
+
+
+def test_parse_env_file_nonexistent_returns_empty(tmp_path):
+    """文件不存在时返回空 dict。"""
+    out = kb_llm._parse_env_file(tmp_path / "no_such.env")
+    assert out == {}
+
+
+def test_parse_env_file_empty_file(tmp_path):
+    """空文件返回空 dict。"""
+    f = tmp_path / ".env"
+    f.write_text("", encoding="utf-8")
+    assert kb_llm._parse_env_file(f) == {}
