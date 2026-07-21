@@ -21,6 +21,13 @@
   </form>
 </div>
 
+<nav class="kb-subnav" aria-label="知识库子页面">
+  <a href="/kb"{% if active_nav == 'kb' %} class="active"{% endif %}>仪表盘</a>
+  <a href="/articles"{% if active_nav == 'articles' %} class="active"{% endif %}>全部文章</a>
+  <a href="/recent"{% if active_nav == 'recent' %} class="active"{% endif %}>最近阅读</a>
+  <a href="/submit"{% if active_nav == 'submit' %} class="active"{% endif %}>投稿</a>
+</nav>
+
 <div id="stats-overview" class="stats-overview">
   <div class="loading">加载中...如果长时间停留在此处,按 F12 看控制台报错。</div>
 </div>
@@ -29,6 +36,13 @@
   <button class="tab active" data-tab="unread" role="tab" aria-selected="true">📘 未读 <span class="count-badge" id="count-unread"></span></button>
   <button class="tab" data-tab="read" role="tab" aria-selected="false">✅ 已读 <span class="count-badge" id="count-read"></span></button>
   <button class="tab" data-tab="readlater" role="tab" aria-selected="false">📖 稍后阅读 <span class="count-badge" id="count-read-later"></span></button>
+</div>
+
+<div class="art-view-bar">
+  <div class="cal-view-tabs" role="group" aria-label="视图切换">
+    <button class="btn art-view-btn btn-primary" data-view="card" aria-pressed="true">⊞ 卡片</button>
+    <button class="btn art-view-btn" data-view="list" aria-pressed="false">☰ 列表</button>
+  </div>
 </div>
 
 <section class="tab-panel active" id="panel-unread" role="tabpanel">

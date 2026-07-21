@@ -271,6 +271,39 @@ function renderArticleCard(item) {
   `;
 }
 
+function renderArticleRow(item) {
+  const rl = item.read_later;
+  const fav = item.is_favorite;
+  const sid = escapeHtml(item.source_id);
+  const date = item.summarized_at || item.created_at || '';
+  const readInfo = item.read_count > 0
+    ? (item.last_read_at ? String(item.last_read_at).slice(0, 10) + ' · 读 ' + item.read_count + ' 次' : '读 ' + item.read_count + ' 次')
+    : '';
+  const excerpt = item.excerpt ? escapeHtml(item.excerpt) : '<span class="muted">(无摘要)</span>';
+  return `
+    <div class="row-item" id="article-${sid}">
+      <label class="row-select">
+        <input type="checkbox" class="card-checkbox" data-sid="${sid}" aria-label="选择文章"
+          data-action="toggle-select"${selectedIds.has(sid) ? ' checked' : ''}>
+      </label>
+      <span class="tag tag-${escapeHtml(item.source_type)}">${escapeHtml(item.source_type)}</span>
+      <a class="row-main" href="/summary/${encodeURIComponent(item.source_id)}" target="_blank" rel="noopener">
+        <span class="row-title">${escapeHtml(item.title)}</span>
+        <span class="row-excerpt">${excerpt}</span>
+      </a>
+      <span class="row-meta">${date}${readInfo ? ' · ' + readInfo : ''}</span>
+      <div class="row-actions">
+        <button class="icon-btn ${rl ? 'active-rl' : ''}" title="稍后阅读" aria-label="稍后阅读"
+          data-action="toggle-read-later" data-sid="${sid}">${rl ? '📖✓' : '📖'}</button>
+        <button class="icon-btn ${fav ? 'active-fav' : ''}" title="收藏" aria-label="收藏"
+          data-action="toggle-favorite" data-sid="${sid}">${fav ? '⭐✓' : '⭐'}</button>
+        <button class="icon-btn icon-btn-danger" title="删除" aria-label="删除文章"
+          data-action="delete-article" data-sid="${sid}">🗑</button>
+      </div>
+    </div>
+  `;
+}
+
 function refreshCurrentPage() {
   if (typeof initDashboard === 'function' && document.getElementById('stats-overview')) initDashboard();
   else if (typeof loadRecent === 'function') loadRecent();
@@ -778,7 +811,7 @@ async function openAddToCollections(sourceId) {
 }
 
 /* ====================== 仪表盘(标签页 + 骨架屏) ====================== */
-const DASH = { unread: [], read: [], readlater: [], visible: { unread: 12, read: 12, readlater: 12 } };
+const DASH = { unread: [], read: [], readlater: [], view: KBState.get('kb-art-view', 'card'), visible: { unread: 12, read: 12, readlater: 12 } };
 
 function renderSkeletons(gridId, n) {
   n = n || 6;
@@ -803,6 +836,8 @@ function renderPanel(tab) {
   const counts = { unread: 'count-unread', read: 'count-read', readlater: 'count-read-later' };
   const countEl = document.getElementById(counts[tab]);
   if (countEl) countEl.textContent = items.length;
+  // 视图:卡片 / 列表 —— 切换容器类,列表视图退化为纵向行
+  if (grid) grid.classList.toggle('list-view', DASH.view === 'list');
   if (!items.length) {
     const emptyMsg = {
       unread: '没有未读文章,全部已读 🎉',
@@ -813,7 +848,8 @@ function renderPanel(tab) {
     if (more) more.style.display = 'none';
     return;
   }
-  grid.innerHTML = items.slice(0, vis).map(renderArticleCard).join('');
+  const renderer = DASH.view === 'list' ? renderArticleRow : renderArticleCard;
+  grid.innerHTML = items.slice(0, vis).map(renderer).join('');
   if (more) more.style.display = vis < items.length ? 'block' : 'none';
 }
 
@@ -833,6 +869,23 @@ async function initDashboard() {
   // 恢复上次查看的标签(HTML 默认 unread,有会话记录则覆盖)
   const lastTab = KBState.get('kb-dash-tab', 'unread');
   if (lastTab !== 'unread') switchTab(lastTab);
+
+  // 卡片 / 列表 视图切换(默认轻量卡片,可切列表;选择记忆到会话存储)
+  const viewBtns = document.querySelectorAll('.art-view-btn');
+  function syncViewBtns() {
+    viewBtns.forEach(x => {
+      const on = x.dataset.view === DASH.view;
+      x.classList.toggle('btn-primary', on);
+      x.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+  syncViewBtns();
+  viewBtns.forEach(b => b.addEventListener('click', () => {
+    DASH.view = b.dataset.view;
+    KBState.set('kb-art-view', DASH.view);
+    syncViewBtns();
+    renderPanel('unread'); renderPanel('read'); renderPanel('readlater');
+  }));
   // 显示更多
   document.querySelectorAll('.show-more').forEach(b => b.addEventListener('click', () => {
     const tab = b.dataset.tab;
@@ -851,14 +904,20 @@ async function initDashboard() {
     if (!res.ok) throw new Error('API 返回 ' + res.status);
     const d = await res.json();
     const s = d.stats || {};
+    const readLater = (d.read_later || []).length;
     overview.innerHTML = `
-      <div class="stat-cards">
-        <div class="stat-card stat-unread"><div class="stat-num">${s.unread}</div><div class="stat-label">未读</div></div>
-        <div class="stat-card stat-read"><div class="stat-num">${s.read}</div><div class="stat-label">已读</div></div>
-        <div class="stat-card stat-total"><div class="stat-num">${s.total}</div><div class="stat-label">总计</div></div>
-        <div class="stat-card stat-progress"><div class="stat-num">${s.progress}%</div><div class="stat-label">进度</div></div>
+      <div class="stat-strip">
+        <div class="stat-strip-item stat-unread"><span class="stat-num">${s.unread}</span><span class="stat-label">未读</span></div>
+        <div class="stat-strip-sep"></div>
+        <div class="stat-strip-item stat-read"><span class="stat-num">${s.read}</span><span class="stat-label">已读</span></div>
+        <div class="stat-strip-sep"></div>
+        <div class="stat-strip-item stat-total"><span class="stat-num">${s.total}</span><span class="stat-label">总计</span></div>
+        <div class="stat-strip-sep"></div>
+        <div class="stat-strip-item"><span class="stat-num">${readLater}</span><span class="stat-label">稍后读</span></div>
+        <div class="stat-strip-sep"></div>
+        <div class="stat-strip-item stat-progress"><span class="stat-num">${s.progress}%</span><span class="stat-label">阅读进度</span></div>
+        <div class="stat-strip-progress"><div class="progress-bar-wrap"><div class="progress-bar" style="width:${s.progress}%"></div></div></div>
       </div>
-      <div class="progress-bar-wrap"><div class="progress-bar" style="width:${s.progress}%"></div></div>
     `;
     DASH.readlater = d.read_later || [];
   } catch (e) {

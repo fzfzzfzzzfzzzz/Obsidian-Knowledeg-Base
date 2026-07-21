@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}知识库{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=32">
+  <link rel="stylesheet" href="/static/style.css?v=33">
 </head>
 <body>
   <a href="#main" class="skip-link">跳到主内容</a>
@@ -13,11 +13,7 @@
     <a href="/" class="nav-brand">📚 Obsidian KB</a>
     <div class="nav-links" id="navLinks">
       <a href="/" class="{% if active_nav == 'index' %}active{% endif %}">🏠 工作台</a>
-      <a href="/kb" class="{% if active_nav == 'kb' %}active{% endif %}">📚 知识库</a>
-      <a href="/search" class="{% if active_nav == 'search' %}active{% endif %}">搜索</a>
-      <a href="/articles" class="{% if active_nav == 'articles' %}active{% endif %}">全部文章</a>
-      <a href="/submit" class="{% if active_nav == 'submit' %}active{% endif %}">投稿</a>
-      <a href="/recent" class="{% if active_nav == 'recent' %}active{% endif %}">最近阅读</a>
+      <a href="/kb" class="{% if active_nav in ('kb', 'search', 'articles', 'submit', 'recent') %}active{% endif %}">📚 知识库</a>
       <a href="/favorites" class="{% if active_nav == 'favorites' %}active{% endif %}">收藏夹</a>
       <a href="/calendar" class="{% if active_nav == 'calendar' %}active{% endif %}">📅 日历</a>
       <a href="/ideas" class="{% if active_nav == 'ideas' %}active{% endif %}">Ideas</a>

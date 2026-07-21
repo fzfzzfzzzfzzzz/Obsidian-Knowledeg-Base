@@ -4,60 +4,60 @@
 
 <header class="ws-header">
   <h1 class="ws-title">🏠 个人工作台</h1>
-  <p class="ws-subtitle">你的 idea、时间线、活动和推荐文章,一站汇集。</p>
+  <p class="ws-subtitle">你的 idea、时间线、活动和推荐文章，一站汇集。</p>
 </header>
 
-<div class="workspace-grid">
-  <!-- 上排左:时间线 -->
-  <section class="ws-card" id="ws-timeline" aria-label="时间线">
-    <div class="ws-card-head">
-      <h2 class="ws-card-title">📅 时间线</h2>
-      <a class="ws-card-more" href="/calendar" title="查看完整日历">全部 →</a>
+<!-- 今日一览:无框统计条(替代原来的四张统计卡) -->
+<div class="stat-strip" id="ws-overview" aria-label="今日一览">
+  <div class="ws-placeholder">加载中...</div>
+</div>
+
+<!-- 今日聚焦 / 时间线:更宽的主区,连续时间轴而非盒子网格 -->
+<section class="card-soft ws-timeline-panel" aria-label="今日聚焦">
+  <div class="block-head">
+    <span class="block-icon">📅</span>
+    <h2 class="block-title">今日聚焦 / 时间线</h2>
+    <a class="block-more" href="/calendar">全部 →</a>
+  </div>
+  <div id="ws-timeline-body"><div class="ws-placeholder">加载中...</div></div>
+</section>
+
+<!-- 最近活动 / 推荐阅读:轻量双卡(无框感、靠留白与色块图标区分) -->
+<div class="ws-twin">
+  <section class="card-soft" aria-label="最近活动">
+    <div class="block-head">
+      <span class="block-icon">🔔</span>
+      <h2 class="block-title">最近活动</h2>
+      <a class="block-more" href="/recent">全部 →</a>
     </div>
-    <div class="ws-card-body" id="ws-timeline-body">
-      <div class="ws-placeholder">加载中...</div>
-    </div>
+    <div id="ws-activity-body"><div class="ws-placeholder">加载中...</div></div>
   </section>
 
-  <!-- 上排右:活动 -->
-  <section class="ws-card" id="ws-activity" aria-label="活动">
-    <div class="ws-card-head">
-      <h2 class="ws-card-title">🔔 活动</h2>
-      <a class="ws-card-more" href="/recent" title="最近阅读">全部 →</a>
+  <section class="card-soft" aria-label="推荐阅读">
+    <div class="block-head">
+      <span class="block-icon">⭐</span>
+      <h2 class="block-title">推荐阅读</h2>
+      <a class="block-more" href="/kb">全部 →</a>
     </div>
-    <div class="ws-card-body" id="ws-activity-body">
-      <div class="ws-placeholder">加载中...</div>
-    </div>
-  </section>
-
-  <!-- 下排左:Idea 待审 -->
-  <section class="ws-card" id="ws-ideas" aria-label="Idea 待审">
-    <div class="ws-card-head">
-      <h2 class="ws-card-title">💡 Idea 待审</h2>
-      <a class="ws-card-more" href="/ideas" title="查看全部 idea">全部 →</a>
-    </div>
-    <div class="ws-card-body" id="ws-ideas-body">
-      <div class="ws-placeholder">加载中...</div>
-    </div>
-  </section>
-
-  <!-- 下排右:推荐文章 -->
-  <section class="ws-card" id="ws-recommend" aria-label="推荐文章">
-    <div class="ws-card-head">
-      <h2 class="ws-card-title">⭐ 推荐文章</h2>
-      <a class="ws-card-more" href="/kb" title="进入知识库">全部 →</a>
-    </div>
-    <div class="ws-card-body" id="ws-recommend-body">
-      <div class="ws-placeholder">加载中...</div>
-    </div>
+    <div id="ws-recommend-body"><div class="ws-placeholder">加载中...</div></div>
   </section>
 </div>
+
+<!-- Idea 待审:横排小药丸,弱化卡片感 -->
+<section class="card-soft" aria-label="Idea 待审">
+  <div class="block-head">
+    <span class="block-icon">💡</span>
+    <h2 class="block-title">Idea 待审</h2>
+    <a class="block-more" href="/ideas">全部 →</a>
+  </div>
+  <div id="ws-ideas-body"><div class="ws-placeholder">加载中...</div></div>
+</section>
 
 {% endblock %}
 {% block scripts %}
 <script>
 // 个人工作台数据加载(独立 IIFE,与 app.js 解耦)
-// 4 个卡片:时间线 / 活动 / Idea 待审 / 推荐文章
+// 布局:无框统计条 + 宽时间轴主区 + 轻量双卡 + Idea 药丸条
 // 全部复用现有 API,无新增后端端点。
 (function(){
   'use strict';
@@ -82,14 +82,35 @@
     if(diff===-1) return '昨天';
     return d;
   }
-  // 类别色点(会议/财报/截止日期/发布/比赛/其他/默认)
-  function catDot(cat){
-    var m = {'会议':'#3b82f6','财报':'#16a34a','截止日期':'#dc2626','发布':'#8b5cf6','比赛':'#0d9488'};
-    var c = m[cat] || '#d97706';
-    return '<span class="ws-cat-dot" style="background:'+c+'"></span>';
+  // 类别配色 / 图标(会议/财报/截止日期/发布/比赛/其他)
+  var CAT_COLOR = {'会议':'#3b82f6','财报':'#16a34a','截止日期':'#dc2626','发布':'#8b5cf6','比赛':'#0d9488'};
+  var CAT_ICON = {'会议':'📅','财报':'💰','截止日期':'⏰','发布':'🚀','比赛':'🏆'};
+
+  // ---- 今日一览:无框统计条 ----
+  function loadOverview(){
+    Promise.all([
+      fetch('/api/dashboard_full').then(function(r){return r.json();}).catch(function(){return {unread:[],read:[]};}),
+      fetch('/api/ideas').then(function(r){return r.json();}).catch(function(){return {items:[]};})
+    ]).then(function(res){
+      var unread = (res[0].unread||[]).length;
+      var read = (res[0].read||[]).length;
+      var total = unread + read;
+      var progress = total ? Math.round(read/total*100) : 0;
+      var ideas = (res[1].items||[]).filter(function(x){return x.status==='pending_review';}).length;
+      var html =
+        '<div class="stat-strip-item stat-unread"><span class="stat-num">'+unread+'</span><span class="stat-label">未读</span></div>'
+        + '<div class="stat-strip-sep"></div>'
+        + '<div class="stat-strip-item stat-read"><span class="stat-num">'+read+'</span><span class="stat-label">已读</span></div>'
+        + '<div class="stat-strip-sep"></div>'
+        + '<div class="stat-strip-item stat-progress"><span class="stat-num">'+progress+'%</span><span class="stat-label">阅读进度</span></div>'
+        + '<div class="stat-strip-sep"></div>'
+        + '<div class="stat-strip-item"><span class="stat-num">'+ideas+'</span><span class="stat-label">Idea 待审</span></div>'
+        + '<div class="stat-strip-progress"><div class="progress-bar-wrap"><div class="progress-bar" style="width:'+progress+'%"></div></div></div>';
+      setBody('ws-overview', html);
+    }).catch(function(){ setBody('ws-overview', '<div class="ws-placeholder">加载失败</div>'); });
   }
 
-  // ---- 卡片 1:时间线(日历项 + 事件,未来/今天起按日期升序,取 5 条)----
+  // ---- 今日聚焦 / 时间线(日历项 + 事件,未来/今天起按日期升序,取 6 条) ----
   function loadTimeline(){
     Promise.all([
       fetch('/api/calendar').then(function(r){return r.json();}).catch(function(){return {items:[]};}),
@@ -102,75 +123,81 @@
         return {date:it.date, title:it.title, cat:it.category, href:'/events', sub:'事件'};
       });
       var all = calItems.concat(evItems);
-      // 只要今天及以后,按日期升序
       var todayStr = new Date().toISOString().slice(0,10);
       all = all.filter(function(x){return (x.date||'') >= todayStr;});
       all.sort(function(a,b){return (a.date||'').localeCompare(b.date||'');});
-      all = all.slice(0, 5);
+      all = all.slice(0, 6);
       if(!all.length){ setBody('ws-timeline-body', emptyHTML('暂无即将到来的事项')); return; }
       var html = all.map(function(x){
-        return '<div class="ws-item">'
-          + '<div class="ws-item-date">' + esc(fmtDate(x.date)) + '</div>'
-          + '<div class="ws-item-main">'
-            + '<a class="ws-item-title" href="'+esc(x.href)+'">'+catDot(x.cat)+esc(x.title)+'</a>'
-            + (x.sub ? '<div class="ws-item-sub">'+esc(x.sub)+'</div>' : '')
-          + '</div></div>';
+        var c = CAT_COLOR[x.cat] || '#d97706';
+        var icon = CAT_ICON[x.cat] || '📌';
+        return '<div class="tl-item" style="--ev:'+c+'">'
+          + '<span class="tl-item-icon">'+icon+'</span>'
+          + '<div class="tl-item-body">'
+            + '<a class="tl-item-title" href="'+esc(x.href)+'">'+esc(x.title)+'</a>'
+            + '<div class="tl-item-meta">'+esc(fmtDate(x.date))+' · '+esc(x.sub||'')+'</div>'
+          + '</div>'
+          + '<span class="tl-item-cat" style="--ev:'+c+'">'+esc(x.cat||'其他')+'</span>'
+        + '</div>';
       }).join('');
       setBody('ws-timeline-body', html);
-    });
+    }).catch(function(){ setBody('ws-timeline-body', emptyHTML('加载失败')); });
   }
 
-  // ---- 卡片 2:活动(最近阅读,取 5 条)----
+  // ---- 最近活动(最近阅读,取 5 条) ----
   function loadActivity(){
     fetch('/api/recent').then(function(r){return r.json();}).then(function(d){
       var items = (d.items||[]).slice(0,5);
       if(!items.length){ setBody('ws-activity-body', emptyHTML('还没有阅读记录')); return; }
       var html = items.map(function(x){
-        return '<div class="ws-item">'
+        return '<div class="ws-item"><div class="ws-item-main">'
           + '<a class="ws-item-title" href="/summary/'+esc(x.source_id)+'">'+esc(x.title||x.source_id)+'</a>'
-          + '<div class="ws-item-sub">读过 '+esc(x.read_count||1)+' 次 · '+(x.area ? esc(x.area) : '')+'</div>'
-        + '</div>';
+          + '<div class="ws-item-sub">读过 '+(x.read_count||1)+' 次 · '+(x.area ? esc(x.area) : '')+'</div>'
+        + '</div></div>';
       }).join('');
       setBody('ws-activity-body', html);
     }).catch(function(){ setBody('ws-activity-body', emptyHTML('加载失败')); });
   }
 
-  // ---- 卡片 3:Idea 待审(pending 队列,取 5 条)----
-  function loadIdeas(){
-    fetch('/api/ideas').then(function(r){return r.json();}).then(function(d){
-      var items = (d.items||[]).filter(function(x){return x.status==='pending_review';}).slice(0,5);
-      if(!items.length){ setBody('ws-ideas-body', emptyHTML('暂无待审 idea')); return; }
-      var html = items.map(function(x){
-        var f = x.fields||{};
-        var meta = [f.priority && ('P:'+f.priority), f.novelty && ('新颖:'+f.novelty)].filter(Boolean).join(' · ');
-        return '<div class="ws-item">'
-          + '<a class="ws-item-title" href="/ideas">'+esc(x.title||'(无标题)')+'</a>'
-          + (meta ? '<div class="ws-item-sub">'+esc(meta)+'</div>' : '')
-        + '</div>';
-      }).join('');
-      setBody('ws-ideas-body', html);
-    }).catch(function(){ setBody('ws-ideas-body', emptyHTML('加载失败')); });
-  }
-
-  // ---- 卡片 4:推荐文章(最新未读,复用 dashboard_full.unread,取 5 条)----
+  // ---- 推荐阅读(最新未读,取 5 条) ----
   function loadRecommend(){
     fetch('/api/dashboard_full').then(function(r){return r.json();}).then(function(d){
       var items = (d.unread||[]).slice(0,5);
       if(!items.length){ setBody('ws-recommend-body', emptyHTML('没有未读文章,去 /kb 看全部')); return; }
       var html = items.map(function(x){
-        return '<div class="ws-item">'
+        var tags = (x.tags && x.tags.length) ? ' · '+x.tags.slice(0,3).map(esc).join(' ') : '';
+        return '<div class="ws-item"><div class="ws-item-main">'
           + '<a class="ws-item-title" href="/summary/'+esc(x.source_id)+'">'+esc(x.title||x.source_id)+'</a>'
-          + '<div class="ws-item-sub">'+(x.area ? esc(x.area) : '') + (x.tags && x.tags.length ? ' · '+x.tags.slice(0,3).map(esc).join(' ') : '')+'</div>'
-        + '</div>';
+          + '<div class="ws-item-sub">'+(x.area ? esc(x.area) : '')+tags+'</div>'
+        + '</div></div>';
       }).join('');
       setBody('ws-recommend-body', html);
     }).catch(function(){ setBody('ws-recommend-body', emptyHTML('加载失败')); });
   }
 
+  // ---- Idea 待审(pending 队列,取 8 条,横排小药丸) ----
+  function loadIdeas(){
+    fetch('/api/ideas').then(function(r){return r.json();}).then(function(d){
+      var items = (d.items||[]).filter(function(x){return x.status==='pending_review';}).slice(0,8);
+      if(!items.length){ setBody('ws-ideas-body', emptyHTML('暂无待审 idea')); return; }
+      var html = '<div class="idea-pills">'+items.map(function(x){
+        var f = x.fields||{};
+        var p = (f.priority||'').toLowerCase();
+        var cls = (p.indexOf('高')>=0 || p==='p0' || p==='high') ? 'p-high'
+                : (p.indexOf('低')>=0 || p==='p2' || p==='p3' || p==='low') ? 'p-low' : 'p-medium';
+        var meta = [f.priority&&('P:'+f.priority), f.novelty&&('新颖:'+f.novelty)].filter(Boolean).join(' · ');
+        return '<a class="idea-pill '+cls+'" href="/ideas" title="'+esc(meta)+'">'
+          + '<span class="pill-dot"></span>'+esc(x.title||'(无标题)')+'</a>';
+      }).join('')+'</div>';
+      setBody('ws-ideas-body', html);
+    }).catch(function(){ setBody('ws-ideas-body', emptyHTML('加载失败')); });
+  }
+
+  loadOverview();
   loadTimeline();
   loadActivity();
-  loadIdeas();
   loadRecommend();
+  loadIdeas();
 })();
 </script>
 {% endblock %}

@@ -2243,3 +2243,171 @@ code {
   .workspace-grid { grid-template-columns: 1fr; }
   .ws-card { min-height: 200px; }
 }
+
+/* ============================================================
+   25. 轻量化改版(去卡片化精修,沿用现有令牌)
+   目标:保留顶部导航与蓝/紫令牌,去掉满屏厚边框卡片的"死板感"。
+   ============================================================ */
+
+/* 软化原有工作台卡片:加大留白与圆角,去掉任何硬边界感 */
+.workspace-grid { gap: var(--sp-5); }
+.ws-card {
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+  box-shadow: none;
+}
+@media (hover: hover) {
+  .ws-card:hover { box-shadow: var(--sh-sm); border-color: var(--c-border-strong); }
+}
+
+/* 无框统计条:替代四张独立统计卡 */
+.stat-strip {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-6);
+  padding: var(--sp-2) 0;
+}
+.stat-strip-item { display: flex; flex-direction: column; line-height: 1.2; }
+.stat-strip-item .stat-num { font-size: var(--fs-2xl); font-weight: 700; }
+.stat-strip-item .stat-label { font-size: var(--fs-xs); color: var(--c-text-muted); margin-top: 2px; }
+.stat-strip .stat-unread .stat-num { color: var(--c-primary); }
+.stat-strip .stat-read .stat-num { color: var(--c-success); }
+.stat-strip .stat-total .stat-num { color: var(--c-text); }
+.stat-strip .stat-progress .stat-num { color: var(--c-accent); }
+.stat-strip-sep { width: 1px; align-self: stretch; background: var(--c-border); margin: 2px 0; }
+.stat-strip-progress { display: flex; align-items: center; gap: var(--sp-3); margin-left: auto; }
+.stat-strip-progress .progress-bar-wrap { width: 160px; }
+
+/* 轻量卡片:去掉常驻阴影,仅 hover 时轻微浮起 */
+.card-soft {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  padding: var(--sp-5);
+  box-shadow: none;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast), transform var(--t-fast);
+}
+@media (hover: hover) {
+  .card-soft:hover { box-shadow: var(--sh-sm); border-color: var(--c-border-strong); }
+}
+
+/* 区块小标题:色块图标 + 标题 + 右侧"更多" */
+.block-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+.block-head .block-icon {
+  width: 34px; height: 34px;
+  border-radius: var(--r-md);
+  display: grid; place-items: center;
+  font-size: 17px;
+  background: color-mix(in srgb, var(--c-primary) 12%, transparent);
+}
+.block-head .block-title { margin: 0; font-size: var(--fs-lg); font-weight: 700; }
+.block-head .block-more {
+  margin-left: auto;
+  font-size: var(--fs-sm);
+  color: var(--c-primary);
+  text-decoration: none;
+  opacity: 0.8;
+}
+.block-head .block-more:hover { opacity: 1; }
+
+/* 工作台双卡并排(活动 / 推荐) */
+.ws-twin { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-5); margin-bottom: var(--sp-6); }
+@media (max-width: 720px) { .ws-twin { grid-template-columns: 1fr; } }
+
+/* 工作台轻量条目(活动/推荐/时间轴项复用 .ws-item 横排) */
+.ws-item { gap: var(--sp-3); padding: var(--sp-3) 0; }
+
+/* Idea 待审:横排小药丸,弱化卡片感 */
+.idea-pills { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.idea-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  font-size: var(--fs-sm);
+  color: var(--c-text);
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.idea-pill:hover { border-color: var(--c-border-strong); }
+.idea-pill .pill-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--c-text-muted); flex-shrink: 0; }
+.idea-pill.p-high { background: color-mix(in srgb, var(--c-danger) 14%, var(--c-surface)); }
+.idea-pill.p-high .pill-dot { background: var(--c-danger); }
+.idea-pill.p-medium { background: color-mix(in srgb, var(--c-warning) 16%, var(--c-surface)); }
+.idea-pill.p-medium .pill-dot { background: var(--c-warning); }
+.idea-pill.p-low { background: color-mix(in srgb, var(--c-success) 14%, var(--c-surface)); }
+.idea-pill.p-low .pill-dot { background: var(--c-success); }
+
+/* 知识库:卡片/列表视图切换(控件复用 .cal-view-tabs 分段样式) */
+.art-view-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: var(--sp-4);
+}
+.art-view-bar .cal-view-tabs .btn { min-width: 84px; }
+
+/* 列表视图:卡片网格切为纵向行 */
+.card-grid.list-view { display: flex; flex-direction: column; gap: var(--sp-2); }
+.row-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+@media (hover: hover) { .row-item:hover { border-color: var(--c-border-strong); background: var(--c-surface-2); } }
+.row-select { display: inline-flex; align-items: center; flex-shrink: 0; }
+.row-select input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--c-primary); cursor: pointer; }
+.row-main {
+  flex: 1; min-width: 0;
+  text-decoration: none; color: inherit;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.row-title { font-size: var(--fs-base); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-excerpt { font-size: var(--fs-sm); color: var(--c-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-main:hover .row-title { color: var(--c-primary); }
+.row-meta { font-size: var(--fs-xs); color: var(--c-text-muted); white-space: nowrap; flex-shrink: 0; }
+.row-actions { display: flex; gap: var(--sp-1); flex-shrink: 0; }
+.row-actions .icon-btn { width: 32px; height: 32px; min-width: 32px; min-height: 32px; font-size: var(--fs-sm); }
+@media (max-width: 640px) {
+  .row-item { flex-wrap: wrap; }
+  .row-meta { order: 3; width: 100%; padding-left: 30px; }
+}
+
+/* ---------- 26. 知识库子导航(/kb 顶部文章页入口) ---------- */
+.kb-subnav {
+  display: flex;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-4);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--c-border);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.kb-subnav a {
+  text-decoration: none;
+  color: var(--c-text);
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--r-sm);
+  white-space: nowrap;
+  opacity: 0.7;
+  transition: opacity var(--t-fast), background var(--t-fast), color var(--t-fast);
+}
+.kb-subnav a:hover { opacity: 1; background: var(--c-surface-2); }
+.kb-subnav a.active { opacity: 1; color: var(--c-primary); font-weight: 600; }
