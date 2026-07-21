@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}任务 · 知识库{% endblock %}
+{% block content %}
+<h1 class="page-title">✅ 任务</h1>
+<p class="page-hint muted">主动管理的任务,带 checklist、截止日期和阻塞点。存为 <code>07_Tasks/task_*.md</code>。点击卡片进详情页,点编辑用模态框快改。</p>
+
+<div class="cal-toolbar">
+  <div class="cal-view-tabs">
+    <button class="btn btn-sm btn-primary" data-tkf="active" onclick="loadTasks('active')">进行中</button>
+    <button class="btn btn-sm btn-secondary" data-tkf="blocked" onclick="loadTasks('blocked')">阻塞</button>
+    <button class="btn btn-sm btn-secondary" data-tkf="done" onclick="loadTasks('done')">已完成</button>
+    <button class="btn btn-sm btn-secondary" data-tkf="all" onclick="loadTasks('all')">全部</button>
+  </div>
+  <button class="btn btn-primary btn-sm" onclick="openTaskForm({mode:'create', onSaved: refreshTasks})">+ 新建任务</button>
+</div>
+
+<div id="task-grid" class="card-grid">
+  <div class="loading">加载中...</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// 任务页交互。状态徽章配色 + checklist 进度。
+const TK_STATUS_META = {
+  'active':   { color: '#2563eb', label: '进行中', icon: '▶' },
+  'done':     { color: '#16a34a', label: '已完成', icon: '✓' },
+  'blocked':  { color: '#dc2626', label: '阻塞',   icon: '⛔' },
+  'archived': { color: '#64748b', label: '已归档', icon: '📦' },
+};
+const TK_CAT_COLORS = {
+  '开发': '#2563eb', '调研': '#16a34a', '写作': '#8b5cf6',
+  '阅读': '#0d9488', '整理': '#d97706', '其他': '#64748b',
+};
+function tkCatColor(cat) {
+  return TK_CAT_COLORS[cat] || '#64748b';
+}
+
+let tkCurrentFilter = 'active';
+let tkAllItems = [];
+const tkTodayStr = new Date().toISOString().slice(0, 10);
+
+async function loadTasks(filter) {
+  tkCurrentFilter = filter || tkCurrentFilter;
+  document.querySelectorAll('[data-tkf]').forEach(b => {
+    const f = b.getAttribute('data-tkf');
+    b.classList.toggle('btn-primary', f === tkCurrentFilter);
+    b.classList.toggle('btn-secondary', f !== tkCurrentFilter);
+  });
+  const grid = document.getElementById('task-grid');
+  grid.innerHTML = '<div class="loading">加载中...</div>';
+  try {
+    const r = await fetch('/api/tasks');
+    const d = await r.json();
+    tkAllItems = d.items || [];
+    let items = tkAllItems;
+    if (tkCurrentFilter !== 'all') {
+      // active 视图含 active + blocked(都算进行中),但单独有 blocked tab
+      if (tkCurrentFilter === 'active') items = items.filter(x => x.status === 'active');
+      else items = items.filter(x => x.status === tkCurrentFilter);
+    }
+    if (!items.length) {
+      grid.innerHTML = '<div class="muted" style="padding:2rem;text-align:center">暂无任务</div>';
+      return;
+    }
+    grid.innerHTML = items.map(renderTaskCard).join('');
+  } catch (e) {
+    grid.innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function refreshTasks() { loadTasks(tkCurrentFilter); }
+
+function checklistProgress(cl) {
+  if (!cl || !cl.length) return null;
+  const done = cl.filter(x => x.done).length;
+  return done + '/' + cl.length;
+}
+
+function renderTaskCard(t) {
+  const sm = TK_STATUS_META[t.status] || TK_STATUS_META['active'];
+  const catColor = tkCatColor(t.category);
+  const dl = t.deadline;
+  const dlClass = dl && dl < tkTodayStr ? 'tk-dl-overdue' : (dl && dl <= tkTodayStr ? 'tk-dl-today' : '');
+  const dlText = dl ? (dl < tkTodayStr ? '⚠ ' : '') + dl : '无截止';
+  const prog = checklistProgress(t.checklist);
+  const blockerHtml = t.blocker ? '<div class="tk-blocker">⛔ ' + escapeHtml(t.blocker) + '</div>' : '';
+  const desc = t.body && t.body.trim() && t.body.trim() !== '（暂无描述）'
+    ? '<div class="tk-desc">' + escapeHtml(t.body.trim().slice(0, 100)) + (t.body.length > 100 ? '…' : '') + '</div>' : '';
+  return '<div class="task-card" style="--tk-cat:'+catColor+'">'
+    + '<div class="tk-card-header">'
+      + '<span class="tk-status-badge" style="background:'+sm.color+'">'+sm.icon+' '+sm.label+'</span>'
+      + '<span class="tk-date '+dlClass+'">📅 '+escapeHtml(dlText)+'</span>'
+    + '</div>'
+    + '<a class="tk-card-title" href="/task/'+encodeURIComponent(t.id)+'">'+escapeHtml(t.title)+'</a>'
+    + '<div class="tk-card-meta">'
+      + '<span class="tk-cat-tag">'+escapeHtml(t.category)+'</span>'
+      + (prog ? '<span class="tk-prog">✓ '+prog+'</span>' : '')
+    + '</div>'
+    + desc
+    + blockerHtml
+    + '<div class="tk-card-actions">'
+      + '<button class="icon-btn" title="编辑" onclick="openTaskForm({mode:\'edit\', id:\''+t.id+'\', onSaved: refreshTasks})">✏</button>'
+      + (dl ? '<button class="icon-btn" title="同步到日历" onclick="syncTask(\''+t.id+'\')">📅</button>' : '')
+      + '<button class="icon-btn icon-btn-danger" title="删除" onclick="deleteTask(\''+t.id+'\')">🗑</button>'
+    + '</div>'
+  + '</div>';
+}
+
+async function syncTask(id) {
+  try {
+    const r = await fetch('/api/tasks/'+id+'/sync-calendar', {method:'POST'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '同步失败');
+    if (d.reason === 'already_synced') { toast('已同步过,日历项已存在'); }
+    else { toast('已同步到日历'); }
+  } catch(e) { toast('同步失败:'+e.message); }
+}
+
+async function deleteTask(id) {
+  if (!confirm('确定删除此任务?此操作不可撤销。')) return;
+  try {
+    const r = await fetch('/api/tasks/'+id, {method:'DELETE'});
+    if (!r.ok) throw new Error('删除失败');
+    toast('已删除');
+    refreshTasks();
+  } catch(e) { toast(e.message); }
+}
+
+// ---- 模态框:创建/编辑(直接操作 modalOverlay,照 events.html 模式)----
+async function openTaskForm(opts) {
+  opts = opts || {};
+  const isEdit = opts.mode === 'edit';
+  let task = { title:'', category:'开发', status:'active', deadline:'', blocker:'', body:'', checklist:[] };
+  if (isEdit) {
+    try {
+      const r = await fetch('/api/tasks/'+opts.id);
+      if (!r.ok) throw new Error('加载失败');
+      task = await r.json();
+    } catch(e) { toast(e.message); return; }
+  }
+  window._tkCl = (task.checklist||[]).map(x => Object.assign({}, x));
+  const clHtml = window._tkCl.map((it,i) => checklistRow(it, i)).join('')
+    + '<div class="cl-empty muted" style="display:'+(window._tkCl.length?'none':'block')+'">暂无子任务</div>';
+  const formHtml =
+    '<div class="cal-form">'
+    + '<div class="cal-form-field"><label>标题 <span class="required">*</span></label>'
+    + '<input type="text" id="tk-title" class="search-input" value="'+escapeHtml(task.title)+'"></div>'
+    + '<div class="cal-form-row2">'
+      + '<div class="cal-form-field"><label>分类</label><select id="tk-category" class="search-input">'
+        + ['开发','调研','写作','阅读','整理','其他'].map(c => '<option'+(c===task.category?' selected':'')+'>'+c+'</option>').join('')
+      + '</select></div>'
+      + '<div class="cal-form-field"><label>状态</label><select id="tk-status" class="search-input">'
+        + ['active','done','blocked','archived'].map(s => '<option value="'+s+'"'+(s===task.status?' selected':'')+'>'+(TK_STATUS_META[s]||{label:s}).label+'</option>').join('')
+      + '</select></div>'
+    + '</div>'
+    + '<div class="cal-form-row2">'
+      + '<div class="cal-form-field"><label>截止日期</label><input id="tk-deadline" type="date" class="search-input" value="'+escapeHtml(task.deadline||'')+'"></div>'
+      + '<div class="cal-form-field"><label>当前问题/阻塞</label><input id="tk-blocker" class="search-input" placeholder="卡在哪里?" value="'+escapeHtml(task.blocker||'')+'"></div>'
+    + '</div>'
+    + '<div class="cal-form-field"><label>描述</label><textarea id="tk-body" class="search-input" rows="3">'+escapeHtml(task.body||'')+'</textarea></div>'
+    + '<div class="cal-form-field"><label>Checklist 子任务</label>'
+      + '<div id="tk-checklist" class="cl-list">'+clHtml+'</div>'
+      + '<button class="btn btn-sm btn-secondary" id="tk-add-cl">+ 添加子任务</button>'
+    + '</div>'
+    + '<div class="cal-form-actions">'
+      + '<button class="btn btn-ghost" id="tk-cancel">取消</button>'
+      + '<button class="btn btn-primary" id="tk-save">'+(isEdit?'保存':'创建')+'</button>'
+    + '</div>'
+    + '</div>';
+
+  const overlay = document.getElementById('modalOverlay');
+  if (!overlay) { alert('modal 不可用'); return; }
+  document.getElementById('modalTitle').textContent = isEdit ? '编辑任务' : '新建任务';
+  document.getElementById('modalBody').innerHTML = formHtml;
+  document.getElementById('modalActions').innerHTML = '';
+  overlay.hidden = false;
+
+  document.getElementById('tk-add-cl').onclick = addChecklistRow;
+  document.getElementById('tk-cancel').onclick = function() { overlay.hidden = true; };
+  document.getElementById('tk-save').onclick = async function() {
+    const btn = this;
+    btn.disabled = true; btn.textContent = '保存中...';
+    await saveTask(opts, btn, isEdit);
+  };
+}
+
+function checklistRow(it, i) {
+  return '<div class="cl-row" data-cli="'+i+'">'
+    + '<input type="checkbox" class="cl-done" '+(it.done?'checked':'')+' onchange="toggleClRow('+i+', this.checked)">'
+    + '<input type="text" class="cl-text search-input" value="'+escapeHtml(it.text||'')+'" oninput="updateClText('+i+', this.value)" placeholder="子任务内容">'
+    + '<button class="icon-btn icon-btn-danger" onclick="removeClRow('+i+')">✕</button>'
+  + '</div>';
+}
+function renderChecklistEditor() {
+  const wrap = document.getElementById('tk-checklist');
+  if (!wrap) return;
+  const cl = window._tkCl || [];
+  wrap.innerHTML = cl.map((it,i) => checklistRow(it,i)).join('')
+    + '<div class="cl-empty muted" style="display:'+(cl.length?'none':'block')+'">暂无子任务</div>';
+}
+function addChecklistRow() {
+  window._tkCl = window._tkCl || [];
+  // 生成临时 id
+  window._tkCl.push({ id: 'cli_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), text:'', done:false });
+  renderChecklistEditor();
+}
+function toggleClRow(i, checked) { if (window._tkCl[i]) window._tkCl[i].done = checked; }
+function updateClText(i, val) { if (window._tkCl[i]) window._tkCl[i].text = val; }
+function removeClRow(i) {
+  if (window._tkCl) { window._tkCl.splice(i,1); renderChecklistEditor(); }
+}
+
+async function saveTask(opts, btn, isEdit) {
+  const title = document.getElementById('tk-title').value.trim();
+  if (!title) { alert('标题不能为空'); btn.disabled = false; btn.textContent = isEdit?'保存':'创建'; return; }
+  const payload = {
+    title,
+    category: document.getElementById('tk-category').value,
+    status: document.getElementById('tk-status').value,
+    deadline: document.getElementById('tk-deadline').value,
+    blocker: document.getElementById('tk-blocker').value,
+    body: document.getElementById('tk-body').value,
+    checklist: (window._tkCl||[]).filter(x => x.text && x.text.trim()),
+  };
+  try {
+    let r;
+    if (opts.mode === 'create') {
+      r = await fetch('/api/tasks', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    } else {
+      r = await fetch('/api/tasks/'+opts.id, {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+    }
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '保存失败');
+    document.getElementById('modalOverlay').hidden = true;
+    toast(opts.mode === 'create' ? '已创建' : '已保存', 'success');
+    if (opts.onSaved) opts.onSaved();
+  } catch(e) {
+    alert('保存失败:'+e.message);
+    btn.disabled = false; btn.textContent = isEdit?'保存':'创建';
+  }
+}
+
+// 启动
+loadTasks('active');
+</script>
+{% endblock %}

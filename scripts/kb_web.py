@@ -36,6 +36,7 @@ from web.routers import (
     tags,
     ingest,
     events,
+    tasks,
 )
 
 # 直接拷贝 kb.VAULT_ROOT(import-time 副本),供测试 reload / isolate_vault 同步。
@@ -96,6 +97,7 @@ app.include_router(search.router, dependencies=_auth_deps)
 app.include_router(tags.router, dependencies=_auth_deps)
 app.include_router(ingest.router, dependencies=_auth_deps)
 app.include_router(events.router, dependencies=_auth_deps)
+app.include_router(tasks.router, dependencies=_auth_deps)
 
 
 # ---------------------------------------------------------------------------

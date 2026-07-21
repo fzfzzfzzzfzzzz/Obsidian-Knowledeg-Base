@@ -886,6 +886,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         "04_Plans/Monthly",
         "05_Projects",
         "06_Events",
+        "07_Tasks",
         "90_Templates",
         "99_System",
         ".kb/cache",
@@ -2603,6 +2604,205 @@ def sync_event_to_calendar(event_id: str) -> dict:
 
     return {
         "synced": True, "event_id": event_id,
+        "calendar_id": item_id, "reason": "created",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Task(任务)管理 —— 用户主动创建的任务(带 checklist/截止日期/阻塞点)
+# 单文件存储(07_Tasks/task_*.md),YAML frontmatter + Markdown 正文。
+# 与 04_Plans/todo_suggestions.md(从文章抽取的待办建议)是完全不同的系统。
+# 模式照搬 06_Events(events_*),新增 checklist(JSON 结构化)+ deadline + blocker 字段。
+# ---------------------------------------------------------------------------
+
+TASK_DIR_NAME = "07_Tasks"
+# 任务分类(建议集,允许自定义,不强制白名单)
+TASK_CATEGORIES = ("开发", "调研", "写作", "阅读", "整理", "其他")
+
+
+def make_task_id(title: str) -> str:
+    """生成稳定任务 id:task_<8位hash>。基于标题+当前时刻,保证新建不冲突。"""
+    import time
+    raw = f"{title}|{time.time_ns()}"
+    return f"task_{content_hash(raw)}"
+
+
+def _task_file_path(task_id: str) -> Path:
+    """由 task_id 推导对应的 markdown 文件路径。"""
+    slug_part = task_id.removeprefix("task_")
+    return VAULT_ROOT / TASK_DIR_NAME / f"task_{slug_part}.md"
+
+
+def _find_task_file(task_id: str) -> Path | None:
+    """扫描 07_Tasks/ 找到 frontmatter id == task_id 的文件。返回路径或 None。
+
+    文件名含 task_id 的 hash 段,但保险起见仍校验 frontmatter id(文件名可能被改)。
+    """
+    tasks_dir = VAULT_ROOT / TASK_DIR_NAME
+    if not tasks_dir.exists():
+        return None
+    direct = _task_file_path(task_id)
+    if direct.exists():
+        return direct
+    for path in tasks_dir.glob("task_*.md"):
+        try:
+            meta, _ = parsefrontmatter(read_text(path))
+            if meta.get("id", "").strip() == task_id:
+                return path
+        except Exception:
+            continue
+    return None
+
+
+def _format_task_file(meta: dict, body: str) -> str:
+    """把任务 meta dict + 正文格式化成完整 markdown 文件内容(frontmatter + body)。
+
+    checklist 存为 JSON 字符串(单行),load 时 json.loads 还原成 list[dict]。
+    synced_calendar_ids 用逗号分隔(避免 YAML 列表解析复杂度)。
+    """
+    synced = meta.get("synced_calendar_ids", "")
+    if isinstance(synced, list):
+        synced = ",".join(str(x) for x in synced if x)
+    cl = meta.get("checklist", [])
+    if isinstance(cl, list):
+        cl = json.dumps(cl, ensure_ascii=False)
+    lines = ["---"]
+    for key in ("id", "title", "category", "status", "deadline", "blocker",
+                "checklist", "related_source", "synced_calendar_ids",
+                "created_at", "updated_at"):
+        val = meta.get(key, "")
+        # checklist 字段用 JSON 字符串,其余字段原样输出
+        if key == "checklist":
+            val = cl if cl else "[]"
+        lines.append(f"{key}: {val}")
+    lines.append("---")
+    lines.append("")
+    lines.append(body.rstrip() if body else "（暂无描述）")
+    return "\n".join(lines) + "\n"
+
+
+def load_task_file(path: Path) -> dict:
+    """读任务 markdown 文件,返回完整字段 dict(含 body)。
+
+    checklist 解析成 list[dict](JSON 反序列化),synced_calendar_ids 解析成 list[str]。
+    """
+    text = read_text(path)
+    meta, body = parsefrontmatter(text)
+    # checklist:JSON 字符串 → list[dict]
+    cl_raw = meta.get("checklist", "[]") or "[]"
+    if isinstance(cl_raw, list):
+        checklist = cl_raw
+    else:
+        try:
+            checklist = json.loads(cl_raw) if cl_raw else []
+        except (json.JSONDecodeError, TypeError):
+            checklist = []
+    # 兼容旧数据:确保每项有 id/text/done
+    for item in checklist:
+        if not isinstance(item, dict):
+            continue
+        item.setdefault("id", "")
+        item.setdefault("text", "")
+        item.setdefault("done", False)
+    synced_raw = meta.get("synced_calendar_ids", "")
+    synced = [s.strip() for s in synced_raw.split(",") if s.strip()] if synced_raw else []
+    return {
+        "id": meta.get("id", "").strip(),
+        "title": meta.get("title", "").strip(),
+        "category": meta.get("category", "其他").strip() or "其他",
+        "status": meta.get("status", "active").strip() or "active",
+        "deadline": meta.get("deadline", "").strip(),
+        "blocker": meta.get("blocker", "").strip(),
+        "checklist": checklist,
+        "related_source": meta.get("related_source", "").strip(),
+        "synced_calendar_ids": synced,
+        "created_at": meta.get("created_at", "").strip(),
+        "updated_at": meta.get("updated_at", "").strip(),
+        "body": body,
+        "path": path.relative_to(VAULT_ROOT).as_posix() if _is_relative(path) else str(path),
+    }
+
+
+def scan_tasks() -> list[dict]:
+    """扫描 07_Tasks/task_*.md,返回按 deadline 升序排列的任务列表。
+
+    无 deadline 的排末尾(用 9999 sentinel)。每个元素是 load_task_file 的返回 dict。
+    """
+    tasks_dir = VAULT_ROOT / TASK_DIR_NAME
+    if not tasks_dir.exists():
+        return []
+    results: list[dict] = []
+    for path in sorted(tasks_dir.glob("task_*.md")):
+        try:
+            results.append(load_task_file(path))
+        except Exception:
+            continue
+    results.sort(key=lambda t: t.get("deadline", "") or "9999")
+    return results
+
+
+def write_task_file(path: Path, meta: dict, body: str, *, is_new: bool = False) -> None:
+    """原子写任务文件。新建时补 created_at,更新时刷新 updated_at。"""
+    now = datetime.now().isoformat(timespec="seconds")
+    if is_new and not meta.get("created_at"):
+        meta["created_at"] = now
+    meta["updated_at"] = now
+    write_text(path, _format_task_file(meta, body))
+
+
+def sync_task_to_calendar(task_id: str) -> dict:
+    """把单个任务单向推送到日历(创建一条 calendar item,回指 task_id)。
+
+    幂等:若该任务已有存活的 calendar item,不重复创建。日历项被删后允许重新推送。
+    """
+    import uuid as _uuid
+
+    path = _find_task_file(task_id)
+    if path is None:
+        return {"synced": False, "task_id": task_id, "reason": "task_not_found"}
+
+    task = load_task_file(path)
+    if not task["deadline"]:
+        return {"synced": False, "task_id": task_id, "reason": "task_has_no_deadline"}
+
+    cal = load_calendar()
+    items = cal.get("items", {})
+
+    for existing_id in task["synced_calendar_ids"]:
+        if existing_id in items:
+            return {
+                "synced": False, "task_id": task_id,
+                "calendar_id": existing_id, "reason": "already_synced",
+            }
+
+    item_id = f"cal_{_uuid.uuid4().hex[:12]}"
+    now = datetime.now().isoformat(timespec="seconds")
+    item = {
+        "id": item_id,
+        "title": task["title"],
+        "date": task["deadline"],
+        "note": task["blocker"] or "",
+        "source_id": "",
+        "source_type": "task",
+        "source_title": task["title"],
+        "task_id": task_id,
+        "category": "截止日期",
+        "date_source": "manual",
+        "date_confidence": "",
+        "created_at": now,
+        "updated_at": now,
+    }
+    items[item_id] = item
+    cal["items"] = items
+    save_calendar(cal)
+
+    new_synced = task["synced_calendar_ids"] + [item_id]
+    meta = {k: v for k, v in task.items() if k not in ("body", "path")}
+    meta["synced_calendar_ids"] = ",".join(new_synced)
+    write_task_file(path, meta, task["body"], is_new=False)
+
+    return {
+        "synced": True, "task_id": task_id,
         "calendar_id": item_id, "reason": "created",
     }
 

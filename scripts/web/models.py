@@ -82,3 +82,44 @@ class EventUpdate(BaseModel):
     body: str | None = None  # None=不改,其余(含空串)=更新正文
     status: str = ""
     related_source: str | None = None  # None=不改
+
+
+class ChecklistItem(BaseModel):
+    """Checklist 单项。"""
+    id: str
+    text: str
+    done: bool = False
+
+
+class TaskCreate(BaseModel):
+    """创建任务。"""
+    title: str
+    category: str = "其他"  # 开发/调研/写作/阅读/整理/其他
+    status: str = "active"  # active | done | blocked | archived
+    deadline: str = ""  # YYYY-MM-DD,可空
+    blocker: str = ""  # 当前问题/阻塞
+    body: str = ""  # 正文 Markdown
+    checklist: list[ChecklistItem] = []  # 子任务清单
+    related_source: str = ""  # 可选,关联文章 source_id
+
+
+class TaskUpdate(BaseModel):
+    """更新任务(None=不改,提供值含空串=更新为该值)。
+
+    与 EventUpdate 语义不同:这里统一规则更清晰。
+    checklist 用 list:None=不改,list(含空 list)=替换整个清单。
+    """
+    title: str | None = None
+    category: str | None = None
+    status: str | None = None
+    deadline: str | None = None
+    blocker: str | None = None
+    body: str | None = None
+    checklist: list[ChecklistItem] | None = None
+    related_source: str | None = None
+
+
+class ChecklistItemUpdate(BaseModel):
+    """单项打勾(只改 done 或 text)。"""
+    done: bool | None = None
+    text: str | None = None

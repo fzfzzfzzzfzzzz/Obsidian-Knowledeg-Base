@@ -44,6 +44,15 @@ VALID_EVENT_STATUS = {
 }
 # 事件分类(与日历 category 共享,同步时直接透传)。允许自定义,不强制白名单。
 VALID_EVENT_CATEGORIES = {"会议", "财报", "截止日期", "发布", "比赛", "其他"}
+# 任务状态(v0.4.10 新增,与 06_Events 的 VALID_EVENT_STATUS 区分:多了 blocked)
+VALID_TASK_STATUS = {
+    "active",
+    "done",
+    "blocked",
+    "archived",
+}
+# 任务分类(建议集,允许自定义)
+VALID_TASK_CATEGORIES = {"开发", "调研", "写作", "阅读", "整理", "其他"}
 READING_FIELDS = ("read_later", "is_favorite", "last_read_at", "read_count", "reading_status", "collection_ids")
 VALID_READING_STATUS = ("to_read", "reading", "read")
 VALID_BATCH_ACTIONS = {

@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}任务详情 · 知识库{% endblock %}
+{% block content %}
+<div id="task-detail-root" class="task-detail">
+  <div class="loading">加载中...</div>
+</div>
+<a href="/tasks" class="back-link">← 返回任务列表</a>
+{% endblock %}
+{% block scripts %}
+<script>
+// 任务详情页:加载 + 渲染 + checklist 单项打勾
+const TK_DETAIL_STATUS = {
+  'active':   { color: '#2563eb', label: '进行中' },
+  'done':     { color: '#16a34a', label: '已完成' },
+  'blocked':  { color: '#dc2626', label: '阻塞' },
+  'archived': { color: '#64748b', label: '已归档' },
+};
+const TASK_ID = "{{ task_id }}";
+const tkTodayStr = new Date().toISOString().slice(0, 10);
+
+async function loadTaskDetail() {
+  const root = document.getElementById('task-detail-root');
+  try {
+    const r = await fetch('/api/tasks/' + encodeURIComponent(TASK_ID));
+    if (!r.ok) {
+      root.innerHTML = '<div class="error">加载失败(' + r.status + ')</div>';
+      return;
+    }
+    const t = await r.json();
+    window._taskData = t;
+    renderDetail(t);
+  } catch(e) {
+    root.innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function renderDetail(t) {
+  const sm = TK_DETAIL_STATUS[t.status] || { color: '#64748b', label: t.status };
+  const dl = t.deadline;
+  const dlClass = dl && dl < tkTodayStr ? 'tk-dl-overdue' : (dl && dl <= tkTodayStr ? 'tk-dl-today' : '');
+  const dlText = dl ? (dl < tkTodayStr ? '⚠ 已逾期: ' : (dl === tkTodayStr ? '⏰ 今天截止: ' : '截止: ')) + dl : '无截止日期';
+  const clItems = t.checklist || [];
+  const clDone = clItems.filter(x => x.done).length;
+  const clHtml = clItems.length
+    ? clItems.map(it => checklistDetailRow(it)).join('')
+    : '<div class="muted" style="padding:var(--sp-3)">暂无子任务</div>';
+  const blockerHtml = t.blocker
+    ? '<div class="td-blocker"><strong>⛔ 当前问题:</strong> ' + escapeHtml(t.blocker) + '</div>' : '';
+  const bodyHtml = t.body && t.body.trim() && t.body.trim() !== '（暂无描述）'
+    ? '<div class="td-body markdown-body">' + escapeHtml(t.body.trim()) + '</div>' : '';
+  const catColor = ({'开发':'#2563eb','调研':'#16a34a','写作':'#8b5cf6','阅读':'#0d9488','整理':'#d97706','其他':'#64748b'})[t.category] || '#64748b';
+
+  document.getElementById('task-detail-root').innerHTML =
+    '<div class="td-header">'
+      + '<span class="tk-status-badge" style="background:'+sm.color+'">'+sm.label+'</span>'
+      + '<span class="tk-cat-tag" style="--tk-cat:'+catColor+'">'+escapeHtml(t.category)+'</span>'
+      + '<span class="td-date '+dlClass+'">'+escapeHtml(dlText)+'</span>'
+    + '</div>'
+    + '<h1 class="td-title">'+escapeHtml(t.title)+'</h1>'
+    + '<div class="td-actions">'
+      + '<button class="btn btn-sm" onclick="openTaskForm({mode:\'edit\', id:TASK_ID, onSaved: loadTaskDetail})">✏ 编辑</button>'
+      + (dl ? '<button class="btn btn-sm" id="td-sync">📅 同步到日历</button>' : '')
+      + '<button class="btn btn-sm btn-danger" id="td-delete">🗑 删除</button>'
+    + '</div>'
+    + blockerHtml
+    + '<section class="td-section">'
+      + '<h3 class="td-section-title">Checklist <span class="td-prog-muted">('+clDone+'/'+clItems.length+')</span></h3>'
+      + '<div class="td-checklist" id="td-checklist">'+clHtml+'</div>'
+    + '</section>'
+    + bodyHtml;
+
+  // 绑定 checklist 打勾
+  document.querySelectorAll('#td-checklist .cl-toggle').forEach(cb => {
+    cb.onchange = function() { toggleChecklistItem(this.dataset.itemId, this.checked, this); };
+  });
+  // 同步/删除按钮
+  const syncBtn = document.getElementById('td-sync');
+  if (syncBtn) syncBtn.onclick = syncDetailTask;
+  document.getElementById('td-delete').onclick = deleteDetailTask;
+}
+
+function checklistDetailRow(it) {
+  return '<label class="td-cl-item">'
+    + '<input type="checkbox" class="cl-toggle" data-item-id="'+escapeHtml(it.id)+'" '+(it.done?'checked':'')+'>'
+    + '<span class="td-cl-text'+(it.done?' td-cl-done':'')+'">'+escapeHtml(it.text)+'</span>'
+  + '</label>';
+}
+
+async function toggleChecklistItem(itemId, done, cbEl) {
+  try {
+    const r = await fetch('/api/tasks/'+TASK_ID+'/checklist/'+encodeURIComponent(itemId), {
+      method:'PATCH', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({done: done})
+    });
+    if (!r.ok) throw new Error('更新失败');
+    // 就地更新文本样式(不重渲染,避免打断)
+    const span = cbEl.parentElement.querySelector('.td-cl-text');
+    if (span) span.classList.toggle('td-cl-done', done);
+  } catch(e) {
+    cbEl.checked = !done;  // 回滚
+    toast(e.message);
+  }
+}
+
+async function syncDetailTask() {
+  const btn = document.getElementById('td-sync');
+  btn.disabled = true; btn.textContent = '同步中...';
+  try {
+    const r = await fetch('/api/tasks/'+TASK_ID+'/sync-calendar', {method:'POST'});
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '失败');
+    toast(d.reason === 'already_synced' ? '已同步过' : '已同步到日历', 'success');
+    btn.textContent = '📅 已同步';
+  } catch(e) {
+    toast(e.message); btn.disabled = false; btn.textContent = '📅 同步到日历';
+  }
+}
+
+async function deleteDetailTask() {
+  if (!await confirmModal('确定删除此任务?此操作不可撤销。', {title:'删除任务', confirmText:'删除', danger:true})) return;
+  try {
+    const r = await fetch('/api/tasks/'+TASK_ID, {method:'DELETE'});
+    if (!r.ok) throw new Error('删除失败');
+    toast('已删除', 'success');
+    setTimeout(() => location.href = '/tasks', 600);
+  } catch(e) { toast(e.message); }
+}
+
+// 复用 tasks.html 的 openTaskForm 不行(不同页),这里内联精简版编辑入口
+// 直接跳回列表页编辑更简单,但为了一致性,这里提供轻量模态
+async function openTaskForm(opts) {
+  // 跳转列表页并在 hash 带上编辑指令(列表页 openTaskForm 会处理)
+  // 简化:详情页编辑按钮直接导向列表页的编辑模态
+  location.href = '/tasks#edit=' + encodeURIComponent(opts.id);
+}
+
+loadTaskDetail();
+</script>
+{% endblock %}

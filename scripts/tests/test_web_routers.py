@@ -47,6 +47,9 @@ EXPECTED_PATHS = {
     "/submit", "/api/ingest", "/api/ingest-image", "/api/batch",
     "/api/pending-summaries", "/api/generate-summary/{source_id}",
     "/api/article/{source_id}/regenerate-summary",
+    # tasks
+    "/tasks", "/task/{task_id}", "/api/tasks", "/api/tasks/{task_id}",
+    "/api/tasks/{task_id}/checklist/{item_id}", "/api/tasks/{task_id}/sync-calendar",
 }
 
 
@@ -66,7 +69,7 @@ def test_all_routers_registered_in_openapi():
 
 PAGE_ROUTES_200 = [
     "/", "/kb", "/articles", "/recent", "/favorites",
-    "/ideas", "/todos", "/calendar", "/search", "/submit",
+    "/ideas", "/todos", "/calendar", "/search", "/submit", "/tasks",
 ]
 
 

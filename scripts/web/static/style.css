@@ -2411,3 +2411,88 @@ code {
 }
 .kb-subnav a:hover { opacity: 1; background: var(--c-surface-2); }
 .kb-subnav a.active { opacity: 1; color: var(--c-primary); font-weight: 600; }
+
+/* ---------- 27. 任务页(/tasks + /task/{id}) ---------- */
+.task-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-left: 4px solid var(--tk-cat, var(--c-primary));
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+@media (hover: hover) { .task-card:hover { box-shadow: var(--sh-sm); } }
+.tk-card-header {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
+}
+.tk-status-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  color: #fff; font-size: var(--fs-xs); font-weight: 600;
+  padding: 2px 8px; border-radius: var(--r-pill); white-space: nowrap;
+}
+.tk-date { font-size: var(--fs-xs); color: var(--c-text-muted); }
+.tk-dl-today { color: var(--c-warning, #d97706); font-weight: 600; }
+.tk-dl-overdue { color: var(--c-danger, #dc2626); font-weight: 600; }
+.tk-card-title {
+  font-size: var(--fs-base); font-weight: 600; color: var(--c-text);
+  text-decoration: none; line-height: 1.4;
+}
+.tk-card-title:hover { color: var(--c-primary); }
+.tk-card-meta { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+.tk-cat-tag {
+  font-size: var(--fs-xs); padding: 1px 8px; border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--tk-cat, var(--c-primary)) 15%, transparent);
+  color: var(--tk-cat, var(--c-primary)); font-weight: 500;
+}
+.tk-prog { font-size: var(--fs-xs); color: var(--c-text-muted); }
+.tk-desc { font-size: var(--fs-sm); color: var(--c-text-muted); line-height: 1.5; }
+.tk-blocker {
+  font-size: var(--fs-sm); color: var(--c-danger, #dc2626);
+  background: color-mix(in srgb, var(--c-danger, #dc2626) 8%, transparent);
+  padding: var(--sp-1) var(--sp-2); border-radius: var(--r-sm);
+}
+.tk-card-actions { display: flex; gap: var(--sp-1); margin-top: auto; padding-top: var(--sp-1); }
+
+/* 任务详情页 */
+.task-detail { max-width: 800px; margin: 0 auto; padding: var(--sp-4) 0; }
+.td-header { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-3); }
+.td-title { font-size: var(--fs-2xl); margin: 0 0 var(--sp-3); }
+.td-date { font-size: var(--fs-sm); color: var(--c-text-muted); }
+.td-actions { display: flex; gap: var(--sp-2); margin-bottom: var(--sp-4); flex-wrap: wrap; }
+.td-blocker {
+  background: color-mix(in srgb, var(--c-danger, #dc2626) 8%, transparent);
+  border-left: 3px solid var(--c-danger, #dc2626);
+  padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm);
+  margin-bottom: var(--sp-4); font-size: var(--fs-sm);
+}
+.td-section { margin-bottom: var(--sp-5); }
+.td-section-title {
+  font-size: var(--fs-lg); margin: 0 0 var(--sp-3);
+  padding-bottom: var(--sp-1); border-bottom: 1px solid var(--c-border);
+}
+.td-prog-muted { font-size: var(--fs-sm); color: var(--c-text-muted); font-weight: 400; }
+.td-checklist { display: flex; flex-direction: column; gap: var(--sp-1); }
+.td-cl-item {
+  display: flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2); border-radius: var(--r-sm);
+  cursor: pointer; transition: background var(--t-fast);
+}
+.td-cl-item:hover { background: var(--c-surface-2); }
+.td-cl-item input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--c-primary); }
+.td-cl-text { font-size: var(--fs-base); }
+.td-cl-done { text-decoration: line-through; color: var(--c-text-muted); }
+.td-body { margin-top: var(--sp-4); white-space: pre-wrap; line-height: 1.7; }
+.back-link { display: inline-block; margin-top: var(--sp-5); font-size: var(--fs-sm); color: var(--c-primary); text-decoration: none; }
+.back-link:hover { text-decoration: underline; }
+
+/* 模态框内 checklist 编辑器 + 表单双列 */
+.cl-list { display: flex; flex-direction: column; gap: var(--sp-1); margin-bottom: var(--sp-2); }
+.cl-row { display: flex; align-items: center; gap: var(--sp-2); }
+.cl-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--c-primary); flex-shrink: 0; }
+.cl-row .cl-text { flex: 1; min-width: 0; }
+.cl-row .icon-btn { flex-shrink: 0; }
+.cal-form-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+@media (max-width: 640px) { .cal-form-row2 { grid-template-columns: 1fr; } }
