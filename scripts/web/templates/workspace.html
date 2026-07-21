@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}个人工作台 · 知识库{% endblock %}
+{% block content %}
+
+<header class="ws-header">
+  <h1 class="ws-title">🏠 个人工作台</h1>
+  <p class="ws-subtitle">你的 idea、时间线、活动和推荐文章,一站汇集。</p>
+</header>
+
+<div class="workspace-grid">
+  <!-- 上排左:时间线 -->
+  <section class="ws-card" id="ws-timeline" aria-label="时间线">
+    <div class="ws-card-head">
+      <h2 class="ws-card-title">📅 时间线</h2>
+      <a class="ws-card-more" href="/calendar" title="查看完整日历">全部 →</a>
+    </div>
+    <div class="ws-card-body">
+      <div class="ws-placeholder">即将上线</div>
+    </div>
+  </section>
+
+  <!-- 上排右:活动 -->
+  <section class="ws-card" id="ws-activity" aria-label="活动">
+    <div class="ws-card-head">
+      <h2 class="ws-card-title">🔔 活动</h2>
+      <a class="ws-card-more" href="/recent" title="最近阅读">全部 →</a>
+    </div>
+    <div class="ws-card-body">
+      <div class="ws-placeholder">即将上线</div>
+    </div>
+  </section>
+
+  <!-- 下排左:Idea 待审 -->
+  <section class="ws-card" id="ws-ideas" aria-label="Idea 待审">
+    <div class="ws-card-head">
+      <h2 class="ws-card-title">💡 Idea 待审</h2>
+      <a class="ws-card-more" href="/ideas" title="查看全部 idea">全部 →</a>
+    </div>
+    <div class="ws-card-body">
+      <div class="ws-placeholder">即将上线</div>
+    </div>
+  </section>
+
+  <!-- 下排右:推荐文章 -->
+  <section class="ws-card" id="ws-recommend" aria-label="推荐文章">
+    <div class="ws-card-head">
+      <h2 class="ws-card-title">⭐ 推荐文章</h2>
+      <a class="ws-card-more" href="/kb" title="进入知识库">全部 →</a>
+    </div>
+    <div class="ws-card-body">
+      <div class="ws-placeholder">即将上线</div>
+    </div>
+  </section>
+</div>
+
+{% endblock %}

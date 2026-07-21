@@ -85,13 +85,25 @@ router = APIRouter()
 
 @router.get("/", response_class=HTMLResponse)
 async def page_index(request: Request):
-    """首页:summary 卡片仪表盘。"""
+    """首页:个人工作台(idea/时间线/活动/推荐文章卡片)。"""
     if templates is None:
         return HTMLResponse("templates 目录不存在,请检查安装", 500)
     return templates.TemplateResponse(
         request,
-        "index.html",
+        "workspace.html",
         {"active_nav": "index"},
+    )
+
+
+@router.get("/kb", response_class=HTMLResponse)
+async def page_knowledge_base(request: Request):
+    """知识库页:未读/已读/稍后阅读 summary 卡片仪表盘(原首页内容)。"""
+    if templates is None:
+        return HTMLResponse("templates 目录不存在,请检查安装", 500)
+    return templates.TemplateResponse(
+        request,
+        "knowledge_base.html",
+        {"active_nav": "kb"},
     )
 
 @router.get("/api/dashboard")

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}知识库{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=30">
+  <link rel="stylesheet" href="/static/style.css?v=31">
 </head>
 <body>
   <a href="#main" class="skip-link">跳到主内容</a>
@@ -12,7 +12,8 @@
     <button class="nav-toggle" id="navToggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="navLinks">☰</button>
     <a href="/" class="nav-brand">📚 Obsidian KB</a>
     <div class="nav-links" id="navLinks">
-      <a href="/" class="{% if active_nav == 'index' %}active{% endif %}">仪表盘</a>
+      <a href="/" class="{% if active_nav == 'index' %}active{% endif %}">🏠 工作台</a>
+      <a href="/kb" class="{% if active_nav == 'kb' %}active{% endif %}">📚 知识库</a>
       <a href="/search" class="{% if active_nav == 'search' %}active{% endif %}">搜索</a>
       <a href="/articles" class="{% if active_nav == 'articles' %}active{% endif %}">全部文章</a>
       <a href="/submit" class="{% if active_nav == 'submit' %}active{% endif %}">投稿</a>

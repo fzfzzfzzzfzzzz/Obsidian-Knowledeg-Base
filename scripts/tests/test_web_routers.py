@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 # 这是 v0.4.3 全部路由的精确清单,作为回归护栏:任何路由在重构中丢失都会让本测试失败。
 EXPECTED_PATHS = {
     # dashboard
-    "/", "/api/dashboard", "/api/dashboard_full", "/api/recent", "/api/health",
+    "/", "/kb", "/api/dashboard", "/api/dashboard_full", "/api/recent", "/api/health",
     "/api/shutdown",
     # articles
     "/summary/{source_id}", "/articles", "/recent",
@@ -65,7 +65,7 @@ def test_all_routers_registered_in_openapi():
 
 
 PAGE_ROUTES_200 = [
-    "/", "/articles", "/recent", "/favorites",
+    "/", "/kb", "/articles", "/recent", "/favorites",
     "/ideas", "/todos", "/calendar", "/search", "/submit",
 ]
 
