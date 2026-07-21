@@ -36,7 +36,8 @@ class CalendarItemCreate(BaseModel):
     detected_date_id: str = ""
     date_source: str = "manual"  # detected | manual
     date_confidence: str = ""
-    category: str = ""  # v0.4.2: 事件类别(todolist/会议/财报/截止日期/发布/其他/自定义)
+    category: str = ""  # v0.4.2: 事件类别(todolist/会议/财报/截止日期/发布/比赛/其他/自定义)
+    event_id: str = ""  # 来源事件回指(从事件同步到日历时填)
 
 class CalendarItemUpdate(BaseModel):
     title: str = ""
@@ -59,3 +60,25 @@ class BatchRequest(BaseModel):
 
 class TagsRequest(BaseModel):
     tags: list[str]
+
+
+class EventCreate(BaseModel):
+    """创建事件。"""
+    title: str
+    date: str  # YYYY-MM-DD
+    category: str = "其他"  # 会议/财报/截止日期/发布/比赛/其他
+    note: str = ""
+    body: str = ""  # 正文 Markdown
+    related_source: str = ""  # 可选,关联文章 source_id
+    status: str = "active"  # active | done | archived
+
+
+class EventUpdate(BaseModel):
+    """更新事件(空串/None 表示不改)。"""
+    title: str = ""
+    date: str = ""
+    category: str = ""
+    note: str = ""
+    body: str | None = None  # None=不改,其余(含空串)=更新正文
+    status: str = ""
+    related_source: str | None = None  # None=不改

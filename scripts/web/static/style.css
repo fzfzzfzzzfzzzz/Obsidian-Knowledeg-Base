@@ -51,6 +51,7 @@
   --cat-earnings: #16a34a;
   --cat-deadline: #dc2626;
   --cat-release: #8b5cf6;
+  --cat-contest: #0d9488;
   --cat-other: #d97706;
 
   /* 字体 */
@@ -145,6 +146,7 @@
   --cat-earnings: #34d399;
   --cat-deadline: #f87171;
   --cat-release: #a78bfa;
+  --cat-contest: #2dd4bf;
   --cat-other: #fbbf24;
 
   --sh-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -2083,3 +2085,69 @@ code {
   opacity: 0.5;
   cursor: default;
 }
+
+/* ---------- 23. 事件页(/events) ---------- */
+/* 事件卡片:左侧用 category 配色条作视觉锚点,复用 --ev 变量(与日历项一致) */
+.event-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-left: 4px solid var(--ev, var(--cat-other));
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  transition: box-shadow var(--tr-fast), border-color var(--tr-fast);
+}
+.event-card:hover { box-shadow: var(--sh-md); }
+/* hash 跳转高亮(从日历来源链接点过来时) */
+.event-card.ev-highlight { animation: ev-flash 1.8s ease-out; }
+@keyframes ev-flash {
+  0% { box-shadow: 0 0 0 3px var(--ev, var(--cat-other)); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+.ev-card-header { display: flex; gap: var(--sp-2); align-items: flex-start; }
+.ev-cat-icon { font-size: 1.4em; line-height: 1; flex-shrink: 0; }
+.ev-card-titles { flex: 1; min-width: 0; }
+.ev-card-title { font-weight: 600; font-size: var(--fs-md); word-break: break-word; }
+.ev-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-top: 4px; font-size: var(--fs-xs); }
+
+.ev-date { font-weight: 600; font-variant-numeric: tabular-nums; }
+.ev-date-upcoming { color: var(--c-success, var(--cat-earnings)); }
+.ev-date-past { color: var(--c-text-muted); }
+
+.ev-cat-tag {
+  display: inline-flex; align-items: center;
+  padding: 1px 8px; border-radius: 999px;
+  font-size: var(--fs-xs); font-weight: 500;
+  background: color-mix(in srgb, var(--ev, var(--cat-other)) 16%, transparent);
+  color: var(--ev, var(--cat-other));
+}
+
+.ev-status-badge {
+  padding: 1px 6px; border-radius: var(--r-sm);
+  font-size: var(--fs-xs); background: var(--c-surface-2); color: var(--c-text-muted);
+}
+.ev-status-done { color: var(--cat-earnings); }
+.ev-status-archived { opacity: 0.7; }
+
+.ev-synced-tag {
+  padding: 1px 6px; border-radius: var(--r-sm);
+  font-size: var(--fs-xs); background: color-mix(in srgb, var(--cat-contest) 16%, transparent);
+  color: var(--cat-contest);
+}
+
+.ev-note { font-size: var(--fs-sm); }
+.ev-body-preview {
+  font-size: var(--fs-sm); color: var(--c-text-muted);
+  white-space: pre-wrap; word-break: break-word;
+  max-height: 6em; overflow: hidden;
+  border-top: 1px dashed var(--c-border); padding-top: var(--sp-2);
+}
+
+.ev-card-actions { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin-top: auto; padding-top: var(--sp-1); }
+
+/* 时间轴事件来源小图标 */
+.tl-item-eventlink { font-size: var(--fs-sm); opacity: 0.8; text-decoration: none; }
+.tl-item-eventlink:hover { opacity: 1; }

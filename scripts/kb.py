@@ -35,7 +35,7 @@ import re
 import shutil
 import sys
 import threading
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 
 # 同目录导入 LLM 模块(延迟引用,缺失时降级)
@@ -885,6 +885,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         "04_Plans/Weekly",
         "04_Plans/Monthly",
         "05_Projects",
+        "06_Events",
         "90_Templates",
         "99_System",
         ".kb/cache",
@@ -2412,6 +2413,198 @@ def _ensure_monthly_file(path: Path, month_tag: str) -> None:
 ## 月末复盘
 """
     write_text(path, content)
+
+
+# ---------------------------------------------------------------------------
+# Event(事件)管理 —— 用户主动创建并关注的事件(比赛/会议/财报发布等)
+# 单日期 + Markdown 文件存储(06_Events/event_*.md),支持单向同步到日历。
+# 不走 review 队列(纯手动创建),frontmatter 全用字符串字段(parsefrontmatter 兼容)。
+# ---------------------------------------------------------------------------
+
+EVENT_DIR_NAME = "06_Events"
+# 事件 category 与日历共享(同步时直接透传给 calendar item)
+EVENT_CATEGORIES = ("会议", "财报", "截止日期", "发布", "比赛", "其他")
+
+
+def make_event_id(title: str) -> str:
+    """生成稳定事件 id:event_<8位hash>。基于标题+当前时刻,保证新建不冲突。"""
+    import time
+    raw = f"{title}|{time.time_ns()}"
+    return f"event_{content_hash(raw)}"
+
+
+def _event_file_path(event_id: str) -> Path:
+    """由 event_id 推导对应的 markdown 文件路径。"""
+    slug_part = event_id.removeprefix("event_")
+    return VAULT_ROOT / EVENT_DIR_NAME / f"event_{slug_part}.md"
+
+
+def _find_event_file(event_id: str) -> Path | None:
+    """扫描 06_Events/ 找到 frontmatter id == event_id 的文件。返回路径或 None。
+
+    文件名含 event_id 的 hash 段,但保险起见仍校验 frontmatter id(文件名可能被改)。
+    """
+    events_dir = VAULT_ROOT / EVENT_DIR_NAME
+    if not events_dir.exists():
+        return None
+    # 先试文件名直查(快路径)
+    direct = _event_file_path(event_id)
+    if direct.exists():
+        return direct
+    # 兜底:扫描所有 event_*.md 校验 frontmatter id
+    for path in events_dir.glob("event_*.md"):
+        try:
+            meta, _ = parsefrontmatter(read_text(path))
+            if meta.get("id", "").strip() == event_id:
+                return path
+        except Exception:
+            continue
+    return None
+
+
+def _format_event_file(meta: dict, body: str) -> str:
+    """把事件 meta dict + 正文格式化成完整 markdown 文件内容(frontmatter + body)。
+
+    所有字段用单行字符串;synced_calendar_ids 用逗号分隔(避免 YAML 列表解析复杂度)。
+    """
+    synced = meta.get("synced_calendar_ids", "")
+    if isinstance(synced, list):
+        synced = ",".join(str(x) for x in synced if x)
+    lines = ["---"]
+    for key in ("id", "title", "date", "category", "note", "status",
+                "related_source", "synced_calendar_ids", "created_at", "updated_at"):
+        val = meta.get(key, "")
+        lines.append(f"{key}: {val}")
+    lines.append("---")
+    lines.append("")
+    lines.append(body.rstrip() if body else "（暂无描述）")
+    return "\n".join(lines) + "\n"
+
+
+def load_event_file(path: Path) -> dict:
+    """读事件 markdown 文件,返回完整字段 dict(含 body)。
+
+    synced_calendar_ids 解析成 list[str](逗号分隔),其余字段为字符串。
+    """
+    text = read_text(path)
+    meta, body = parsefrontmatter(text)
+    synced_raw = meta.get("synced_calendar_ids", "")
+    synced = [s.strip() for s in synced_raw.split(",") if s.strip()] if synced_raw else []
+    return {
+        "id": meta.get("id", "").strip(),
+        "title": meta.get("title", "").strip(),
+        "date": meta.get("date", "").strip(),
+        "category": meta.get("category", "其他").strip() or "其他",
+        "note": meta.get("note", "").strip(),
+        "status": meta.get("status", "active").strip() or "active",
+        "related_source": meta.get("related_source", "").strip(),
+        "synced_calendar_ids": synced,
+        "created_at": meta.get("created_at", "").strip(),
+        "updated_at": meta.get("updated_at", "").strip(),
+        "body": body,
+        "path": path.relative_to(VAULT_ROOT).as_posix() if _is_relative(path) else str(path),
+    }
+
+
+def _is_relative(path: Path) -> bool:
+    """判断 path 是否在 VAULT_ROOT 下(用于决定是否输出相对路径)。"""
+    try:
+        path.relative_to(VAULT_ROOT)
+        return True
+    except ValueError:
+        return False
+
+
+def scan_events() -> list[dict]:
+    """扫描 06_Events/event_*.md,返回按日期升序排列的事件列表。
+
+    每个元素是 load_event_file 的返回 dict。目录不存在或无文件返回 []。
+    """
+    events_dir = VAULT_ROOT / EVENT_DIR_NAME
+    if not events_dir.exists():
+        return []
+    results: list[dict] = []
+    for path in sorted(events_dir.glob("event_*.md")):
+        try:
+            results.append(load_event_file(path))
+        except Exception:
+            continue
+    results.sort(key=lambda e: e.get("date", "") or "9999")
+    return results
+
+
+def write_event_file(path: Path, meta: dict, body: str, *, is_new: bool = False) -> None:
+    """原子写事件文件。新建时补 created_at,更新时刷新 updated_at。"""
+    now = datetime.now().isoformat(timespec="seconds")
+    if is_new and not meta.get("created_at"):
+        meta["created_at"] = now
+    meta["updated_at"] = now
+    write_text(path, _format_event_file(meta, body))
+
+
+def sync_event_to_calendar(event_id: str) -> dict:
+    """把单个事件单向推送到日历(创建一条 calendar item,回指 event_id)。
+
+    幂等:若该事件已有存活的 calendar item(synced_calendar_ids 里仍有在日历中的),
+    不重复创建。日历项被删后允许重新推送。
+
+    返回:
+        {synced: bool, event_id, calendar_id, reason}
+        synced=True 时 calendar_id 是新建/已有的日历项 id。
+    """
+    import uuid as _uuid
+
+    path = _find_event_file(event_id)
+    if path is None:
+        return {"synced": False, "event_id": event_id, "reason": "event_not_found"}
+
+    event = load_event_file(path)
+    if not event["date"]:
+        return {"synced": False, "event_id": event_id, "reason": "event_has_no_date"}
+
+    cal = load_calendar()
+    items = cal.get("items", {})
+
+    # 幂等:检查已有同步项是否仍存活
+    for existing_id in event["synced_calendar_ids"]:
+        if existing_id in items:
+            return {
+                "synced": False, "event_id": event_id,
+                "calendar_id": existing_id, "reason": "already_synced",
+            }
+
+    # 创建新日历项(回指 event,source_type=event 供前端识别来源)
+    item_id = f"cal_{_uuid.uuid4().hex[:12]}"
+    now = datetime.now().isoformat(timespec="seconds")
+    item = {
+        "id": item_id,
+        "title": event["title"],
+        "date": event["date"],
+        "note": event["note"],
+        "source_id": "",          # 不关联文章,关联的是事件
+        "source_type": "event",
+        "source_title": event["title"],
+        "event_id": event_id,     # 回指事件(日历项来源关联)
+        "category": event["category"],
+        "date_source": "manual",
+        "date_confidence": "",
+        "created_at": now,
+        "updated_at": now,
+    }
+    items[item_id] = item
+    cal["items"] = items
+    save_calendar(cal)
+
+    # 把新 item id 追加进 event 的 synced_calendar_ids 写回 frontmatter
+    new_synced = event["synced_calendar_ids"] + [item_id]
+    meta = {k: v for k, v in event.items() if k not in ("body", "path")}
+    meta["synced_calendar_ids"] = ",".join(new_synced)
+    write_event_file(path, meta, event["body"], is_new=False)
+
+    return {
+        "synced": True, "event_id": event_id,
+        "calendar_id": item_id, "reason": "created",
+    }
 
 
 def cmd_clean_x(args: argparse.Namespace) -> int:

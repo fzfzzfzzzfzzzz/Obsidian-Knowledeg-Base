@@ -76,9 +76,10 @@
     '财报':      { color: '#16a34a', icon: '💰', label: '财报' },
     '截止日期':  { color: '#dc2626', icon: '⏰', label: '截止日期' },
     '发布':      { color: '#8b5cf6', icon: '🚀', label: '发布' },
+    '比赛':      { color: '#0d9488', icon: '🏆', label: '比赛' },
     '其他':      { color: '#d97706', icon: '📌', label: '其他' },
   };
-  const CAT_ORDER = ['todolist', '会议', '财报', '截止日期', '发布', '其他'];
+  const CAT_ORDER = ['todolist', '会议', '财报', '截止日期', '发布', '比赛', '其他'];
 
   // 自定义类别回退:基于字符串 hash 取一个稳定颜色
   function catColor(cat) {
@@ -267,6 +268,10 @@
       const cat = resolveCategory(item);
       const ev = catColor(cat);
       const safeId = escapeHtml(item.id);
+      const sourceLink = item.source_id
+        ? `<a href="/summary/${encodeURIComponent(item.source_id)}" class="cal-list-link">查看关联 →</a>` : '';
+      const eventLink = item.event_id
+        ? `<a href="/events#event_${encodeURIComponent(item.event_id)}" class="cal-list-link" title="来自事件">📌 事件 →</a>` : '';
       return `
       <div class="cal-list-item" style="--ev:${ev}" data-action="edit-calendar-item" data-item-id="${safeId}">
         <div class="cal-list-date">${item.date}</div>
@@ -276,7 +281,7 @@
           ${item.note ? `<div class="cal-list-note muted">${escapeHtml(item.note)}</div>` : ''}
         </div>
         <span class="tl-item-cat" style="--ev:${ev}">${escapeHtml(cat)}</span>
-        ${item.source_id ? `<a href="/summary/${encodeURIComponent(item.source_id)}" class="cal-list-link">查看关联 →</a>` : ''}
+        ${sourceLink}${eventLink}
         <button class="cal-list-del" title="删除" aria-label="删除事项" data-action="delete-calendar-item" data-item-id="${safeId}">✕</button>
       </div>`;
     }).join('');
@@ -330,9 +335,12 @@
         const ev = catColor(cat);
         const meta = [];
         if (item.source_title) meta.push('来源:' + item.source_title);
+        if (item.event_id) meta.push('📌 来自事件');
         if (item.note) meta.push(item.note);
         const metaHtml = meta.length ? `<div class="tl-item-meta">${escapeHtml(meta.join(' · '))}</div>` : '';
         const safeId = escapeHtml(item.id);
+        const eventLinkHtml = item.event_id
+          ? `<a href="/events#event_${encodeURIComponent(item.event_id)}" class="tl-item-eventlink" title="来自事件">📌</a>` : '';
         return `
           <div class="tl-item" style="--ev:${ev}" data-action="edit-calendar-item" data-item-id="${safeId}">
             <span class="tl-item-icon">${catIcon(cat)}</span>
@@ -340,6 +348,7 @@
               <div class="tl-item-title">${escapeHtml(item.title)}</div>
               ${metaHtml}
             </div>
+            ${eventLinkHtml}
             <span class="tl-item-cat" style="--ev:${ev}">${escapeHtml(cat)}</span>
           </div>`;
       }).join('');

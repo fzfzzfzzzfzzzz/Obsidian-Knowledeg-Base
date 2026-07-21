@@ -235,6 +235,7 @@ async def api_calendar_create(payload: CalendarItemCreate):
         "date_source": payload.date_source,
         "date_confidence": payload.date_confidence,
         "category": payload.category,  # v0.4.2: 事件类别(空串=不指定,落库留空)
+        "event_id": getattr(payload, "event_id", "") or "",  # 来源事件回指(从事件同步时填)
         "created_at": now,
         "updated_at": now,
     }

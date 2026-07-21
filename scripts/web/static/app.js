@@ -1307,6 +1307,15 @@ function setupGlobalDelegation() {
       case 'remove-input':
         if (typeof removeInput === 'function') removeInput(target);
         break;
+      case 'edit-event':
+        if (typeof editEvent === 'function') editEvent(target.dataset.eventId);
+        break;
+      case 'sync-event':
+        if (typeof syncEventToCalendar === 'function') syncEventToCalendar(target.dataset.eventId);
+        break;
+      case 'delete-event':
+        if (typeof deleteEvent === 'function') deleteEvent(target.dataset.eventId);
+        break;
     }
   });
 

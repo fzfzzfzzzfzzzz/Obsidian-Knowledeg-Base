@@ -37,6 +37,13 @@ VALID_TODO_STATUS = {
     "archived",
     "moved",
 }
+VALID_EVENT_STATUS = {
+    "active",
+    "done",
+    "archived",
+}
+# 事件分类(与日历 category 共享,同步时直接透传)。允许自定义,不强制白名单。
+VALID_EVENT_CATEGORIES = {"会议", "财报", "截止日期", "发布", "比赛", "其他"}
 READING_FIELDS = ("read_later", "is_favorite", "last_read_at", "read_count", "reading_status", "collection_ids")
 VALID_READING_STATUS = ("to_read", "reading", "read")
 VALID_BATCH_ACTIONS = {

@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+{% block title %}事件 · 知识库{% endblock %}
+{% block content %}
+<h1 class="page-title">📌 事件</h1>
+<p class="page-hint muted">集中管理你关注的事件(比赛、国际会议、财报发布等)。单日期,存为 <code>06_Events/event_*.md</code>。点「同步到日历」会把该事件作为一条日历事项推送过去(单向,两边独立)。</p>
+
+<div class="cal-filter-bar" id="ev-filter-bar">
+  <span class="cal-filter-label muted">显示类别:</span>
+  <span id="ev-filter-chips" style="display: contents;"></span>
+  <button class="cal-filter-clear" id="ev-filter-clear" type="button">全选</button>
+</div>
+
+<div class="cal-toolbar">
+  <div class="cal-view-tabs">
+    <button class="btn btn-sm btn-primary" data-evf="upcoming" onclick="loadEvents('upcoming')">即将到来</button>
+    <button class="btn btn-sm btn-secondary" data-evf="past" onclick="loadEvents('past')">已过去</button>
+    <button class="btn btn-sm btn-secondary" data-evf="all" onclick="loadEvents('all')">全部</button>
+  </div>
+  <button class="btn btn-primary btn-sm" onclick="openEventForm({mode:'create', onSaved: refreshEvents})">+ 新建事件</button>
+</div>
+
+<div id="event-grid" class="card-grid">
+  <div class="loading">加载中...</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  // 事件页交互。category 配色与日历共享(复用 CAT_META 思路)。
+  const EV_CAT_META = {
+    '会议':     { color: '#2563eb', icon: '📅' },
+    '财报':     { color: '#16a34a', icon: '💰' },
+    '截止日期': { color: '#dc2626', icon: '⏰' },
+    '发布':     { color: '#8b5cf6', icon: '🚀' },
+    '比赛':     { color: '#0d9488', icon: '🏆' },
+    '其他':     { color: '#d97706', icon: '📌' },
+  };
+  const EV_CAT_ORDER = ['会议', '财报', '截止日期', '发布', '比赛', '其他'];
+  function evCatColor(cat) {
+    if (cat && EV_CAT_META[cat]) return EV_CAT_META[cat].color;
+    if (!cat) return EV_CAT_META['其他'].color;
+    // 自定义类别回退:稳定 hash 取色
+    let h = 0;
+    for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) | 0;
+    const palette = ['#0ea5e9', '#9333ea', '#ea580c', '#be185d', '#4f46e5', '#65a30d'];
+    return palette[Math.abs(h) % palette.length];
+  }
+  function evCatIcon(cat) {
+    return (cat && EV_CAT_META[cat]) ? EV_CAT_META[cat].icon : '📌';
+  }
+
+  let evCurrentFilter = 'upcoming';
+  let evAllItems = [];
+  let evActiveFilters = null;  // Set<category> 或 null(未初始化=全选)
+  const evTodayStr = new Date().toISOString().slice(0, 10);
+  window.eventStore = window.eventStore || new Map();
+
+  async function loadEvents(filter) {
+    evCurrentFilter = filter || evCurrentFilter;
+    // 更新 tab 样式
+    document.querySelectorAll('[data-evf]').forEach(b => {
+      b.className = 'btn btn-sm ' + (b.dataset.evf === evCurrentFilter ? 'btn-primary' : 'btn-secondary');
+    });
+    try {
+      const res = await fetch('/api/events');
+      const data = await res.json();
+      evAllItems = data.items || [];
+    } catch(e) { evAllItems = []; toast('加载事件失败', 'error'); }
+    rebuildEvFilterBar();
+    renderEvents();
+  }
+
+  function applyEvFilter(items) {
+    if (!evActiveFilters || evActiveFilters.size === 0) return items;
+    return items.filter(i => evActiveFilters.has(i.category || '其他'));
+  }
+
+  function collectEvCategories() {
+    const set = new Set(EV_CAT_ORDER);
+    evAllItems.forEach(i => set.add(i.category || '其他'));
+    return [...set];
+  }
+
+  function rebuildEvFilterBar() {
+    const cats = collectEvCategories();
+    if (evActiveFilters === null) {
+      evActiveFilters = new Set(cats);
+    }
+    const wrap = document.getElementById('ev-filter-chips');
+    wrap.innerHTML = cats.map(cat => {
+      const on = evActiveFilters.has(cat);
+      const c = evCatColor(cat);
+      return `<label class="cal-chip ${on ? '' : 'cal-chip-off'}" style="--ev:${c}" title="显示/隐藏「${escapeHtml(cat)}」类事件">`
+        + `<input type="checkbox" data-cat="${escapeHtml(cat)}" ${on ? 'checked' : ''} onchange="onEvFilterChange()">`
+        + `<span class="cal-chip-dot" style="background:${c}"></span>`
+        + `<span>${evCatIcon(cat)} ${escapeHtml(cat)}</span>`
+        + `</label>`;
+    }).join('');
+  }
+
+  function onEvFilterChange() {
+    const inputs = document.querySelectorAll('#ev-filter-chips input[type=checkbox]');
+    evActiveFilters = new Set();
+    inputs.forEach(inp => { if (inp.checked) evActiveFilters.add(inp.dataset.cat); });
+    document.querySelectorAll('#ev-filter-chips .cal-chip').forEach(chip => {
+      const inp = chip.querySelector('input');
+      chip.classList.toggle('cal-chip-off', !inp.checked);
+    });
+    renderEvents();
+  }
+
+  document.getElementById('ev-filter-clear').onclick = function() {
+    evActiveFilters = new Set(collectEvCategories());
+    rebuildEvFilterBar();
+    renderEvents();
+  };
+
+  function renderEvents() {
+    const grid = document.getElementById('event-grid');
+    let items = applyEvFilter(evAllItems);
+    if (evCurrentFilter === 'upcoming') items = items.filter(i => i.date >= evTodayStr);
+    else if (evCurrentFilter === 'past') items = items.filter(i => i.date < evTodayStr);
+    items.sort((a, b) => evCurrentFilter === 'past'
+      ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date));
+
+    if (items.length === 0) {
+      grid.innerHTML = '<div class="empty">还没有事件,或当前筛选条件下没有事件。点「+ 新建事件」创建一个。</div>';
+      return;
+    }
+    window.eventStore.clear();
+    grid.innerHTML = items.map(ev => renderEventCard(ev)).join('');
+    // hash 跳转高亮(从日历来源链接点过来时)
+    if (location.hash.startsWith('#event_')) {
+      const el = document.getElementById(location.hash.slice(1));
+      if (el) { el.scrollIntoView({behavior:'smooth', block:'center'}); el.classList.add('ev-highlight'); }
+    }
+  }
+
+  function renderEventCard(ev) {
+    window.eventStore.set(ev.id, ev);
+    const cat = ev.category || '其他';
+    const color = evCatColor(cat);
+    const icon = evCatIcon(cat);
+    const isUpcoming = ev.date >= evTodayStr;
+    const safeId = escapeHtml(ev.id);
+    const dateBadge = isUpcoming
+      ? `<span class="ev-date ev-date-upcoming">${escapeHtml(ev.date)}</span>`
+      : `<span class="ev-date ev-date-past">${escapeHtml(ev.date)}</span>`;
+    const synced = (ev.synced_calendar_ids || []).length > 0;
+    const syncedTag = synced
+      ? `<span class="ev-synced-tag" title="已同步到日历(单向)">🔁 已同步</span>` : '';
+    const statusBadge = ev.status && ev.status !== 'active'
+      ? `<span class="ev-status-badge ev-status-${escapeHtml(ev.status)}">${escapeHtml(ev.status)}</span>` : '';
+    const bodyPreview = ev.body && ev.body !== '（暂无描述）'
+      ? `<div class="ev-body-preview">${escapeHtml(ev.body.slice(0, 160))}${ev.body.length > 160 ? '…' : ''}</div>` : '';
+    const noteHtml = ev.note ? `<div class="ev-note muted">${escapeHtml(ev.note)}</div>` : '';
+    return `
+    <div class="event-card" id="event_${safeId}" style="--ev:${color}">
+      <div class="ev-card-header">
+        <span class="ev-cat-icon">${icon}</span>
+        <div class="ev-card-titles">
+          <div class="ev-card-title">${escapeHtml(ev.title)}</div>
+          <div class="ev-card-meta">
+            ${dateBadge}
+            <span class="ev-cat-tag" style="--ev:${color}">${escapeHtml(cat)}</span>
+            ${statusBadge}${syncedTag}
+          </div>
+        </div>
+      </div>
+      ${noteHtml}
+      ${bodyPreview}
+      <div class="ev-card-actions">
+        <button class="btn btn-sm btn-ghost" data-action="edit-event" data-event-id="${safeId}">编辑</button>
+        <button class="btn btn-sm ${synced ? 'btn-secondary' : 'btn-primary'}" data-action="sync-event" data-event-id="${safeId}" ${synced ? 'disabled title="已同步到日历"' : ''}>${synced ? '🔁 已同步' : '同步到日历'}</button>
+        <button class="btn btn-sm btn-danger" data-action="delete-event" data-event-id="${safeId}">删除</button>
+      </div>
+    </div>`;
+  }
+
+  async function refreshEvents() {
+    await loadEvents(evCurrentFilter);
+  }
+
+  // ---- 表单(创建/编辑) ----
+  function openEventForm(opts) {
+    opts = opts || {};
+    const isEdit = opts.mode === 'edit';
+    const today = new Date().toISOString().slice(0, 10);
+    let title = '', evDate = today, category = '其他', note = '', body = '', status = 'active', eventId = '';
+    if (isEdit && opts.item) {
+      title = opts.item.title || '';
+      evDate = opts.item.date || today;
+      category = opts.item.category || '其他';
+      note = opts.item.note || '';
+      body = opts.item.body || '';
+      status = opts.item.status || 'active';
+      eventId = opts.item.id || '';
+    }
+    const CAT_PRESETS = EV_CAT_ORDER.map(c => ({value: c, icon: EV_CAT_META[c].icon, label: c, color: EV_CAT_META[c].color}));
+    const isPreset = CAT_PRESETS.some(p => p.value === category);
+    const catCustom = isPreset ? '' : category;
+    const catPickerHtml =
+      '<div class="cal-form-field"><label>类别</label>' +
+      '<div class="cal-cat-picker" id="ev-cat-picker">' +
+      CAT_PRESETS.map(p =>
+        '<button type="button" class="cal-cat-opt' + (category === p.value ? ' is-selected' : '') + '" ' +
+        'data-cat-value="' + escapeHtml(p.value) + '" style="--ev:' + p.color + '">' +
+        '<span>' + p.icon + ' ' + escapeHtml(p.label) + '</span></button>'
+      ).join('') +
+      '<input type="text" id="ev-form-cat-custom" class="cal-cat-custom" value="' + escapeHtml(catCustom) + '" maxlength="20" placeholder="或自定义…">' +
+      '</div></div>';
+
+    const formTitle = isEdit ? '编辑事件' : '新建事件';
+    const deleteBtn = isEdit ? '<button class="btn btn-danger" id="ev-form-delete">删除事件</button>' : '';
+
+    const formHtml =
+      '<div class="cal-form">' +
+      '<div class="cal-form-field"><label>标题 <span class="required">*</span></label>' +
+      '<input type="text" id="ev-form-title" value="' + escapeHtml(title) + '" maxlength="120" placeholder="如:ICML 2026 / 某公司Q3财报"></div>' +
+      '<div class="cal-form-field"><label>日期 <span class="required">*</span></label>' +
+      '<input type="date" id="ev-form-date" value="' + escapeHtml(evDate) + '"></div>' +
+      catPickerHtml +
+      '<div class="cal-form-field"><label>状态</label>' +
+      '<select id="ev-form-status">' +
+      '<option value="active"' + (status==='active'?' selected':'') + '>关注中(active)</option>' +
+      '<option value="done"' + (status==='done'?' selected':'') + '>已结束(done)</option>' +
+      '<option value="archived"' + (status==='archived'?' selected':'') + '>归档(archived)</option>' +
+      '</select></div>' +
+      '<div class="cal-form-field"><label>备注</label>' +
+      '<textarea id="ev-form-note" rows="2" maxlength="500" placeholder="简短备注(同步到日历也会带上)">' + escapeHtml(note) + '</textarea></div>' +
+      '<div class="cal-form-field"><label>正文(Obsidian 可编辑)</label>' +
+      '<textarea id="ev-form-body" rows="5" maxlength="4000" placeholder="事件背景、关注点、相关链接…">' + escapeHtml(body) + '</textarea></div>' +
+      '<div class="cal-form-actions">' + deleteBtn +
+      '<button class="btn btn-ghost" id="ev-form-cancel">取消</button>' +
+      '<button class="btn btn-primary" id="ev-form-save">' + (isEdit ? '保存' : '创建') + '</button></div>' +
+      '</div>';
+
+    const overlay = document.getElementById('modalOverlay');
+    if (!overlay) { alert('modal 不可用'); return; }
+    document.getElementById('modalTitle').textContent = formTitle;
+    document.getElementById('modalBody').innerHTML = formHtml;
+    document.getElementById('modalActions').innerHTML = '';
+    overlay.hidden = false;
+
+    let selectedCategory = category;
+    const catCustomInput = document.getElementById('ev-form-cat-custom');
+    const catButtons = document.querySelectorAll('#ev-cat-picker .cal-cat-opt');
+    catButtons.forEach(btn => {
+      btn.onclick = function() {
+        selectedCategory = this.dataset.catValue;
+        catCustomInput.value = '';
+        catButtons.forEach(b => b.classList.toggle('is-selected', b === this));
+      };
+    });
+    if (catCustomInput) {
+      catCustomInput.oninput = function() {
+        selectedCategory = this.value.trim();
+        catButtons.forEach(b => b.classList.remove('is-selected'));
+      };
+    }
+    function readCategory() {
+      if (catCustomInput && catCustomInput.value.trim()) return catCustomInput.value.trim();
+      return selectedCategory || '其他';
+    }
+
+    document.getElementById('ev-form-cancel').onclick = function() { overlay.hidden = true; };
+
+    document.getElementById('ev-form-save').onclick = async function() {
+      const btn = this;
+      const t = document.getElementById('ev-form-title').value.trim();
+      const d = document.getElementById('ev-form-date').value;
+      const cat = readCategory();
+      const n = document.getElementById('ev-form-note').value.trim();
+      const b = document.getElementById('ev-form-body').value.trim();
+      const st = document.getElementById('ev-form-status').value;
+      if (!t) { alert('标题不能为空'); return; }
+      if (!d || !d.match(/^\d{4}-\d{2}-\d{2}$/)) { alert('日期格式错误'); return; }
+      btn.disabled = true; btn.textContent = '保存中...';
+      try {
+        let res;
+        if (isEdit) {
+          res = await fetch('/api/events/' + encodeURIComponent(eventId), {
+            method: 'PATCH', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({title: t, date: d, category: cat, note: n, body: b, status: st}),
+          });
+        } else {
+          res = await fetch('/api/events', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({title: t, date: d, category: cat, note: n, body: b, status: st}),
+          });
+        }
+        const data = await res.json();
+        if (!res.ok) { alert('保存失败:' + (data.detail || '')); btn.disabled = false; btn.textContent = isEdit ? '保存' : '创建'; return; }
+        overlay.hidden = true;
+        toast(isEdit ? '✓ 已保存' : '✓ 已创建事件', 'success');
+        if (typeof opts.onSaved === 'function') opts.onSaved(data.event || data);
+      } catch(e) {
+        alert('网络错误:' + e.message);
+        btn.disabled = false; btn.textContent = isEdit ? '保存' : '创建';
+      }
+    };
+
+    if (isEdit) {
+      const delBtn = document.getElementById('ev-form-delete');
+      if (delBtn) {
+        delBtn.onclick = async function() {
+          if (!await confirmModal('确定删除「' + escapeHtml(title) + '」吗?此操作不可撤销(已同步的日历项不受影响)。', {title:'删除事件', confirmText:'删除', danger:true})) return;
+          delBtn.disabled = true;
+          try {
+            const res = await fetch('/api/events/' + encodeURIComponent(eventId), {method:'DELETE'});
+            if (res.ok) { overlay.hidden = true; toast('✓ 已删除', 'success'); if (typeof opts.onDeleted==='function') opts.onDeleted(); }
+            else { const d = await res.json().catch(()=>({})); alert('删除失败:' + (d.detail||'')); delBtn.disabled = false; }
+          } catch(e) { alert('网络错误:' + e.message); delBtn.disabled = false; }
+        };
+      }
+    }
+    setTimeout(function() { document.getElementById('ev-form-title').focus(); }, 50);
+  }
+
+  async function editEvent(eventId) {
+    const ev = window.eventStore.get(eventId);
+    if (!ev) { toast('事件数据已过期,正在刷新', 'warning'); await refreshEvents(); return; }
+    openEventForm({mode: 'edit', item: ev, onSaved: refreshEvents, onDeleted: refreshEvents});
+  }
+
+  async function syncEventToCalendar(eventId) {
+    const ev = window.eventStore.get(eventId);
+    const name = ev ? ev.title : '该事件';
+    if (!await confirmModal('确定把「' + escapeHtml(name) + '」同步到日历吗?\n(单向推送:之后两边独立,删除事件不影响日历项)', {title:'同步到日历', confirmText:'同步'})) return;
+    try {
+      const res = await fetch('/api/events/' + encodeURIComponent(eventId) + '/sync-calendar', {method:'POST'});
+      const data = await res.json();
+      if (!res.ok) { toast('同步失败:' + (data.detail || ''), 'error'); return; }
+      if (data.synced) {
+        toast('🔁 已同步到日历(' + escapeHtml(ev ? (ev.date||'') : '') + ')', 'success');
+      } else if (data.reason === 'already_synced') {
+        toast('该事件已在日历中,无需重复同步', 'warning');
+      }
+      await refreshEvents();
+    } catch(e) { toast('网络错误:' + e.message, 'error'); }
+  }
+
+  async function deleteEvent(eventId) {
+    const ev = window.eventStore.get(eventId);
+    const name = ev ? ev.title : '该事件';
+    if (!await confirmModal('确定删除「' + escapeHtml(name) + '」吗?此操作不可撤销(已同步的日历项不受影响)。', {title:'删除事件', confirmText:'删除', danger:true})) return;
+    try {
+      const res = await fetch('/api/events/' + encodeURIComponent(eventId), {method:'DELETE'});
+      if (res.ok) { toast('✓ 已删除', 'success'); await refreshEvents(); }
+      else { const d = await res.json().catch(()=>({})); toast('删除失败:' + (d.detail||''), 'error'); }
+    } catch(e) { toast('网络错误:' + e.message, 'error'); }
+  }
+
+  // 初始化
+  loadEvents('upcoming');
+</script>
+{% endblock %}
