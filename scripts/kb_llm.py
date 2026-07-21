@@ -1343,8 +1343,7 @@ def extract_todos_from_summary(
                 "priority": _clamp_enum(
                     it.get("priority", ""), ("P0", "P1", "P2", "P3"), "P2"
                 ),
-                "estimated_time": str(it.get("estimated_time", "")).strip()
-                or "2-4h",
+                "estimated_time": str(it.get("estimated_time", "")).strip(),
                 "difficulty": _clamp_enum(
                     it.get("difficulty", ""), ("low", "medium", "high"), "medium"
                 ),

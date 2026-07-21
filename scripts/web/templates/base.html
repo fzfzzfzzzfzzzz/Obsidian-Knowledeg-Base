@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}知识库{% endblock %}</title>
-  <link rel="stylesheet" href="/static/style.css?v=26">
+  <link rel="stylesheet" href="/static/style.css?v=29">
 </head>
 <body>
   <a href="#main" class="skip-link">跳到主内容</a>
@@ -22,6 +22,8 @@
       <a href="/ideas" class="{% if active_nav == 'ideas' %}active{% endif %}">Ideas</a>
       <a href="/todos" class="{% if active_nav == 'todos' %}active{% endif %}">Todos</a>
     </div>
+    <button class="nav-shutdown" id="kbShutdownBtn" type="button"
+            title="关闭知识库服务" aria-label="关闭知识库服务">⏻</button>
     <button class="theme-toggle" id="themeToggle" aria-label="切换浅色/暗色主题" title="切换主题">🌙</button>
   </nav>
   <div class="nav-overlay" id="navOverlay" hidden></div>
@@ -41,6 +43,27 @@
   <div class="toast-wrap" id="toastWrap" aria-live="polite" aria-atomic="false"></div>
 
   <script src="/static/app.js?v=29"></script>
+  <script>
+  // 关闭知识库服务(独立脚本,与 app.js 解耦,不影响业务逻辑)
+  (function(){
+    var btn = document.getElementById('kbShutdownBtn');
+    if(!btn) return;
+    btn.addEventListener('click', function(){
+      if(!confirm('确定关闭知识库服务?\n\n关闭后请重新双击桌面图标启动。')) return;
+      btn.disabled = true;
+      btn.textContent = '…';
+      // fire-and-forget:服务进程会立即退出,fetch 多半会失败,忽略即可
+      fetch('/api/shutdown', {method:'POST'}).catch(function(){});
+      setTimeout(function(){
+        document.title = '知识库已关闭';
+        document.body.innerHTML =
+          '<div style="text-align:center;padding:4rem 1rem;font-family:sans-serif;color:#555">'
+          + '<h2>🔌 知识库服务已关闭</h2>'
+          + '<p>可关闭此标签页,需要时双击桌面图标重新启动。</p></div>';
+      }, 800);
+    });
+  })();
+  </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

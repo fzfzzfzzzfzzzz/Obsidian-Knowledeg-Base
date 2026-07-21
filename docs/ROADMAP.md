@@ -2,13 +2,13 @@
 
 > 本文件汇总所有版本 PRD 中提到的后续迭代方向 + 已知限制的改进计划。
 > 按优先级分层,供评审和规划参考。
-> 最后更新:2026-07-20(v0.4.6 后)
+> 最后更新:2026-07-21(v0.4.7 后)
 
 ---
 
-## 当前版本:v0.4.6
+## 当前版本:v0.4.7
 
-已实现:P1 安全加固 + P3 测试网补齐。第二轮审查的 30 个问题已处理 25 个(P0/P1/P2/P3 主体),剩余 5 个为代码异味。XSS 消毒(bleach + 前端 data-*)、SSRF 防护(ipaddress + 关闭重定向)、图片 magic bytes、serve 警告 + Basic Auth、时区支持;kb_llm 核心/chat 重试/cmd_clean_x/e2e 链路单测。289 passed。
+已实现:shutdown host 白名单(收尾 v0.4.6 WIP 的网页内关闭按钮)+ extract-suggestions 质量/可观测性修复(estimated_time 不再伪造、CLI 失败进 kb.log)。300 passed。
 - v0.4.0:详情页「生成 Idea/Todo 列表」按钮 + 引导弹窗(见 `docs/v0.4.0/`)
 - v0.4.1:投稿页批量投稿(URL 提取)、/ideas /todos 拆「待定/已确定」tab、已确认 todo 放入日历(见 `docs/v0.4.1/`)
 - v0.4.2:日历「时间轴」视图(垂直+水平)、category 字段(6 预设+自定义)、标签筛选条影响三个视图(见 `docs/v0.4.2/`)
@@ -16,6 +16,7 @@
 - v0.4.4:kb_web.py 2117→74 行装配文件 + web/ 包(9 router + 4 service)、kb.py 抽公共工具、+11 测试(见 `docs/v0.4.4/`)
 - v0.4.5:第二轮审查 P0+P2 修复(10 个高危问题),+52 测试(见 `docs/v0.4.5/`)
 - v0.4.6:第二轮审查 P1+P3(XSS/SSRF/Auth/时区/测试网),+65 测试(见 `docs/v0.4.6/`)
+- v0.4.7:shutdown host 白名单 + extract-suggestions estimated_time/可观测性修复,+11 测试(见 `docs/v0.4.7/`)
 完整功能清单见 `PRODUCT.md`。
 
 ---
@@ -46,17 +47,15 @@
 - **来源**:v0.4.0 PRD §1.2 批注 + §12 后续项 A
 - **价值**:抽取结果可复现、可排序,review 队列不再全是兜底默认值
 
-### 6. 修 todo estimated_time 硬兜底(v0.4.0 批注后续项 B)
-- **现状**:`kb_llm.py:812-813` LLM 没返回 `estimated_time` 就强制填 `"2-4h"`,伪造数据污染 review 队列
-- **要做**:空值留空或标"(未估)",不要伪造
-- **来源**:v0.4.0 PRD §1.2 批注 + §12 后续项 B
-- **价值**:review 队列的时间估计可信
+### 6. ~~修 todo estimated_time 硬兜底~~ ✅ v0.4.7 完成(v0.4.0 批注后续项 B)
+- **结果**:`kb_llm.py:1346` 和 `kb.py:2285` 两处 `or "2-4h"` / `'2-4h'` 兜底都去掉,空值留空(对照 idea 侧 `estimated_investment` 的正确写法)。下游 `_format_weekly_task` 本就容忍空值,不破解析。
+- **文档**:`docs/v0.4.7/changelog.md` #6 节
 
-### 7. 修 JSON 解析静默失败(v0.4.0 批注后续项 C)
-- **现状**:`_extract_json_list` 失败返回 `[]`,调用方 `if items is None` 分支永远走不到,解析失败被当成"0 候选",无日志无告警
-- **要做**:解析失败时记日志 + 在 source state 标 `extract_error`,区分"真没候选"和"解析出错"
-- **来源**:v0.4.0 PRD §1.2 批注 + §12 后续项 C
-- **价值**:抽取异常可观测,不再静默丢数据
+### 7. ⚠️ 修 JSON 解析静默失败(v0.4.0 批注后续项 C)— 部分完成
+- **已完成(v0.4.5)**:`_extract_json_list` 失败正确返回 `None`(不是 `[]`),调用方 `extract_ideas_from_summary` / `extract_todos_from_summary` 检查 `if items is None` 并 raise `LLMError`。ROADMAP 原描述「失败返回 `[]`」已过时。
+- **已完成(v0.4.7)**:`cmd_extract_suggestions` 的 `except LLMError` 加 `append_log` + `failed` 计数器,失败进 `.kb/logs/kb.log`,不再只 print 到终端。
+- **遗留(后续)**:在 source state 标 `extract_error` 字段 + 前端显示 + Web 单篇/批量抽取路径的持久化标记。当前 `action_status` 保持 `undecided` 下次重试(合理,失败的是单次调用)。
+- **文档**:`docs/v0.4.7/changelog.md` #7 节
 
 ### 8. ~~Web 端 accept 自动搬运~~ ✅ v0.4.3 完成(原 P1-15)
 - **结果**:Web 端点接受按钮直接触发搬运,不再需要手动跑 CLI accept-ideas/accept-todos。

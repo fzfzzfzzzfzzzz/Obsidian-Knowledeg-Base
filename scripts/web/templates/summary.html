@@ -46,6 +46,8 @@
         : '<span class="muted">暂无标签</span>';
 
       wrap.innerHTML = `
+        <div class="summary-layout">
+        <div class="summary-article">
         <a href="/" class="back-link">← 返回首页</a>
         <div class="detail-action-bar">
           <button class="btn detail-action-btn ${rl ? 'active-rl' : ''}" data-field="read_later"
@@ -78,9 +80,13 @@
         <h1 class="detail-title">${escapeHtml(d.title)}</h1>
         <div class="markdown-body">${d.html_body}</div>
         <div class="detail-footer muted">文件:${escapeHtml(d.path)}</div>
+        </div>
+        <aside class="summary-toc" id="summary-toc" aria-label="文章目录"></aside>
+        </div>
       `;
       // 检查是否已有日历事项,更新按钮
       checkExistingCalendar();
+      buildToc();
     } catch (e) {
       wrap.innerHTML = `<div class="error">加载失败:${escapeHtml(e.message)}</div>`;
     }
@@ -265,6 +271,27 @@
       return;
     }
     list.innerHTML = tags.map(t => `<span class="tag tag-tag">${escapeHtml(t)} <button class="tag-remove" onclick="removeTag('${escapeHtml(t)}')" title="删除" aria-label="删除标签 ${escapeHtml(t)}">×</button></span>`).join('');
+  }
+
+  function buildToc() {
+    const root = document.getElementById('summary-detail');
+    const tocEl = document.getElementById('summary-toc');
+    if (!root || !tocEl) return;
+    const body = root.querySelector('.markdown-body');
+    if (!body) return;
+    const heads = body.querySelectorAll('h2, h3');
+    if (heads.length === 0) { tocEl.style.display = 'none'; return; }
+    let i = 0;
+    let items = '';
+    heads.forEach(h => {
+      i++;
+      if (!h.id) h.id = 'sec-' + i;
+      const lvl = h.tagName === 'H3' ? 'toc-sub' : 'toc-top';
+      const text = (h.textContent || '').trim();
+      if (!text) return;
+      items += '<li class="' + lvl + '"><a href="#' + h.id + '">' + escapeHtml(text) + '</a></li>';
+    });
+    tocEl.innerHTML = '<details class="toc" open><summary class="toc-summary">目录</summary><nav class="toc-nav" aria-label="文章目录"><ul class="toc-list">' + items + '</ul></nav></details>';
   }
 
   loadDetail();

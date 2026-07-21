@@ -118,3 +118,54 @@ async def api_recent():
 async def api_health():
     """健康检查。"""
     return {"ok": True, "vault": str(kb.VAULT_ROOT)}
+
+
+# /api/shutdown 需要的延迟退出逻辑;独立函数便于测试 monkeypatch
+def _schedule_exit(delay: float = 0.5) -> None:
+    """delay 秒后 os._exit(0),让当前响应先发回客户端。"""
+    import os
+    import threading
+    threading.Timer(delay, lambda: os._exit(0)).start()
+
+
+# loopback 白名单(与 kb.cmd_serve 的 safe_hosts 保持同语义)
+# /api/shutdown 只允许「服务绑定 loopback 且请求来自 loopback」时调用,
+# 双校验防两类场景:
+#   - bind 非 loopback:服务暴露到外网,即便请求从 127.0.0.1 进来(反向代理/隧道)也拒绝
+#   - client 非 loopback:本地绑定但被外部打到(理论上不会发生,防御性)
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1", ""}
+
+
+def _shutdown_allowed(bind_host: str, client_host: str) -> bool:
+    """/api/shutdown 是否允许执行。纯函数,便于单测。"""
+    return bind_host in _LOOPBACK_HOSTS and client_host in _LOOPBACK_HOSTS
+
+
+@router.post("/api/shutdown")
+async def api_shutdown(request: Request):
+    """关闭知识库服务(供网页内"关闭"按钮调用)。
+
+    延迟 0.5s 退出进程,让本响应先发回客户端。
+    走 router 级 _maybe_auth,云端 Basic Auth 场景同样受保护。
+
+    host 白名单:**仅当服务绑定到 loopback 且请求来自 loopback 时**才允许关闭。
+    服务绑定到 0.0.0.0 / 外网 IP 时一律 403 —— 那种场景应通过进程管理器(systemd/pm2)
+    关闭,而不是允许任意能访问页面的人(即便有 Basic Auth)远程杀进程。
+    本地默认 `kb.py serve`(host=127.0.0.1)和 start_kb.vbs 都满足白名单。
+    """
+    bind_host = getattr(request.app.state, "bind_host", "127.0.0.1")
+    client_host = request.client.host if request.client else ""
+    if not _shutdown_allowed(bind_host, client_host):
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "shutdown_not_allowed",
+                "message": (
+                    f"远程关闭未启用(bind={bind_host}, client={client_host})。"
+                    "服务绑定到非 loopback 地址时请用进程管理器关闭。"
+                ),
+            },
+            status_code=403,
+        )
+    _schedule_exit(0.5)
+    return JSONResponse({"ok": True, "message": "知识库正在关闭..."})

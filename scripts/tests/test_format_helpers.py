@@ -63,6 +63,41 @@ def test_format_weekly_task_handles_missing_meta():
     assert "- [ ]" in out
 
 
+# —— _format_todo_suggestion ——
+
+def test_format_todo_suggestion_empty_estimated_time():
+    """LLM 没给 estimated_time 时,格式化输出应留空,不伪造 "2-4h"(v0.4.7, ROADMAP P1-#6)。
+
+    修复前:kb.py 用 it.get('estimated_time', '2-4h') 兜底,
+    和 kb_llm.py 的 or "2-4h" 一样会伪造数据。
+    """
+    it = {
+        "title": "测试 todo",
+        "recommended_plan": "weekly",
+        "priority": "P1",
+        "difficulty": "low",
+        # 故意不传 estimated_time
+    }
+    out = kb._format_todo_suggestion("src_20260101_x", {"source_type": "web"}, it, "2026-07-21")
+    # estimated_time 行存在但值为空
+    assert "- estimated_time:" in out
+    # 关键:不应出现伪造的 "2-4h"
+    assert "2-4h" not in out
+
+
+def test_todo_suggestion_preserves_provided_estimated_time():
+    """LLM 给了 estimated_time 时正常写入(对照测试,确认修复没误伤合法值)。"""
+    it = {
+        "title": "测试 todo",
+        "recommended_plan": "weekly",
+        "priority": "P1",
+        "estimated_time": "30min",
+        "difficulty": "low",
+    }
+    out = kb._format_todo_suggestion("src_20260101_x", {"source_type": "web"}, it, "2026-07-21")
+    assert "- estimated_time: 30min" in out
+
+
 # —— _replace_status_in_block ——
 
 def test_replace_status_in_block_basic():

@@ -1582,6 +1582,7 @@ def cmd_extract_suggestions(args):
 
     total_ideas = 0
     total_todos = 0
+    failed = 0  # LLM 抽取失败的 source 数(可观测性:进 kb.log,action_status 留 undecided 下次重试)
     for sid, info in targets:
         summary_path = VAULT_ROOT / info["summary_path"]
         if not summary_path.exists():
@@ -1610,10 +1611,12 @@ def cmd_extract_suggestions(args):
             print(f"    ✓ idea 候选 {len(ideas)} 个,todo 候选 {len(todos)} 个")
         except LLMError as e:
             print(f"    ✗ 抽取失败: {e}")
+            append_log(f"extract-suggestions FAILED source={sid}: {e}")
+            failed += 1
 
     save_state(state)
     append_log(
-        f"extract-suggestions: sources={len(targets)} ideas={total_ideas} todos={total_todos}"
+        f"extract-suggestions: sources={len(targets)} ideas={total_ideas} todos={total_todos} failed={failed}"
     )
     print(f"\n[extract-suggestions] 完成。共抽取 idea 候选 {total_ideas} 个,todo 候选 {total_todos} 个。")
     if total_ideas or total_todos:
@@ -2282,7 +2285,7 @@ def _format_todo_suggestion(source_id: str, info: dict, it: dict, today: str) ->
 - source_summary: {src_summary}
 - recommended_plan: {it['recommended_plan']}
 - priority: {it['priority']}
-- estimated_time: {it.get('estimated_time', '2-4h')}
+- estimated_time: {it.get('estimated_time', '')}
 - difficulty: {it['difficulty']}
 
 ### 为什么值得做
@@ -2513,6 +2516,8 @@ def cmd_serve(args: argparse.Namespace) -> int:
         print(f"[serve] 错误:无法加载 kb_web 模块({e})。")
         print("       请确保 scripts/kb_web.py 存在且依赖已安装。")
         return 1
+    # 把绑定 host 暴露给请求层,/api/shutdown 用它做 loopback 白名单校验
+    kb_web.app.state.bind_host = args.host
     uvicorn.run(
         kb_web.app,
         host=args.host,

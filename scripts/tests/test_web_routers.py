@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 EXPECTED_PATHS = {
     # dashboard
     "/", "/api/dashboard", "/api/dashboard_full", "/api/recent", "/api/health",
+    "/api/shutdown",
     # articles
     "/summary/{source_id}", "/articles", "/recent",
     "/api/summaries", "/api/summary/{source_id}", "/api/articles",
