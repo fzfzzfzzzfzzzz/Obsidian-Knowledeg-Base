@@ -14,8 +14,8 @@
       <h2 class="ws-card-title">📅 时间线</h2>
       <a class="ws-card-more" href="/calendar" title="查看完整日历">全部 →</a>
     </div>
-    <div class="ws-card-body">
-      <div class="ws-placeholder">即将上线</div>
+    <div class="ws-card-body" id="ws-timeline-body">
+      <div class="ws-placeholder">加载中...</div>
     </div>
   </section>
 
@@ -25,8 +25,8 @@
       <h2 class="ws-card-title">🔔 活动</h2>
       <a class="ws-card-more" href="/recent" title="最近阅读">全部 →</a>
     </div>
-    <div class="ws-card-body">
-      <div class="ws-placeholder">即将上线</div>
+    <div class="ws-card-body" id="ws-activity-body">
+      <div class="ws-placeholder">加载中...</div>
     </div>
   </section>
 
@@ -36,8 +36,8 @@
       <h2 class="ws-card-title">💡 Idea 待审</h2>
       <a class="ws-card-more" href="/ideas" title="查看全部 idea">全部 →</a>
     </div>
-    <div class="ws-card-body">
-      <div class="ws-placeholder">即将上线</div>
+    <div class="ws-card-body" id="ws-ideas-body">
+      <div class="ws-placeholder">加载中...</div>
     </div>
   </section>
 
@@ -47,10 +47,130 @@
       <h2 class="ws-card-title">⭐ 推荐文章</h2>
       <a class="ws-card-more" href="/kb" title="进入知识库">全部 →</a>
     </div>
-    <div class="ws-card-body">
-      <div class="ws-placeholder">即将上线</div>
+    <div class="ws-card-body" id="ws-recommend-body">
+      <div class="ws-placeholder">加载中...</div>
     </div>
   </section>
 </div>
 
+{% endblock %}
+{% block scripts %}
+<script>
+// 个人工作台数据加载(独立 IIFE,与 app.js 解耦)
+// 4 个卡片:时间线 / 活动 / Idea 待审 / 推荐文章
+// 全部复用现有 API,无新增后端端点。
+(function(){
+  'use strict';
+
+  // ---- 工具 ----
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });}
+  function setBody(id, html){
+    var el = document.getElementById(id);
+    if(el) el.innerHTML = html;
+  }
+  function emptyHTML(msg){ return '<div class="ws-placeholder">'+esc(msg)+'</div>'; }
+  // 友好日期:今天/明天/昨天,否则 YYYY-MM-DD
+  function fmtDate(d){
+    if(!d) return '';
+    var today = new Date(); today.setHours(0,0,0,0);
+    var dt = new Date(d+'T00:00:00');
+    var diff = Math.round((dt - today)/86400000);
+    if(diff===0) return '今天';
+    if(diff===1) return '明天';
+    if(diff===-1) return '昨天';
+    return d;
+  }
+  // 类别色点(会议/财报/截止日期/发布/比赛/其他/默认)
+  function catDot(cat){
+    var m = {'会议':'#3b82f6','财报':'#16a34a','截止日期':'#dc2626','发布':'#8b5cf6','比赛':'#0d9488'};
+    var c = m[cat] || '#d97706';
+    return '<span class="ws-cat-dot" style="background:'+c+'"></span>';
+  }
+
+  // ---- 卡片 1:时间线(日历项 + 事件,未来/今天起按日期升序,取 5 条)----
+  function loadTimeline(){
+    Promise.all([
+      fetch('/api/calendar').then(function(r){return r.json();}).catch(function(){return {items:[]};}),
+      fetch('/api/events').then(function(r){return r.json();}).catch(function(){return {items:[]};})
+    ]).then(function(res){
+      var calItems = (res[0].items||[]).map(function(it){
+        return {date:it.date, title:it.title, cat:it.category, href:it.event_id?('/events'):'/calendar', sub: it.source_title||''};
+      });
+      var evItems = (res[1].items||[]).filter(function(e){return e.status==='active';}).map(function(it){
+        return {date:it.date, title:it.title, cat:it.category, href:'/events', sub:'事件'};
+      });
+      var all = calItems.concat(evItems);
+      // 只要今天及以后,按日期升序
+      var todayStr = new Date().toISOString().slice(0,10);
+      all = all.filter(function(x){return (x.date||'') >= todayStr;});
+      all.sort(function(a,b){return (a.date||'').localeCompare(b.date||'');});
+      all = all.slice(0, 5);
+      if(!all.length){ setBody('ws-timeline-body', emptyHTML('暂无即将到来的事项')); return; }
+      var html = all.map(function(x){
+        return '<div class="ws-item">'
+          + '<div class="ws-item-date">' + esc(fmtDate(x.date)) + '</div>'
+          + '<div class="ws-item-main">'
+            + '<a class="ws-item-title" href="'+esc(x.href)+'">'+catDot(x.cat)+esc(x.title)+'</a>'
+            + (x.sub ? '<div class="ws-item-sub">'+esc(x.sub)+'</div>' : '')
+          + '</div></div>';
+      }).join('');
+      setBody('ws-timeline-body', html);
+    });
+  }
+
+  // ---- 卡片 2:活动(最近阅读,取 5 条)----
+  function loadActivity(){
+    fetch('/api/recent').then(function(r){return r.json();}).then(function(d){
+      var items = (d.items||[]).slice(0,5);
+      if(!items.length){ setBody('ws-activity-body', emptyHTML('还没有阅读记录')); return; }
+      var html = items.map(function(x){
+        return '<div class="ws-item">'
+          + '<a class="ws-item-title" href="/summary/'+esc(x.source_id)+'">'+esc(x.title||x.source_id)+'</a>'
+          + '<div class="ws-item-sub">读过 '+esc(x.read_count||1)+' 次 · '+(x.area ? esc(x.area) : '')+'</div>'
+        + '</div>';
+      }).join('');
+      setBody('ws-activity-body', html);
+    }).catch(function(){ setBody('ws-activity-body', emptyHTML('加载失败')); });
+  }
+
+  // ---- 卡片 3:Idea 待审(pending 队列,取 5 条)----
+  function loadIdeas(){
+    fetch('/api/ideas').then(function(r){return r.json();}).then(function(d){
+      var items = (d.items||[]).filter(function(x){return x.status==='pending_review';}).slice(0,5);
+      if(!items.length){ setBody('ws-ideas-body', emptyHTML('暂无待审 idea')); return; }
+      var html = items.map(function(x){
+        var f = x.fields||{};
+        var meta = [f.priority && ('P:'+f.priority), f.novelty && ('新颖:'+f.novelty)].filter(Boolean).join(' · ');
+        return '<div class="ws-item">'
+          + '<a class="ws-item-title" href="/ideas">'+esc(x.title||'(无标题)')+'</a>'
+          + (meta ? '<div class="ws-item-sub">'+esc(meta)+'</div>' : '')
+        + '</div>';
+      }).join('');
+      setBody('ws-ideas-body', html);
+    }).catch(function(){ setBody('ws-ideas-body', emptyHTML('加载失败')); });
+  }
+
+  // ---- 卡片 4:推荐文章(最新未读,复用 dashboard_full.unread,取 5 条)----
+  function loadRecommend(){
+    fetch('/api/dashboard_full').then(function(r){return r.json();}).then(function(d){
+      var items = (d.unread||[]).slice(0,5);
+      if(!items.length){ setBody('ws-recommend-body', emptyHTML('没有未读文章,去 /kb 看全部')); return; }
+      var html = items.map(function(x){
+        return '<div class="ws-item">'
+          + '<a class="ws-item-title" href="/summary/'+esc(x.source_id)+'">'+esc(x.title||x.source_id)+'</a>'
+          + '<div class="ws-item-sub">'+(x.area ? esc(x.area) : '') + (x.tags && x.tags.length ? ' · '+x.tags.slice(0,3).map(esc).join(' ') : '')+'</div>'
+        + '</div>';
+      }).join('');
+      setBody('ws-recommend-body', html);
+    }).catch(function(){ setBody('ws-recommend-body', emptyHTML('加载失败')); });
+  }
+
+  loadTimeline();
+  loadActivity();
+  loadIdeas();
+  loadRecommend();
+})();
+</script>
 {% endblock %}

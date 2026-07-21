@@ -2194,6 +2194,50 @@ code {
   font-size: var(--fs-sm);
 }
 
+/* 工作台卡片内列表项 */
+.ws-item {
+  display: flex;
+  gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--c-border);
+}
+.ws-item:last-child { border-bottom: none; }
+.ws-item-date {
+  flex-shrink: 0;
+  width: 4em;
+  font-size: var(--fs-sm);
+  color: var(--c-primary);
+  font-weight: 600;
+  padding-top: 1px;
+}
+.ws-item-main { flex: 1; min-width: 0; }
+.ws-item-title {
+  display: block;
+  text-decoration: none;
+  color: var(--c-text);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-item-title:hover { color: var(--c-primary); }
+.ws-item-sub {
+  font-size: var(--fs-xs);
+  opacity: 0.65;
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-cat-dot {
+  display: inline-block;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
 /* 移动端:工作台折叠成单列 */
 @media (max-width: 768px) {
   .workspace-grid { grid-template-columns: 1fr; }
