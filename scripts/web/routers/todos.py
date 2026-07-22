@@ -190,8 +190,9 @@ async def api_todos_confirmed():
 async def api_todo_status(item_id: str, payload: StatusUpdate):
     """修改 todo suggestion 的 status。
 
-    若 new_status 以 accepted_ 开头:事务化地改 status + 搬到 weekly/monthly/someday。
+    若 new_status 为 accepted(或旧态 accepted_*):事务化地改 status + 搬到 weekly/monthly/someday。
     v0.4.5: 全程持文件锁(防 TOCTOU);搬运失败回滚 status。
+    v0.4.12: 去掉本周/本月/someday 三按钮;接受时可选填 deadline,按日期归类去向。
     """
     path = kb.VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
     result = accept_and_move(
@@ -201,6 +202,7 @@ async def api_todo_status(item_id: str, payload: StatusUpdate):
         sug_path=path,
         valid_set=VALID_TODO_STATUS,
         move_func=kb.move_accepted_todo,
+        deadline=(payload.deadline or "").strip(),
     )
     return JSONResponse(result)
 
@@ -229,7 +231,7 @@ async def api_generate_todos(source_id: str, payload: GenerateTodosRequest):
     except Exception as e:
         raise HTTPException(500, f"LLM 失败:{e}")
 
-    today = date.today().isoformat()
+    today = kb.today_iso()
     for it in todos:
         kb._append_section(
             kb.VAULT_ROOT / "04_Plans" / "todo_suggestions.md",

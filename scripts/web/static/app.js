@@ -29,7 +29,8 @@ function initTheme() {
   let saved = null;
   try { saved = localStorage.getItem('kb-theme'); } catch (e) {}
   const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-  applyTheme(saved || (prefersDark ? 'dark' : 'light'));
+  // 默认采用深色玻璃拟态(匹配 Ardot 工作台设计);已保存的用户选择优先。
+  applyTheme(saved || 'dark');
   const btn = document.getElementById('themeToggle');
   if (btn) btn.addEventListener('click', function () {
     const cur = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
@@ -92,26 +93,28 @@ function restoreScroll() {
 /* ====================== 汉堡抽屉导航 ====================== */
 function initNav() {
   const toggle = document.getElementById('navToggle');
-  const links = document.getElementById('navLinks');
+  const sidebar = document.getElementById('sidebar');
   const overlay = document.getElementById('navOverlay');
-  if (!toggle || !links) return;
+  const closeBtn = document.getElementById('navClose');
+  if (!toggle || !sidebar) return;
   function open() {
-    links.classList.add('open');
+    sidebar.classList.add('open');
     overlay.classList.add('open');
     overlay.hidden = false;
     toggle.setAttribute('aria-expanded', 'true');
   }
   function close() {
-    links.classList.remove('open');
+    sidebar.classList.remove('open');
     overlay.classList.remove('open');
     overlay.hidden = true;
     toggle.setAttribute('aria-expanded', 'false');
   }
   toggle.addEventListener('click', function () {
-    links.classList.contains('open') ? close() : open();
+    sidebar.classList.contains('open') ? close() : open();
   });
+  if (closeBtn) closeBtn.addEventListener('click', close);
   overlay.addEventListener('click', close);
-  links.querySelectorAll('a').forEach(a => a.addEventListener('click', close));
+  sidebar.querySelectorAll('a').forEach(a => a.addEventListener('click', close));
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
 }
 
@@ -449,9 +452,10 @@ function statusLabel(status) {
     'pending_review': '待审核',
     'accepted_research': '已接受·科研',
     'accepted_productivity': '已接受·效率',
-    'accepted_weekly': '已接受·本周',
-    'accepted_monthly': '已接受·本月',
-    'accepted_someday': '已接受·someday',
+    'accepted': '已接受',
+    'accepted_weekly': '已接受',
+    'accepted_monthly': '已接受',
+    'accepted_someday': '已接受',
     'moved': '已移动',
     'rejected': '已拒绝',
     'archived': '已归档',
@@ -486,16 +490,15 @@ function renderSuggestionCard(item, type) {
   if (status === 'pending_review') {
     const sid = escapeHtml(item.id);
     if (type === 'idea') {
+      // v0.4.11: idea 简化为单一接受(统一进 general 清单)+ 拒绝
       actions = `
-        <button class="btn btn-accept" data-action="update-status" data-kind="idea" data-sid="${sid}" data-status="accepted_research">接受·科研</button>
-        <button class="btn btn-accept" data-action="update-status" data-kind="idea" data-sid="${sid}" data-status="accepted_productivity">接受·效率</button>
+        <button class="btn btn-accept" data-action="update-status" data-kind="idea" data-sid="${sid}" data-status="accepted_general">接受</button>
         <button class="btn btn-ghost" data-action="update-status" data-kind="idea" data-sid="${sid}" data-status="rejected">拒绝</button>
       `;
     } else {
+      // v0.4.12: todo 简化为接受 / 拒绝;接受弹窗可选填截止日期,按日期自动归类去向
       actions = `
-        <button class="btn btn-accept" data-action="update-status" data-kind="todo" data-sid="${sid}" data-status="accepted_weekly">本周</button>
-        <button class="btn btn-accept" data-action="update-status" data-kind="todo" data-sid="${sid}" data-status="accepted_monthly">本月</button>
-        <button class="btn btn-accept" data-action="update-status" data-kind="todo" data-sid="${sid}" data-status="accepted_someday">someday</button>
+        <button class="btn btn-accept" data-action="accept-todo" data-sid="${sid}">接受</button>
         <button class="btn btn-ghost" data-action="update-status" data-kind="todo" data-sid="${sid}" data-status="rejected">拒绝</button>
       `;
     }
@@ -507,21 +510,15 @@ function renderSuggestionCard(item, type) {
 
   let fieldsHtml = '';
   if (type === 'idea') {
-    fieldsHtml = `
-      <span class="label">领域</span><span>${escapeHtml(f.recommended_area || '-')}</span>
-      <span class="label">优先级</span><span>${escapeHtml(f.priority || '-')}</span>
-      <span class="label">可行性</span><span>${escapeHtml(f.feasibility || '-')}</span>
-      <span class="label">新颖度</span><span>${escapeHtml(f.novelty || '-')}</span>
-      <span class="label">预估投入</span><span>${escapeHtml(f.estimated_investment || '-')}</span>
-    `;
-  } else {
-    fieldsHtml = `
-      <span class="label">建议计划</span><span>${escapeHtml(f.recommended_plan || '-')}</span>
-      <span class="label">优先级</span><span>${escapeHtml(f.priority || '-')}</span>
-      <span class="label">预估时间</span><span>${escapeHtml(f.estimated_time || '-')}</span>
-      <span class="label">难度</span><span>${escapeHtml(f.difficulty || '-')}</span>
-    `;
+    // v0.4.11: idea 卡片只留标题,不显示字段网格和正文
+    fieldsHtml = '';
   }
+  // v0.4.12: todo 也不再显示建议计划/优先级/预估时间/难度,卡片只保留标题+正文摘要
+
+  // v0.4.12: todo 正文过滤掉「主要难点」「验收标准」两节,只留为什么/做什么
+  const bodyHtml = (item.body && type !== 'idea')
+    ? `<div class="suggestion-body">${formatSuggestionBody(item.body, type)}</div>`
+    : '';
 
   return `
     <div class="card suggestion-card" id="card-${escapeHtml(item.id)}">
@@ -529,32 +526,39 @@ function renderSuggestionCard(item, type) {
         <span class="status-badge ${statusBadgeClass(status)}">${statusLabel(status)}</span>
       </div>
       <h3 class="card-title">${escapeHtml(item.title || item.id)}</h3>
-      <div class="suggestion-fields">${fieldsHtml}</div>
-      ${item.body ? `<div class="suggestion-body">${formatSuggestionBody(item.body)}</div>` : ''}
+      ${fieldsHtml ? `<div class="suggestion-fields">${fieldsHtml}</div>` : ''}
+      ${bodyHtml}
       <div class="action-row">${actions}</div>
     </div>
   `;
 }
 
-function formatSuggestionBody(body) {
-  let html = escapeHtml(body);
+function formatSuggestionBody(body, type) {
+  let text = body;
+  // v0.4.12: todo 过滤掉「主要难点」「验收标准」两节(只保留为什么值得做/具体要做什么)
+  if (type === 'todo') {
+    text = text.replace(/^###\s+(主要难点|验收标准)\s*$[\s\S]*?(?=^###\s|\n\n\s*$|$)/gm, '').trim();
+  }
+  let html = escapeHtml(text);
   html = html.replace(/^###\s+(.+)$/gm, '<h4>$1</h4>');
   html = html.replace(/\n\n+/g, '</p><p>');
   return '<p>' + html + '</p>';
 }
 
-async function updateStatus(type, itemId, newStatus, btn) {
-  // 拒绝=直接删除,不需二次确认;其他状态变更(接受/本周/本月...)仍确认
+async function updateStatus(type, itemId, newStatus, btn, deadline) {
+  // 拒绝=直接删除,不需二次确认;其他状态变更(接受)仍确认
   if (newStatus !== 'rejected') {
     if (!await confirmModal(`确认将状态改为「${statusLabel(newStatus)}」?`)) return;
   }
   const card = document.getElementById('card-' + itemId);
   if (card) card.querySelectorAll('button').forEach(b => b.disabled = true);
   try {
+    const payload = { status: newStatus };
+    if (deadline) payload.deadline = deadline;
     const res = await fetch(`/api/${type}/${itemId}/status`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: newStatus }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -585,6 +589,43 @@ async function updateStatus(type, itemId, newStatus, btn) {
   }
 }
 
+// v0.4.12: todo 接受 —— 弹窗可选填截止日期,确定后调 updateStatus(status=accepted, deadline)
+function acceptTodoWithDeadline(itemId, btn) {
+  const overlay = document.getElementById('modalOverlay');
+  const box = document.getElementById('modalBox');
+  if (!overlay || !box) { updateStatus('todo', itemId, 'accepted', btn, ''); return; }
+  document.getElementById('modalTitle').textContent = '接受该待办';
+  box.classList.remove('modal--danger');
+  const body = document.getElementById('modalBody');
+  const actions = document.getElementById('modalActions');
+  body.innerHTML = '';
+  actions.innerHTML = '';
+  const hint = document.createElement('div');
+  hint.className = 'modal-prompt-hint muted';
+  hint.textContent = '可填写截止日期(可不填)。本周内的会进本周计划,本月内的进本月计划,其余进 someday。';
+  body.appendChild(hint);
+  const input = document.createElement('input');
+  input.type = 'date';
+  input.className = 'modal-prompt-input';
+  body.appendChild(input);
+  const cancel = document.createElement('button');
+  cancel.className = 'btn btn-ghost';
+  cancel.textContent = '取消';
+  cancel.onclick = function () { overlay.hidden = true; };
+  const ok = document.createElement('button');
+  ok.className = 'btn btn-primary';
+  ok.textContent = '接受';
+  ok.onclick = function () {
+    const dl = (input.value || '').trim();
+    overlay.hidden = true;
+    updateStatus('todo', itemId, 'accepted', btn, dl);
+  };
+  actions.appendChild(cancel);
+  actions.appendChild(ok);
+  overlay.hidden = false;
+  setTimeout(function () { ok.focus(); }, 30);
+}
+
 /* ====================== 已确定 idea/todo(正式清单) ====================== */
 
 async function loadConfirmedIdeas() {
@@ -606,17 +647,9 @@ async function loadConfirmedIdeas() {
 }
 
 function renderFormalIdeaCard(item) {
-  const areaTag = item.area ? '<span class="tag tag-area">' + escapeHtml(item.area) + '</span>' : '';
-  const priorityTag = item.priority ? '<span class="tag">' + escapeHtml(item.priority) + '</span>' : '';
-  const maturity = item.maturity ? '<span class="tag">' + escapeHtml(item.maturity) + '</span>' : '';
-  const statusTag = item.status ? '<span class="tag">' + escapeHtml(item.status) + '</span>' : '';
-  const inv = item.fields && item.fields.estimated_investment
-    ? '<span class="tag">⏱ ' + escapeHtml(item.fields.estimated_investment) + '</span>' : '';
-  const bodyHtml = item.body ? '<div class="suggestion-body">' + formatSuggestionBody(item.body) + '</div>' : '';
+  // v0.4.11: 已确定 idea 卡片也只留标题(去掉所有标签 + 正文)
   return '<div class="card suggestion-card">' +
-    '<div class="card-header">' + areaTag + priorityTag + maturity + statusTag + inv + '</div>' +
     '<h3 class="card-title">' + escapeHtml(item.title || item.id || '(未命名)') + '</h3>' +
-    bodyHtml +
     '</div>';
 }
 
@@ -844,12 +877,22 @@ function renderPanel(tab) {
       read: '还没有已读文章。打开文章详情会自动标记为已读。',
       readlater: '还没有稍后阅读的文章。在文章详情页点 📖 加入。',
     }[tab];
-    grid.innerHTML = '<div class="empty">' + emptyMsg + '</div>';
+    if (grid) grid.innerHTML = '<div class="empty">' + emptyMsg + '</div>';
     if (more) more.style.display = 'none';
     return;
   }
   const renderer = DASH.view === 'list' ? renderArticleRow : renderArticleCard;
-  grid.innerHTML = items.slice(0, vis).map(renderer).join('');
+  // 逐张卡片容错:单张渲染失败不能让整个面板空白(防静默白屏)
+  const slice = items.slice(0, vis);
+  const parts = [];
+  for (const item of slice) {
+    try { parts.push(renderer(item)); }
+    catch (e) {
+      console.error('renderPanel(' + tab + ') 卡片渲染失败:', e, item);
+      parts.push('<div class="card error">该文章卡片渲染失败:' + escapeHtml(String(e.message || e)) + '</div>');
+    }
+  }
+  if (grid) grid.innerHTML = parts.join('') || '<div class="empty">没有可显示的文章。</div>';
   if (more) more.style.display = vis < items.length ? 'block' : 'none';
 }
 
@@ -933,12 +976,20 @@ async function initDashboard() {
     DASH.unread = data.unread || [];
     DASH.read = data.read || [];
     // readlater 已在 /api/dashboard 中获取,这里保持不变
-    renderPanel('unread');
-    renderPanel('read');
-    renderPanel('readlater');
+    // 每个面板独立渲染 + 容错:单个面板失败不影响其他面板,骨架屏必定被清除(防静默白屏)
+    ['unread', 'read', 'readlater'].forEach(t => {
+      try { renderPanel(t); }
+      catch (e) {
+        console.error('renderPanel(' + t + ') 失败:', e);
+        const g = document.getElementById('grid-' + t);
+        if (g) g.innerHTML = '<div class="error">面板加载失败:' + escapeHtml(String(e.message || e)) + '</div>';
+      }
+    });
     restoreScroll();
   } catch (e) {
-    document.getElementById('grid-unread').innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
+    console.error('initDashboard 加载列表失败:', e);
+    const g = document.getElementById('grid-unread');
+    if (g) g.innerHTML = '<div class="error">加载失败:' + escapeHtml(String(e.message || e)) + '</div>';
   }
 }
 
@@ -1322,6 +1373,11 @@ function setupGlobalDelegation() {
           updateStatus(target.dataset.kind, sid, target.dataset.status, target);
         }
         break;
+      case 'accept-todo':
+        if (typeof acceptTodoWithDeadline === 'function') {
+          acceptTodoWithDeadline(sid, target);
+        }
+        break;
       case 'open-todo-calendar':
         if (typeof openTodoCalendar === 'function') {
           openTodoCalendar(target.dataset.todoId, target.dataset.mode || 'edit');
@@ -1400,3 +1456,176 @@ if (document.readyState === 'loading') {
   // DOM 已就绪(脚本在 body 末尾加载时)
   setupGlobalDelegation();
 }
+
+/* ====================== 个人工作台:任务详情抽屉 + 切换当前任务 ====================== */
+(function(){
+  'use strict';
+
+  const TK_STATUS_META = {
+    'active':   { color: '#2563eb', label: '进行中' },
+    'done':     { color: '#16a34a', label: '已完成' },
+    'blocked':  { color: '#dc2626', label: '阻塞' },
+    'archived': { color: '#64748b', label: '已归档' },
+  };
+
+  let _drawerResolve = null;
+
+  function openDrawer(title, html) {
+    const overlay = document.getElementById('drawerOverlay');
+    if (!overlay) { console.warn('drawerOverlay 未找到'); return; }
+    document.getElementById('drawerTitle').textContent = title || '';
+    document.getElementById('drawerBody').innerHTML = html || '';
+    overlay.hidden = false;
+    // 强制 reflow 后加 open 类触发 transition
+    void overlay.offsetWidth;
+    overlay.classList.add('open');
+    _drawerResolve = function() { closeDrawer(); };
+  }
+
+  function closeDrawer() {
+    const overlay = document.getElementById('drawerOverlay');
+    if (!overlay) return;
+    overlay.classList.remove('open');
+    setTimeout(function() { overlay.hidden = true; }, 250);
+  }
+
+  const drawerCloseBtn = document.getElementById('drawerClose');
+  if (drawerCloseBtn) drawerCloseBtn.addEventListener('click', closeDrawer);
+
+  const drawerOverlay = document.getElementById('drawerOverlay');
+  if (drawerOverlay) {
+    drawerOverlay.addEventListener('click', function(e) {
+      if (e.target === drawerOverlay) closeDrawer();
+    });
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape' && drawerOverlay.classList.contains('open')) closeDrawer();
+    });
+  }
+
+  // 全局暴露:打开任务详情抽屉
+  window.openTaskDrawer = async function(taskId) {
+    try {
+      const r = await fetch('/api/tasks/' + encodeURIComponent(taskId));
+      if (!r.ok) throw new Error('加载失败');
+      const t = await r.json();
+      const sm = TK_STATUS_META[t.status] || TK_STATUS_META['active'];
+      const dl = t.deadline;
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const dlClass = dl && dl < todayStr ? 'overdue' : (dl && dl === todayStr ? 'today' : '');
+      const dlText = dl ? (dl < todayStr ? '⚠ 已逾期: ' : (dl === todayStr ? '⏰ 今天截止: ' : '截止: ')) + dl : '无截止日期';
+      const cl = t.checklist || [];
+      const clDone = cl.filter(function(x){ return x.done; }).length;
+      const clHtml = cl.length
+        ? cl.map(function(it) {
+            return '<label class="td-cl-item">'
+              + '<input type="checkbox" class="cl-toggle" data-item-id="' + escapeHtml(it.id) + '" ' + (it.done ? 'checked' : '') + '>'
+              + '<span class="td-cl-text' + (it.done ? ' td-cl-done' : '') + '">' + escapeHtml(it.text) + '</span>'
+              + '</label>';
+          }).join('')
+        : '<div class="muted" style="padding:var(--sp-3)">暂无子任务</div>';
+      const blockerHtml = t.blocker
+        ? '<div class="td-blocker"><strong>⛔ 当前问题:</strong> ' + escapeHtml(t.blocker) + '</div>' : '';
+      const nextHtml = t.next_action
+        ? '<div class="td-section"><h4 class="td-section-title">下一步行动</h4><p>' + escapeHtml(t.next_action) + '</p></div>' : '';
+      const bodyHtml = t.body && t.body.trim() && t.body.trim() !== '（暂无描述）'
+        ? '<div class="td-section"><h4 class="td-section-title">描述</h4><div class="td-body">' + escapeHtml(t.body.trim()) + '</div></div>' : '';
+      const html =
+        '<div class="td-header">'
+          + '<span class="tk-status-badge" style="background:' + sm.color + '">' + sm.label + '</span>'
+          + (t.priority ? '<span class="tk-cat-tag">优先级 ' + escapeHtml(t.priority) + '</span>' : '')
+          + '<span class="td-date ' + dlClass + '">' + escapeHtml(dlText) + '</span>'
+        + '</div>'
+        + '<h1 class="td-title">' + escapeHtml(t.title) + '</h1>'
+        + (t.project ? '<p style="color:var(--c-text-muted);margin:0 0 var(--sp-3)">所属项目: ' + escapeHtml(t.project) + '</p>' : '')
+        + '<div class="td-actions">'
+          + '<a class="btn btn-primary" href="/task/' + encodeURIComponent(t.id) + '">进入任务页面</a>'
+          + '<a class="btn btn-sm" href="/tasks#edit=' + encodeURIComponent(t.id) + '">✏ 编辑</a>'
+          + (t.deadline ? '<button class="btn btn-sm" id="drawer-sync">📅 同步到日历</button>' : '')
+        + '</div>'
+        + blockerHtml
+        + '<section class="td-section">'
+          + '<h4 class="td-section-title">Checklist <span class="td-prog-muted">(' + clDone + '/' + cl.length + ')</span></h4>'
+          + '<div class="td-checklist" id="drawer-checklist">' + clHtml + '</div>'
+        + '</section>'
+        + nextHtml
+        + bodyHtml;
+      openDrawer('任务详情', html);
+      // 绑定 checklist
+      document.querySelectorAll('#drawer-checklist .cl-toggle').forEach(function(cb) {
+        cb.onchange = async function() {
+          const done = cb.checked;
+          try {
+            const rr = await fetch('/api/tasks/' + encodeURIComponent(t.id) + '/checklist/' + encodeURIComponent(cb.dataset.itemId), {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ done: done })
+            });
+            if (!rr.ok) throw new Error('更新失败');
+            const span = cb.parentElement.querySelector('.td-cl-text');
+            if (span) span.classList.toggle('td-cl-done', done);
+            // 刷新首页当前任务卡片(如果存在)
+            if (typeof window.loadCurrentTask === 'function') window.loadCurrentTask();
+          } catch(e) {
+            cb.checked = !done;
+            toast(e.message, 'error');
+          }
+        };
+      });
+      // 同步日历
+      const syncBtn = document.getElementById('drawer-sync');
+      if (syncBtn) {
+        syncBtn.onclick = async function() {
+          syncBtn.disabled = true; syncBtn.textContent = '同步中...';
+          try {
+            const rr = await fetch('/api/tasks/' + encodeURIComponent(t.id) + '/sync-calendar', { method: 'POST' });
+            const dd = await rr.json();
+            if (!rr.ok) throw new Error(dd.detail || '失败');
+            toast(dd.reason === 'already_synced' ? '已同步过' : '已同步到日历', 'success');
+            syncBtn.textContent = '📅 已同步';
+          } catch(e) { toast(e.message, 'error'); syncBtn.disabled = false; syncBtn.textContent = '📅 同步到日历'; }
+        };
+      }
+    } catch(e) { toast(e.message || '加载失败', 'error'); }
+  };
+
+  // 全局暴露:切换当前任务
+  window.switchCurrentTaskModal = async function() {
+    try {
+      const r = await fetch('/api/tasks');
+      const d = await r.json();
+      let items = (d.items || []).filter(function(x){ return x.status === 'active'; });
+      if (!items.length) { toast('没有可切换的进行中任务', 'warning'); return; }
+      const stateR = await fetch('/api/workspace/current_task');
+      const stateD = await stateR.json();
+      const currentId = stateD.task ? stateD.task.id : '';
+      const html = '<div class="ws-switch-list">' + items.map(function(t) {
+        return '<button class="ws-switch-item' + (t.id === currentId ? ' current' : '') + '" data-task-id="' + escapeHtml(t.id) + '">'
+          + '<span class="ws-switch-title">' + escapeHtml(t.title) + '</span>'
+          + '<span class="ws-switch-meta">' + (t.deadline ? escapeHtml(t.deadline) : '无截止') + (t.priority ? ' · ' + escapeHtml(t.priority) : '') + '</span>'
+          + '</button>';
+      }).join('') + '</div>';
+      document.getElementById('modalTitle').textContent = '切换当前任务';
+      document.getElementById('modalBody').innerHTML = html;
+      document.getElementById('modalActions').innerHTML = '<button class="btn btn-ghost" id="switch-cancel">取消</button>';
+      const overlay = document.getElementById('modalOverlay');
+      overlay.hidden = false;
+      document.getElementById('switch-cancel').onclick = function() { overlay.hidden = true; };
+      document.querySelectorAll('.ws-switch-item').forEach(function(btn) {
+        btn.onclick = async function() {
+          const tid = btn.dataset.taskId;
+          try {
+            const rr = await fetch('/api/workspace/current_task', {
+              method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ task_id: tid })
+            });
+            if (!rr.ok) throw new Error('切换失败');
+            overlay.hidden = true;
+            toast('当前任务已切换', 'success');
+            if (typeof window.loadCurrentTask === 'function') window.loadCurrentTask();
+            else location.reload();
+          } catch(e) { toast(e.message, 'error'); }
+        };
+      });
+    } catch(e) { toast(e.message || '加载失败', 'error'); }
+  };
+})();
+

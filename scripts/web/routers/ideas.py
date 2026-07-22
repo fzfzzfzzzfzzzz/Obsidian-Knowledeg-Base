@@ -74,6 +74,7 @@ from web.models import (
     GenerateIdeasRequest,
     GenerateTodosRequest,
     TagsRequest,
+    IdeaCreate,
 )
 
 import kb
@@ -131,6 +132,41 @@ async def api_ideas():
     path = kb.VAULT_ROOT / "03_Ideas" / "idea_suggestions.md"
     return JSONResponse({"items": _parse_suggestion_file(path, "Idea Suggestion")})
 
+@router.post("/api/ideas")
+async def api_ideas_create(payload: IdeaCreate):
+    """用户手动新建 idea,追加到 idea_suggestions.md 待定队列。
+
+    与 LLM 抽取的 idea 走同一条 review 队列:只含 title + status:pending_review,
+    其他字段留空(用户可在接受后于正式清单补充)。复用现有 accept 流程。
+    """
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(400, "标题不能为空")
+    import secrets
+    slug = kb.make_slug(title) or "untitled"
+    suffix = secrets.token_hex(4)
+    today = kb.today_iso().replace("-", "")
+    iid = f"idea_suggestion_{today}_{slug}_{suffix}"
+    # 精简块:不依赖 _format_idea_suggestion(那个需要 LLM 完整字段)
+    block = (
+        f"\n## Idea Suggestion: {title}\n\n"
+        f"- id: {iid}\n"
+        f"- status: pending_review\n"
+        f"- recommended_area: \n"
+        f"- source_summary: \n"
+        f"- priority: \n"
+        f"- feasibility: \n"
+        f"- novelty: \n"
+        f"- estimated_investment: \n\n"
+    )
+    sug_path = kb.VAULT_ROOT / "03_Ideas" / "idea_suggestions.md"
+    if not sug_path.exists():
+        # 确保队列文件存在
+        sug_path.parent.mkdir(parents=True, exist_ok=True)
+        sug_path.write_text("# Idea Suggestions\n\n", encoding="utf-8")
+    kb._append_section(sug_path, block)
+    return JSONResponse({"ok": True, "id": iid, "title": title})
+
 @router.get("/api/ideas/confirmed")
 async def api_ideas_confirmed():
     """已确定的 idea:扫描 03_Ideas/*_ideas.md 正式清单(accept-ideas 落盘)。"""
@@ -181,7 +217,7 @@ async def api_generate_ideas(source_id: str, payload: GenerateIdeasRequest):
     except Exception as e:
         raise HTTPException(500, f"LLM 失败:{e}")
 
-    today = date.today().isoformat()
+    today = kb.today_iso()
     for it in ideas:
         kb._append_section(
             kb.VAULT_ROOT / "03_Ideas" / "idea_suggestions.md",

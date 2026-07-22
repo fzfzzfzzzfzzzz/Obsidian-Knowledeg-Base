@@ -90,37 +90,42 @@ def accept_and_move(
     sug_path,
     valid_set: set,
     move_func,
+    deadline: str = "",
 ) -> dict:
     """接受即搬运的事务化封装(v0.4.5)。
 
     流程(全程持文件锁,避免 TOCTOU):
       1. 检查当前 status:已 moved → no-op(幂等)
-      2. 改 status 为 new_status(accepted_*)
-      3. 调 move_func(item_id) 搬运
-      4. 搬运抛错 → 回滚 status 到原值,返回 move_error(避免卡在 accepted_*)
+      2. 改 status 为 new_status(accepted / accepted_*)
+      3. 调 move_func(item_id, deadline=...) 搬运
+      4. 搬运抛错 → 回滚 status 到原值,返回 move_error(避免卡在 accepted)
 
     参数:
         kind: "Idea Suggestion" / "Todo Suggestion"
         item_id: suggestion 块 id
-        new_status: 目标 status(以 accepted_ 开头才触发搬运)
+        new_status: 目标 status(accepted 或 accepted_* 才触发搬运)
         sug_path: suggestion 文件路径
         valid_set: 合法 status 集合(白名单)
         move_func: kb.move_accepted_idea 或 kb.move_accepted_todo
+        deadline: v0.4.12 todo 接受时可选截止日期(YYYY-MM-DD,空串=不填)
     """
+    # 是否为「接受」类状态(触发搬运)。v0.4.12 起新态为 accepted;旧态 accepted_* 仍兼容。
+    is_accept = new_status == "accepted" or new_status.startswith("accepted_")
+
     # 用 suggestion 文件路径作为锁的基础(同文件互斥)
     lock_path = kb.VAULT_ROOT / ".kb" / "logs" / f"sug_{sug_path.stem}.lock"
     try:
         with kb._file_lock(lock_path, timeout=5.0):
             # 1. 幂等检查
             pre_status = _check_suggestion_current_status(sug_path, kind, item_id)
-            if pre_status == "moved" and new_status.startswith("accepted_"):
+            if pre_status == "moved" and is_accept:
                 return {
                     "ok": True, "id": item_id, "new_status": "moved",
                     "deleted": False, "moved": False, "move_reason": "already_moved",
                 }
 
-            # 2. 改 status(若 new_status 不是 accepted_*,直接走原逻辑,不进事务)
-            if not new_status.startswith("accepted_"):
+            # 2. 改 status(若 new_status 不是接受类,直接走原逻辑,不进事务)
+            if not is_accept:
                 return _update_suggestion_status(
                     sug_path, kind, item_id, new_status, valid_set
                 )
@@ -135,7 +140,7 @@ def accept_and_move(
                 return result
 
             try:
-                move_result = move_func(item_id)
+                move_result = move_func(item_id, deadline=deadline)
                 result["moved"] = move_result.get("moved", False)
                 if move_result.get("moved"):
                     result["moved_to"] = move_result.get("target")
@@ -147,7 +152,7 @@ def accept_and_move(
                 else:
                     result["move_reason"] = move_result.get("reason")
             except Exception as e:
-                # 搬运失败:回滚 status 到原值,避免卡死在 accepted_*
+                # 搬运失败:回滚 status 到原值,避免卡死在 accepted
                 try:
                     kb._rewrite_suggestion_file(
                         kind, {item_id: original_status}

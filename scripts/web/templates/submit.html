@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}投稿 · 知识库{% endblock %}
 {% block content %}
+<nav class="kb-subnav" aria-label="知识库子页面">
+  <a href="/kb">仪表盘</a>
+  <a href="/articles">全部文章</a>
+  <a href="/recent">最近阅读</a>
+  <a href="/submit" class="active">投稿</a>
+</nav>
 <h1 class="page-title">投稿</h1>
 <p class="page-hint muted">粘贴 URL 或文章正文,提交后自动抓取 + 识别 + 生成 source note。</p>
 

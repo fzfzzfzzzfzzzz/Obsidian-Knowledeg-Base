@@ -95,35 +95,36 @@ async def page_calendar(request: Request):
 @router.get("/api/article/{source_id}/detected-dates")
 async def api_detected_dates(source_id: str):
     """获取文章的候选日期(识别正文中的日期)。"""
-    state = kb.load_state()
-    rec = state.get("sources", {}).get(source_id)
-    if not rec:
-        raise HTTPException(404, f"找不到 source:{source_id}")
+    with kb.state_lock():
+        state = kb.load_state()
+        rec = state.get("sources", {}).get(source_id)
+        if not rec:
+            raise HTTPException(404, f"找不到 source:{source_id}")
 
-    # 优先用缓存的 detected_dates,没有就实时识别
-    cached = rec.get("detected_dates")
-    if cached:
-        ranked = kb_date.rank_dates(cached)
-    else:
-        # 读正文(source note 或 summary)
-        text = ""
-        sn_path = kb.VAULT_ROOT / rec.get("path", "") if rec.get("path") else None
-        if sn_path and sn_path.exists():
-            note = sn_path.read_text(encoding=ENC)
-            text = kb._extract_source_body(note)
-        if not text.strip() and rec.get("summary_path"):
-            sp = kb.VAULT_ROOT / rec["summary_path"]
-            if sp.exists():
-                _, text = _parse_frontmatter(sp.read_text(encoding=ENC))
-
-        if text.strip():
-            detected = kb_date.detect_dates(text, reference=kb_date._today())
-            ranked = kb_date.rank_dates(detected)
-            # 缓存到 state
-            rec["detected_dates"] = detected
-            kb.save_state(state)
+        # 优先用缓存的 detected_dates,没有就实时识别
+        cached = rec.get("detected_dates")
+        if cached:
+            ranked = kb_date.rank_dates(cached)
         else:
-            ranked = []
+            # 读正文(source note 或 summary)
+            text = ""
+            sn_path = kb.VAULT_ROOT / rec.get("path", "") if rec.get("path") else None
+            if sn_path and sn_path.exists():
+                note = sn_path.read_text(encoding=ENC)
+                text = kb._extract_source_body(note)
+            if not text.strip() and rec.get("summary_path"):
+                sp = kb.VAULT_ROOT / rec["summary_path"]
+                if sp.exists():
+                    _, text = _parse_frontmatter(sp.read_text(encoding=ENC))
+
+            if text.strip():
+                detected = kb_date.detect_dates(text, reference=kb_date._today())
+                ranked = kb_date.rank_dates(detected)
+                # 缓存到 state
+                rec["detected_dates"] = detected
+                kb.save_state(state)
+            else:
+                ranked = []
 
     # 推荐日期(第一个未来日期)
     recommended = None
@@ -140,25 +141,26 @@ async def api_detected_dates(source_id: str):
 @router.post("/api/article/{source_id}/detect-dates")
 async def api_redetect_dates(source_id: str):
     """手动重新识别日期(清除缓存重新扫描)。"""
-    state = kb.load_state()
-    rec = state.get("sources", {}).get(source_id)
-    if not rec:
-        raise HTTPException(404, f"找不到 source:{source_id}")
+    with kb.state_lock():
+        state = kb.load_state()
+        rec = state.get("sources", {}).get(source_id)
+        if not rec:
+            raise HTTPException(404, f"找不到 source:{source_id}")
 
-    # 读正文
-    text = ""
-    sn_path = kb.VAULT_ROOT / rec.get("path", "") if rec.get("path") else None
-    if sn_path and sn_path.exists():
-        note = sn_path.read_text(encoding=ENC)
-        text = kb._extract_source_body(note)
-    if not text.strip() and rec.get("summary_path"):
-        sp = kb.VAULT_ROOT / rec["summary_path"]
-        if sp.exists():
-            _, text = _parse_frontmatter(sp.read_text(encoding=ENC))
+        # 读正文
+        text = ""
+        sn_path = kb.VAULT_ROOT / rec.get("path", "") if rec.get("path") else None
+        if sn_path and sn_path.exists():
+            note = sn_path.read_text(encoding=ENC)
+            text = kb._extract_source_body(note)
+        if not text.strip() and rec.get("summary_path"):
+            sp = kb.VAULT_ROOT / rec["summary_path"]
+            if sp.exists():
+                _, text = _parse_frontmatter(sp.read_text(encoding=ENC))
 
-    detected = kb_date.detect_dates(text, reference=kb_date._today()) if text.strip() else []
-    rec["detected_dates"] = detected
-    kb.save_state(state)
+        detected = kb_date.detect_dates(text, reference=kb_date._today()) if text.strip() else []
+        rec["detected_dates"] = detected
+        kb.save_state(state)
 
     ranked = kb_date.rank_dates(detected)
     recommended = next((d for d in ranked if d.get("is_future")), None)
@@ -211,36 +213,45 @@ async def api_calendar_create(payload: CalendarItemCreate):
     except ValueError:
         raise HTTPException(400, f"日期格式错误:{payload.date}(需 YYYY-MM-DD)")
 
-    import uuid
-    item_id = f"cal_{uuid.uuid4().hex[:12]}"
-    now = datetime.now().isoformat(timespec="seconds")
+    try:
+        with kb.calendar_lock():
+            kb._check_corrupt(kb.load_calendar(), "calendar")
+            import uuid
+            item_id = f"cal_{uuid.uuid4().hex[:12]}"
+            now = kb.now_ts()
 
-    # 检查是否已有同 source_id 的事项(防重复,PRD 11.9)
-    cal = kb.load_calendar()
-    if payload.source_id:
-        for existing in cal.get("items", {}).values():
-            if existing.get("source_id") == payload.source_id:
-                # 返回已有事项(PRD: 不创建重复)
-                return JSONResponse({"ok": True, "item": existing, "already_existed": True})
+            # 检查是否已有同 source_id 的事项(防重复,PRD 11.9)
+            cal = kb.load_calendar()
+            if payload.source_id:
+                for existing in cal.get("items", {}).values():
+                    if existing.get("source_id") == payload.source_id:
+                        # 返回已有事项(PRD: 不创建重复)
+                        resp = dict(existing)
+                        resp["category"] = _resolve_category(existing)
+                        return JSONResponse({"ok": True, "item": resp, "already_existed": True})
 
-    item = {
-        "id": item_id,
-        "title": payload.title.strip(),
-        "date": payload.date,
-        "note": payload.note,
-        "source_id": payload.source_id,
-        "source_type": payload.source_type,
-        "source_title": payload.source_title,
-        "detected_date_id": payload.detected_date_id,
-        "date_source": payload.date_source,
-        "date_confidence": payload.date_confidence,
-        "category": payload.category,  # v0.4.2: 事件类别(空串=不指定,落库留空)
-        "event_id": getattr(payload, "event_id", "") or "",  # 来源事件回指(从事件同步时填)
-        "created_at": now,
-        "updated_at": now,
-    }
-    cal["items"][item_id] = item
-    kb.save_calendar(cal)
+            item = {
+                "id": item_id,
+                "title": payload.title.strip(),
+                "date": payload.date,
+                "note": payload.note,
+                "source_id": payload.source_id,
+                "source_type": payload.source_type,
+                "source_title": payload.source_title,
+                "detected_date_id": payload.detected_date_id,
+                "date_source": payload.date_source,
+                "date_confidence": payload.date_confidence,
+                "category": payload.category,  # v0.4.2: 事件类别(空串=不指定,落库留空)
+                "event_id": getattr(payload, "event_id", "") or "",  # 来源事件回指(从事件同步时填)
+                "created_at": now,
+                "updated_at": now,
+            }
+            cal["items"][item_id] = item
+            kb.save_calendar(cal)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "calendar.json 损坏,请检查 .kb/logs/ 备份")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
     # 响应里回填 category,供前端直接渲染
     resp_item = dict(item)
     resp_item["category"] = _resolve_category(item)
@@ -249,45 +260,68 @@ async def api_calendar_create(payload: CalendarItemCreate):
 @router.patch("/api/calendar/{item_id}")
 async def api_calendar_update(item_id: str, payload: CalendarItemUpdate):
     """更新日历事项。"""
-    cal = kb.load_calendar()
-    item = cal.get("items", {}).get(item_id)
-    if not item:
-        raise HTTPException(404, f"找不到日历事项:{item_id}")
+    try:
+        with kb.calendar_lock():
+            cal = kb.load_calendar()
+            kb._check_corrupt(cal, "calendar")
+            item = cal.get("items", {}).get(item_id)
+            if not item:
+                raise HTTPException(404, f"找不到日历事项:{item_id}")
 
-    if payload.title:
-        item["title"] = payload.title.strip()
-    if payload.date:
-        try:
-            date.fromisoformat(payload.date)
-        except ValueError:
-            raise HTTPException(400, f"日期格式错误:{payload.date}")
-        item["date"] = payload.date
-    if payload.note is not None:
-        item["note"] = payload.note
-    # 移除/更新关联(P1-2 修复:source_id 不为 None 时更新)
-    if payload.source_id is not None:
-        item["source_id"] = payload.source_id
-        if not payload.source_id:
-            # 移除关联:同时清空 source_type/source_title
-            item["source_type"] = ""
-            item["source_title"] = ""
-    # v0.4.2: 更新事件类别(None=不改,其余含空串=更新)
-    if payload.category is not None:
-        item["category"] = payload.category
-    item["updated_at"] = datetime.now().isoformat(timespec="seconds")
+            if payload.title:
+                item["title"] = payload.title.strip()
+            if payload.date:
+                try:
+                    date.fromisoformat(payload.date)
+                except ValueError:
+                    raise HTTPException(400, f"日期格式错误:{payload.date}")
+                item["date"] = payload.date
+            if payload.note is not None:
+                item["note"] = payload.note
+            # 移除/更新关联(P1-2 修复:source_id 不为 None 时更新)
+            if payload.source_id is not None:
+                item["source_id"] = payload.source_id
+                if not payload.source_id:
+                    # 移除关联:同时清空 source_type/source_title
+                    item["source_type"] = ""
+                    item["source_title"] = ""
+            # v0.4.2: 更新事件类别(None=不改,其余含空串=更新)
+            if payload.category is not None:
+                item["category"] = payload.category
+            item["updated_at"] = kb.now_ts()
 
-    cal["items"][item_id] = item
-    kb.save_calendar(cal)
+            cal["items"][item_id] = item
+            kb.save_calendar(cal)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "calendar.json 损坏,请检查 .kb/logs/ 备份")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
     resp_item = dict(item)
     resp_item["category"] = _resolve_category(item)
     return JSONResponse({"ok": True, "item": resp_item})
 
 @router.delete("/api/calendar/{item_id}")
 async def api_calendar_delete(item_id: str):
-    """删除日历事项。"""
-    cal = kb.load_calendar()
-    if item_id not in cal.get("items", {}):
-        raise HTTPException(404, f"找不到日历事项:{item_id}")
-    del cal["items"][item_id]
-    kb.save_calendar(cal)
+    """删除日历事项。
+
+    v0.4.12:同时清理回指该 item 的 task/event 的 synced_calendar_ids(M5),
+    避免 frontmatter 悬空引用累积。
+    """
+    try:
+        with kb.calendar_lock():
+            cal = kb.load_calendar()
+            kb._check_corrupt(cal, "calendar")
+            if item_id not in cal.get("items", {}):
+                raise HTTPException(404, f"找不到日历事项:{item_id}")
+            del cal["items"][item_id]
+            kb.save_calendar(cal)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "calendar.json 损坏,请检查 .kb/logs/ 备份")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
+    # 清理回指(item 已删,无锁;task/event 各自独立文件)
+    try:
+        kb.cleanup_calendar_ref(item_id)
+    except Exception:
+        pass  # 清理失败不阻断删除
     return JSONResponse({"ok": True, "deleted": item_id})

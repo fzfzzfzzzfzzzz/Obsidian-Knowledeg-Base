@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}最近阅读 · 知识库{% endblock %}
 {% block content %}
+<nav class="kb-subnav" aria-label="知识库子页面">
+  <a href="/kb">仪表盘</a>
+  <a href="/articles">全部文章</a>
+  <a href="/recent" class="active">最近阅读</a>
+  <a href="/submit">投稿</a>
+</nav>
 <h1 class="page-title">🕒 最近阅读</h1>
 <p class="page-hint muted">按最近打开时间倒序,最多 30 篇。打开文章详情会自动记录。</p>
 <div id="recent-grid" class="card-grid">

@@ -68,6 +68,12 @@
     const ov = document.getElementById('stats-overview');
     if (ov) ov.innerHTML = '<div class="error">JS 错误:' + escapeHtml(e.message) + ' (行 ' + (e.lineno || '?') + ')</div>';
   });
+  // 异步 Promise rejection 同样要可见(error 事件捕获不到 async 抛错,会静默白屏)
+  window.addEventListener('unhandledrejection', function (e) {
+    const reason = (e && e.reason && (e.reason.message || e.reason)) || '未知异步错误';
+    const ov = document.getElementById('stats-overview');
+    if (ov) ov.innerHTML = '<div class="error">加载异常:' + escapeHtml(String(reason)) + '</div>';
+  });
 
   initDashboard();
 </script>

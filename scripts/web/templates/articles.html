@@ -1,6 +1,12 @@
 {% extends "base.html" %}
 {% block title %}全部文章 · 知识库{% endblock %}
 {% block content %}
+<nav class="kb-subnav" aria-label="知识库子页面">
+  <a href="/kb">仪表盘</a>
+  <a href="/articles" class="active">全部文章</a>
+  <a href="/recent">最近阅读</a>
+  <a href="/submit">投稿</a>
+</nav>
 <h1 class="page-title">📚 全部文章</h1>
 <p class="page-hint muted">所有文章(含未生成 summary 的)。点击卡片进入详情。</p>
 <div id="articles-grid" class="card-grid">

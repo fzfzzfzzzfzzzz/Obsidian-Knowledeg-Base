@@ -8,6 +8,12 @@ from pydantic import BaseModel
 
 class StatusUpdate(BaseModel):
     status: str
+    # v0.4.12: todo 接受时可选填截止日期(YYYY-MM-DD,空串=不填)。idea 端点忽略此字段。
+    deadline: str = ""
+
+class IdeaCreate(BaseModel):
+    """用户手动新建 idea(进待定队列 idea_suggestions.md)。只需标题。"""
+    title: str
 
 class IngestRequest(BaseModel):
     """投稿请求:多个文本片段(URL 或正文)。"""
@@ -92,12 +98,15 @@ class ChecklistItem(BaseModel):
 
 
 class TaskCreate(BaseModel):
-    """创建任务。"""
+    """创建任务."""
     title: str
     category: str = "其他"  # 开发/调研/写作/阅读/整理/其他
+    project: str = ""  # 所属项目(业务上区别于任务标题)
     status: str = "active"  # active | done | blocked | archived
+    priority: str = ""  # P0/P1/P2/P3 或 高/中/低
     deadline: str = ""  # YYYY-MM-DD,可空
     blocker: str = ""  # 当前问题/阻塞
+    next_action: str = ""  # 下一步行动
     body: str = ""  # 正文 Markdown
     checklist: list[ChecklistItem] = []  # 子任务清单
     related_source: str = ""  # 可选,关联文章 source_id
@@ -111,9 +120,12 @@ class TaskUpdate(BaseModel):
     """
     title: str | None = None
     category: str | None = None
+    project: str | None = None
     status: str | None = None
+    priority: str | None = None
     deadline: str | None = None
     blocker: str | None = None
+    next_action: str | None = None
     body: str | None = None
     checklist: list[ChecklistItem] | None = None
     related_source: str | None = None

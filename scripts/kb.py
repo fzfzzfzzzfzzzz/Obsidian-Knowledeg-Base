@@ -62,6 +62,7 @@ VAULT_ROOT = Path(os.environ.get('KB_VAULT_ROOT') or Path(__file__).resolve().pa
 KB_DIR = Path(os.environ.get('KB_DIR') or (VAULT_ROOT / ".kb"))
 STATE_FILE = Path(os.environ.get('KB_STATE_FILE') or (KB_DIR / "state.json"))
 CALENDAR_FILE = Path(os.environ.get('KB_CALENDAR_FILE') or (KB_DIR / "calendar.json"))
+WORKSPACE_STATE_FILE = Path(os.environ.get('KB_WORKSPACE_STATE_FILE') or (KB_DIR / "workspace_state.json"))
 RAW_TEXT_DIR = Path(os.environ.get('KB_RAW_TEXT_DIR') or (KB_DIR / "raw_text"))
 LOGS_DIR = Path(os.environ.get('KB_LOGS_DIR') or (KB_DIR / "logs"))
 
@@ -189,6 +190,88 @@ def _release_lock(fd: int) -> None:
 import time  # noqa: E402  (延迟 import 避免顶部过于拥挤)
 
 
+# ---------------------------------------------------------------------------
+# 时区感知时间戳(v0.4.12)
+# ---------------------------------------------------------------------------
+# 历史问题:全仓 datetime.now()(无时区)与 kb_date._today()(KB_TZ 感知)混用,
+# 云端 UTC 服务器设 KB_TZ=Asia/Shanghai 时,写入时间戳偏一天,本周统计错乱。
+# 统一入口:now_ts() / today_iso() 都尊重 KB_TZ,与 kb_date._today() 同款语义。
+# 未设 KB_TZ(本地开发)时退回系统本地时间,行为与原 datetime.now() 完全一致。
+
+def _tz():
+    """返回当前时区的 ZoneInfo,或 None(系统本地时区)。"""
+    tz_name = os.environ.get("KB_TZ")
+    if tz_name:
+        try:
+            from zoneinfo import ZoneInfo
+            return ZoneInfo(tz_name)
+        except Exception:
+            return None
+    return None
+
+
+def now_ts() -> str:
+    """当前时间的 ISO8601 字符串(秒精度,无时区后缀,与历史格式一致)。
+
+    尊重 KB_TZ;未设时用系统本地时间。格式与原 now_ts()
+    完全一致,保证旧数据可比对。
+    """
+    tz = _tz()
+    dt = datetime.now(tz) if tz else datetime.now()
+    # 去掉时区后缀,统一成无 tz 的 YYYY-MM-DDTHH:MM:SS(与历史存量一致)
+    return dt.replace(tzinfo=None).isoformat(timespec="seconds")
+
+
+def today_iso() -> str:
+    """今天的日期 YYYY-MM-DD,尊重 KB_TZ(与 kb_date._today() 同款)。"""
+    tz = _tz()
+    dt = datetime.now(tz) if tz else datetime.now()
+    return dt.date().isoformat()
+
+
+# ---------------------------------------------------------------------------
+# state/calendar 读写锁(v0.4.12 修复 S1:跨进程并发丢更新)
+# ---------------------------------------------------------------------------
+# _file_lock 已实现跨进程锁,但历史上几乎没被调用,导致所有 load→改→save 裸跑。
+# 这里提供专用上下文管理器,锁文件固定在 .kb/logs/,web 进程与 CLI 进程共用同一锁路径,
+# 保证跨进程 read-modify-write 串行化。
+#
+# 用法:
+#     with kb.state_lock():
+#         state = kb.load_state()
+#         ... 改 state ...
+#         kb.save_state(state)
+
+
+@contextlib.contextmanager
+def state_lock(timeout: float = 5.0):
+    """state.json 的跨进程独占锁(包住 load+save 整个 RMW)。"""
+    lock_path = LOGS_DIR / "state.lock"
+    with _file_lock(lock_path, timeout=timeout):
+        yield
+
+
+@contextlib.contextmanager
+def calendar_lock(timeout: float = 5.0):
+    """calendar.json 的跨进程独占锁(包住 load+save 整个 RMW)。"""
+    lock_path = LOGS_DIR / "calendar.lock"
+    with _file_lock(lock_path, timeout=timeout):
+        yield
+
+
+def _check_corrupt(store: dict, store_name: str) -> None:
+    """若 load_state/load_calendar 返回的 dict 带 _corrupt 标记,抛 503。
+
+    供 web 写路径调用:损坏后拿到的空骨架不应被 save 覆盖。
+    """
+    if isinstance(store, dict) and store.get("_corrupt"):
+        raise CorruptStoreError(store_name)
+
+
+class CorruptStoreError(RuntimeError):
+    """state.json / calendar.json 损坏(已备份),拒绝基于空骨架写回。"""
+
+
 def load_state() -> dict:
     """读取 .kb/state.json,不存在则返回空骨架。
 
@@ -202,7 +285,7 @@ def load_state() -> dict:
     if not STATE_FILE.exists():
         return {
             "version": 1,
-            "created_at": date.today().isoformat(),
+            "created_at": today_iso(),
             "sources": {},  # source_id -> {path, source_type, source_title, created_at, ingested_at}
         }
     try:
@@ -226,7 +309,7 @@ def load_state() -> dict:
         # 返回空骨架 + 损坏标记
         return {
             "version": 1,
-            "created_at": date.today().isoformat(),
+            "created_at": today_iso(),
             "sources": {},
             "_corrupt": True,
             "_corrupt_error": str(e),
@@ -267,10 +350,45 @@ def save_calendar(cal: dict) -> None:
     write_text(CALENDAR_FILE, json.dumps(cal, ensure_ascii=False, indent=2))
 
 
+def load_workspace_state() -> dict:
+    """读取 .kb/workspace_state.json,不存在则返回空骨架。
+
+    与 load_calendar 同款损坏备份逻辑。
+    """
+    if not WORKSPACE_STATE_FILE.exists():
+        return {"version": 1, "current_task_id": ""}
+    try:
+        return json.loads(read_text(WORKSPACE_STATE_FILE))
+    except (json.JSONDecodeError, OSError) as e:
+        try:
+            backup_dir = LOGS_DIR
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            corrupt_backup = backup_dir / f"corrupt_workspace_state_{ts}.json"
+            shutil.copy2(WORKSPACE_STATE_FILE, corrupt_backup)
+            backup_msg = f"(已备份到 {corrupt_backup.name})"
+        except Exception as be:
+            backup_msg = f"(备份失败: {be})"
+        try:
+            append_log(f"WARNING: workspace_state.json 损坏({type(e).__name__}: {e}) {backup_msg}")
+        except Exception:
+            pass
+        return {
+            "version": 1,
+            "current_task_id": "",
+            "_corrupt": True,
+            "_corrupt_error": str(e),
+        }
+
+
+def save_workspace_state(state: dict) -> None:
+    write_text(WORKSPACE_STATE_FILE, json.dumps(state, ensure_ascii=False, indent=2))
+
+
 def append_log(message: str) -> None:
     """追加一行到 .kb/logs/kb.log。"""
     LOGS_DIR.mkdir(parents=True, exist_ok=True)
-    ts = date.today().isoformat()
+    ts = today_iso()
     with (LOGS_DIR / "kb.log").open("a", encoding=ENC) as fh:
         fh.write(f"[{ts}] {message}\n")
 
@@ -512,7 +630,7 @@ def build_source_note(source_id: str, meta: dict, body: str, metadata_source: st
 
     metadata_source: "inline"(KB_ITEM 内嵌)| "llm"(LLM 识别)| "manual"
     """
-    today = date.today().isoformat()
+    today = today_iso()
     source_type = meta.get("source_type", "manual").strip() or "manual"
     safe_type = source_type if source_type in SOURCE_TYPES else "manual"
 
@@ -980,7 +1098,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         save_state(
             {
                 "version": 1,
-                "created_at": date.today().isoformat(),
+                "created_at": today_iso(),
                 "sources": {},
             }
         )
@@ -1091,7 +1209,7 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         return 0
 
     state = load_state()
-    today = date.today().isoformat()
+    today = today_iso()
 
     created: list[str] = []
     skipped: list[str] = []
@@ -1599,7 +1717,7 @@ def cmd_extract_suggestions(args):
             print(f"  → {sid}: 抽取 idea/todo 候选...")
             ideas = kb_llm.extract_ideas_from_summary(summary_text)
             todos = kb_llm.extract_todos_from_summary(summary_text)
-            today = date.today().isoformat()
+            today = today_iso()
             # 写 idea suggestions
             for it in ideas:
                 block = _format_idea_suggestion(sid, info, it, today)
@@ -1649,7 +1767,8 @@ def _list_accepted_suggestion_ids(kind: str) -> list[tuple[str, str, dict, str, 
     out = []
     for raw, meta, body in blocks:
         status = meta.get("status", "").strip()
-        if status.startswith("accepted_"):
+        # v0.4.12: todo 新态为 accepted(无下划线);旧态 accepted_* 仍兼容
+        if status == "accepted" or status.startswith("accepted_"):
             item_id = meta.get("id", "").strip() or meta.get("title", "")
             out.append((item_id, status, meta, body, raw))
     return out
@@ -1685,10 +1804,11 @@ def _rewrite_suggestion_file(kind: str, item_ids_to_moved: dict[str, str]) -> No
     write_text(sug_file, header + "\n".join(new_blocks) + "\n")
 
 
-def move_accepted_idea(item_id: str) -> dict:
+def move_accepted_idea(item_id: str, deadline: str = "") -> dict:
     """把单个 accepted_* 的 idea suggestion 搬到正式 idea list。
 
     幂等:已是 moved 状态的不重复搬;非 accepted_* 的不搬。
+    (deadline 参数仅为与 move_accepted_todo 同签名而保留,idea 搬运不使用。)
     返回:
         {moved: bool, item_id, area, target, reason}
         reason 描述跳过原因(如 "not_accepted" / "already_moved" / "not_found")。
@@ -1723,10 +1843,16 @@ def move_accepted_idea(item_id: str) -> dict:
     }
 
 
-def move_accepted_todo(item_id: str) -> dict:
-    """把单个 accepted_* 的 todo suggestion 搬到 weekly/monthly/someday。
+def move_accepted_todo(item_id: str, deadline: str = "") -> dict:
+    """把单个 accepted 的 todo suggestion 搬到 weekly/monthly/someday。
 
-    幂等:已是 moved 状态的不重复搬;非 accepted_* 的不搬。
+    v0.4.12 起去向由 deadline 决定(不再让用户在 UI 里手选三态):
+      - 本周内(到本周日) → 04_Plans/Weekly/{年}-W{周}.md
+      - 本月内(到月末)   → 04_Plans/Monthly/{年}-{月}.md
+      - 更远 / 未填 deadline → 04_Plans/someday.md
+    兼容:旧数据 status 仍可能带 accepted_weekly/monthly/someday 后缀,此时按后缀归类。
+
+    幂等:已是 moved 状态的不重复搬;非 accepted 的不搬。
     返回:{moved, item_id, plan, target, reason}
     """
     accepted = _list_accepted_suggestion_ids("Todo Suggestion")
@@ -1745,11 +1871,22 @@ def move_accepted_todo(item_id: str) -> dict:
         return {"moved": False, "item_id": item_id,
                 "reason": "not_found_or_not_accepted"}
 
-    plan = target_status.removeprefix("accepted_")  # weekly/monthly/someday
-    today = date.today()
-    iso_year, iso_week, _ = today.isocalendar()
+    import kb_date
+    today = kb_date._today()
+    iso_year, iso_week, iso_weekday = today.isocalendar()
     week_tag = f"{iso_year}-W{iso_week:02d}"
     month_tag = today.strftime("%Y-%m")
+
+    # 决定去向 plan:旧态后缀优先(兼容历史),否则按 deadline 归类
+    legacy_plan = ""
+    if target_status.startswith("accepted_"):
+        legacy_plan = target_status.removeprefix("accepted_")  # weekly/monthly/someday
+
+    if legacy_plan:
+        plan = legacy_plan
+    else:
+        plan = _todo_plan_from_deadline(deadline, today)
+
     if plan == "weekly":
         target_file = VAULT_ROOT / "04_Plans" / "Weekly" / f"{week_tag}.md"
         _ensure_weekly_file(target_file, week_tag)
@@ -1760,6 +1897,12 @@ def move_accepted_todo(item_id: str) -> dict:
         target_file = VAULT_ROOT / "04_Plans" / "someday.md"
         if not target_file.exists():
             write_text(target_file, "# Someday Todo\n\n> 暂存,有空再做。\n\n")
+    # 把用户填的 deadline 落进 meta,供 _format_weekly_task 渲染
+    if deadline:
+        if target_meta is None:
+            target_meta = {}
+        target_meta = dict(target_meta)
+        target_meta["deadline"] = deadline
     task = _format_weekly_task(target_meta, target_body)
     _append_section(target_file, task)
     _rewrite_suggestion_file("Todo Suggestion", {target_for: "moved"})
@@ -1769,6 +1912,33 @@ def move_accepted_todo(item_id: str) -> dict:
         "plan": plan,
         "target": target_file.relative_to(VAULT_ROOT).as_posix(),
     }
+
+
+def _todo_plan_from_deadline(deadline: str, today) -> str:
+    """根据 deadline 日期归类到 weekly/monthly/someday。
+
+    - 无 deadline / 解析失败 → someday
+    - 截止日在本周(本周一..本周日)内 → weekly
+    - 截止日在本月内(但不在本周) → monthly
+    - 更远 → someday
+    """
+    if not deadline:
+        return "someday"
+    try:
+        from datetime import date as _date
+        d = _date.fromisoformat(deadline)
+    except (ValueError, TypeError):
+        return "someday"
+    iso_year, iso_week, iso_weekday = today.isocalendar()
+    # 本周的范围:周一(iso_weekday=1)到周日(iso_weekday=7)
+    monday = today.fromisocalendar(iso_year, iso_week, 1)
+    sunday = today.fromisocalendar(iso_year, iso_week, 7)
+    if monday <= d <= sunday:
+        return "weekly"
+    # 本月范围
+    if d.year == today.year and d.month == today.month:
+        return "monthly"
+    return "someday"
 
 
 def cmd_accept_ideas(args):
@@ -1786,16 +1956,24 @@ def cmd_accept_ideas(args):
         print("[accept-ideas] 没有 accepted_* 状态的 idea suggestion(可能都已 moved)。")
         return 0
 
+    # 持 suggestion 文件锁整个搬运(v0.4.12 S2):与 web accept_and_move 共用同一锁路径,
+    # 防 CLI 与 web 并发 accept 同一文件导致 status 改写/搬运交错。
+    lock_path = LOGS_DIR / f"sug_{sug_file.stem}.lock"
     moved = 0
     failed = 0
-    for item_id, status, meta, body, raw in accepted:
-        result = move_accepted_idea(item_id)
-        if result.get("moved"):
-            moved += 1
-            print(f"  → {meta.get('title', item_id)} → {result['target']}")
-        else:
-            failed += 1
-            print(f"  ! {item_id}: {result.get('reason')}")
+    try:
+        with _file_lock(lock_path, timeout=30.0):
+            for item_id, status, meta, body, raw in accepted:
+                result = move_accepted_idea(item_id)
+                if result.get("moved"):
+                    moved += 1
+                    print(f"  → {meta.get('title', item_id)} → {result['target']}")
+                else:
+                    failed += 1
+                    print(f"  ! {item_id}: {result.get('reason')}")
+    except TimeoutError as e:
+        print(f"[accept-ideas] 等待文件锁超时(可能 web 正在操作):{e}")
+        return 1
 
     append_log(f"accept-ideas: moved={moved} failed={failed}")
     print(f"\n[accept-ideas] 移动 {moved} 个" + (f",失败 {failed} 个" if failed else "") + "。")
@@ -1819,16 +1997,23 @@ def cmd_accept_todos(args):
         print("[accept-todos] 没有 accepted_* 状态的 todo suggestion(可能都已 moved)。")
         return 0
 
+    # 持 suggestion 文件锁整个搬运(v0.4.12 S2):与 web accept_and_move 共用同一锁路径。
+    lock_path = LOGS_DIR / f"sug_{sug_file.stem}.lock"
     moved = 0
     failed = 0
-    for item_id, status, meta, body, raw in accepted:
-        result = move_accepted_todo(item_id)
-        if result.get("moved"):
-            moved += 1
-            print(f"  → {meta.get('title', item_id)} → {result['target']}")
-        else:
-            failed += 1
-            print(f"  ! {item_id}: {result.get('reason')}")
+    try:
+        with _file_lock(lock_path, timeout=30.0):
+            for item_id, status, meta, body, raw in accepted:
+                result = move_accepted_todo(item_id)
+                if result.get("moved"):
+                    moved += 1
+                    print(f"  → {meta.get('title', item_id)} → {result['target']}")
+                else:
+                    failed += 1
+                    print(f"  ! {item_id}: {result.get('reason')}")
+    except TimeoutError as e:
+        print(f"[accept-todos] 等待文件锁超时(可能 web 正在操作):{e}")
+        return 1
 
     append_log(f"accept-todos: moved={moved} failed={failed}")
     print(f"\n[accept-todos] 移动 {moved} 个" + (f",失败 {failed} 个" if failed else "") + "。")
@@ -1861,7 +2046,7 @@ def _write_summary(sid: str, info: dict, body: str) -> Path:
 
     文件名用可读格式(日期+标题);frontmatter 里 source_id 是幂等键(纯 hash)。
     """
-    today = date.today().isoformat()
+    today = today_iso()
     source_type = info["source_type"]
     title = info.get("source_title", "")
     created_at = info.get("created_at", today)
@@ -2246,7 +2431,11 @@ def _split_suggestion_blocks(text: str, kind: str) -> list[tuple[str, dict, str]
 def _format_idea_suggestion(source_id: str, info: dict, it: dict, today: str) -> str:
     """把 LLM 抽取的 idea dict 格式化成 idea_suggestion 模板格式的块。"""
     slug = make_slug(it.get("title", "untitled")) or "untitled"
-    iid = f"idea_suggestion_{today.replace('-', '')}_{slug}"
+    # v0.4.12: 加 4 字节随机后缀(8 hex),防同日同标题撞 id。
+    # 用 secrets 而非 time_ns:循环内毫秒级连续生成时 time_ns 分辨率不够会撞。
+    import secrets
+    suffix = secrets.token_hex(4)
+    iid = f"idea_suggestion_{today.replace('-', '')}_{slug}_{suffix}"
     src_summary = f"[[summary_{source_id}]]"
     return f"""
 ## Idea Suggestion: {it['title']}
@@ -2277,7 +2466,10 @@ def _format_idea_suggestion(source_id: str, info: dict, it: dict, today: str) ->
 def _format_todo_suggestion(source_id: str, info: dict, it: dict, today: str) -> str:
     """把 LLM 抽取的 todo dict 格式化成 todo_suggestion 模板格式的块。"""
     slug = make_slug(it.get("title", "untitled")) or "untitled"
-    tid = f"todo_suggestion_{today.replace('-', '')}_{slug}"
+    # v0.4.12: 加 4 字节随机后缀(8 hex),防同日同标题撞 id。
+    import secrets
+    suffix = secrets.token_hex(4)
+    tid = f"todo_suggestion_{today.replace('-', '')}_{slug}_{suffix}"
     src_summary = f"[[summary_{source_id}]]"
     return f"""
 ## Todo Suggestion: {it['title']}
@@ -2311,7 +2503,7 @@ def _format_todo_suggestion(source_id: str, info: dict, it: dict, today: str) ->
 def _format_formal_idea(meta: dict, body: str, area: str) -> str:
     """把 accepted idea suggestion 转成正式 idea list 条目(idea_template 格式)。"""
     title = meta.get("title", meta.get("id", "untitled"))
-    today = date.today().isoformat()
+    today = today_iso()
     slug = make_slug(title) or "untitled"
     iid = f"idea_{today.replace('-', '')}_{slug}"
     return f"""
@@ -2335,6 +2527,8 @@ def _format_formal_idea(meta: dict, body: str, area: str) -> str:
 def _format_weekly_task(meta: dict, body: str) -> str:
     """把 accepted todo suggestion 转成 weekly/monthly task 格式(plan.md 11.1)。"""
     title = meta.get("title", meta.get("id", "untitled"))
+    deadline = meta.get("deadline", "") if meta else ""
+    deadline_line = f"  - 截止日期:{deadline}\n" if deadline else ""
     return f"""
 
 - [ ] {title}
@@ -2342,7 +2536,7 @@ def _format_weekly_task(meta: dict, body: str) -> str:
   - 预计时间:{meta.get('estimated_time', '')}
   - 难度:{meta.get('difficulty', '')}
   - 难点:{meta.get('challenges', '') if 'challenges' in meta else '见 suggestion'}
-"""
+{deadline_line}"""
 
 
 def _append_section(path: Path, section: str) -> None:
@@ -2467,13 +2661,12 @@ def _format_event_file(meta: dict, body: str) -> str:
     """把事件 meta dict + 正文格式化成完整 markdown 文件内容(frontmatter + body)。
 
     所有字段用单行字符串;synced_calendar_ids 用逗号分隔(避免 YAML 列表解析复杂度)。
+    v0.4.12: 新增 completed_at 字段(与 task 对称,供事件完成时间统计)。
     """
-    synced = meta.get("synced_calendar_ids", "")
-    if isinstance(synced, list):
-        synced = ",".join(str(x) for x in synced if x)
     lines = ["---"]
     for key in ("id", "title", "date", "category", "note", "status",
-                "related_source", "synced_calendar_ids", "created_at", "updated_at"):
+                "related_source", "synced_calendar_ids", "created_at", "updated_at",
+                "completed_at"):
         val = meta.get(key, "")
         lines.append(f"{key}: {val}")
     lines.append("---")
@@ -2502,6 +2695,7 @@ def load_event_file(path: Path) -> dict:
         "synced_calendar_ids": synced,
         "created_at": meta.get("created_at", "").strip(),
         "updated_at": meta.get("updated_at", "").strip(),
+        "completed_at": meta.get("completed_at", "").strip(),
         "body": body,
         "path": path.relative_to(VAULT_ROOT).as_posix() if _is_relative(path) else str(path),
     }
@@ -2516,10 +2710,31 @@ def _is_relative(path: Path) -> bool:
         return False
 
 
+def _log_scan_error(path: Path, err: Exception) -> None:
+    """scan_tasks/scan_events 遇到损坏文件时备份 + 记日志(v0.4.12 M3)。
+
+    与 load_state 损坏策略一致:备份到 .kb/logs/,记 WARNING 日志,不抛(调用方继续扫下一个)。
+    """
+    try:
+        backup_dir = LOGS_DIR
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        corrupt_backup = backup_dir / f"corrupt_{path.stem}_{ts}.md"
+        shutil.copy2(path, corrupt_backup)
+        backup_msg = f"(已备份到 {corrupt_backup.name})"
+    except Exception as be:
+        backup_msg = f"(备份失败: {be})"
+    try:
+        append_log(f"WARNING: {path.name} 解析失败({type(err).__name__}: {err}) {backup_msg}")
+    except Exception:
+        pass
+
+
 def scan_events() -> list[dict]:
     """扫描 06_Events/event_*.md,返回按日期升序排列的事件列表。
 
     每个元素是 load_event_file 的返回 dict。目录不存在或无文件返回 []。
+    v0.4.12: 损坏文件备份 + 记日志(不再静默 continue),与 load_state 同款策略。
     """
     events_dir = VAULT_ROOT / EVENT_DIR_NAME
     if not events_dir.exists():
@@ -2528,17 +2743,26 @@ def scan_events() -> list[dict]:
     for path in sorted(events_dir.glob("event_*.md")):
         try:
             results.append(load_event_file(path))
-        except Exception:
-            continue
+        except Exception as e:
+            _log_scan_error(path, e)
     results.sort(key=lambda e: e.get("date", "") or "9999")
     return results
 
 
 def write_event_file(path: Path, meta: dict, body: str, *, is_new: bool = False) -> None:
-    """原子写事件文件。新建时补 created_at,更新时刷新 updated_at。"""
-    now = datetime.now().isoformat(timespec="seconds")
+    """原子写事件文件。新建时补 created_at,更新时刷新 updated_at。
+
+    completed_at 生命周期(v0.4.12,与 task 对称):status==done 且无值时写入,
+    非 done 清空。旧文件缺该字段时首次标 done 补当天。
+    """
+    now = now_ts()
     if is_new and not meta.get("created_at"):
         meta["created_at"] = now
+    if meta.get("status") == "done":
+        if not meta.get("completed_at"):
+            meta["completed_at"] = now
+    else:
+        meta["completed_at"] = ""
     meta["updated_at"] = now
     write_text(path, _format_event_file(meta, body))
 
@@ -2576,7 +2800,7 @@ def sync_event_to_calendar(event_id: str) -> dict:
 
     # 创建新日历项(回指 event,source_type=event 供前端识别来源)
     item_id = f"cal_{_uuid.uuid4().hex[:12]}"
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_ts()
     item = {
         "id": item_id,
         "title": event["title"],
@@ -2660,16 +2884,14 @@ def _format_task_file(meta: dict, body: str) -> str:
     checklist 存为 JSON 字符串(单行),load 时 json.loads 还原成 list[dict]。
     synced_calendar_ids 用逗号分隔(避免 YAML 列表解析复杂度)。
     """
-    synced = meta.get("synced_calendar_ids", "")
-    if isinstance(synced, list):
-        synced = ",".join(str(x) for x in synced if x)
     cl = meta.get("checklist", [])
     if isinstance(cl, list):
         cl = json.dumps(cl, ensure_ascii=False)
     lines = ["---"]
-    for key in ("id", "title", "category", "status", "deadline", "blocker",
-                "checklist", "related_source", "synced_calendar_ids",
-                "created_at", "updated_at"):
+    for key in ("id", "title", "category", "project", "status", "priority",
+                "deadline", "blocker", "next_action", "checklist",
+                "related_source", "synced_calendar_ids",
+                "created_at", "updated_at", "completed_at"):
         val = meta.get(key, "")
         # checklist 字段用 JSON 字符串,其余字段原样输出
         if key == "checklist":
@@ -2710,14 +2932,18 @@ def load_task_file(path: Path) -> dict:
         "id": meta.get("id", "").strip(),
         "title": meta.get("title", "").strip(),
         "category": meta.get("category", "其他").strip() or "其他",
+        "project": meta.get("project", "").strip(),
         "status": meta.get("status", "active").strip() or "active",
+        "priority": meta.get("priority", "").strip(),
         "deadline": meta.get("deadline", "").strip(),
         "blocker": meta.get("blocker", "").strip(),
+        "next_action": meta.get("next_action", "").strip(),
         "checklist": checklist,
         "related_source": meta.get("related_source", "").strip(),
         "synced_calendar_ids": synced,
         "created_at": meta.get("created_at", "").strip(),
         "updated_at": meta.get("updated_at", "").strip(),
+        "completed_at": meta.get("completed_at", "").strip(),
         "body": body,
         "path": path.relative_to(VAULT_ROOT).as_posix() if _is_relative(path) else str(path),
     }
@@ -2727,6 +2953,7 @@ def scan_tasks() -> list[dict]:
     """扫描 07_Tasks/task_*.md,返回按 deadline 升序排列的任务列表。
 
     无 deadline 的排末尾(用 9999 sentinel)。每个元素是 load_task_file 的返回 dict。
+    v0.4.12: 损坏文件备份 + 记日志(不再静默 continue),与 load_state 同款策略。
     """
     tasks_dir = VAULT_ROOT / TASK_DIR_NAME
     if not tasks_dir.exists():
@@ -2735,17 +2962,29 @@ def scan_tasks() -> list[dict]:
     for path in sorted(tasks_dir.glob("task_*.md")):
         try:
             results.append(load_task_file(path))
-        except Exception:
-            continue
+        except Exception as e:
+            _log_scan_error(path, e)
     results.sort(key=lambda t: t.get("deadline", "") or "9999")
     return results
 
 
 def write_task_file(path: Path, meta: dict, body: str, *, is_new: bool = False) -> None:
-    """原子写任务文件。新建时补 created_at,更新时刷新 updated_at。"""
-    now = datetime.now().isoformat(timespec="seconds")
+    """原子写任务文件。新建时补 created_at,更新时刷新 updated_at。
+
+    completed_at 生命周期(v0.4.11 工作台本周概览需要):
+    - status==done 且无 completed_at → 写当前时间(首次完成)
+    - status==done 且已有 completed_at → 保留(重复打 done 不覆盖首次完成时间)
+    - status!=done → 清空(任务被重新激活)
+    旧任务文件无此字段时,首次标记 done 会补当天时间(历史完成时间已丢失,无法回溯)。
+    """
+    now = now_ts()
     if is_new and not meta.get("created_at"):
         meta["created_at"] = now
+    if meta.get("status") == "done":
+        if not meta.get("completed_at"):
+            meta["completed_at"] = now
+    else:
+        meta["completed_at"] = ""
     meta["updated_at"] = now
     write_text(path, _format_task_file(meta, body))
 
@@ -2776,7 +3015,7 @@ def sync_task_to_calendar(task_id: str) -> dict:
             }
 
     item_id = f"cal_{_uuid.uuid4().hex[:12]}"
-    now = datetime.now().isoformat(timespec="seconds")
+    now = now_ts()
     item = {
         "id": item_id,
         "title": task["title"],
@@ -2805,6 +3044,93 @@ def sync_task_to_calendar(task_id: str) -> dict:
         "synced": True, "task_id": task_id,
         "calendar_id": item_id, "reason": "created",
     }
+
+
+# ---------------------------------------------------------------------------
+# 悬空引用清理(v0.4.12 修复 M5)
+# ---------------------------------------------------------------------------
+# 删除 calendar item / task / event / 文章后,frontmatter 里的回指字段
+# (synced_calendar_ids / related_source)不会自动清理,长期累积成悬空指针。
+# 以下函数扫 markdown 文件清理这些引用。失败静默(清理不应阻断主操作)。
+
+def cleanup_calendar_ref(cal_id: str) -> int:
+    """从所有 task/event 的 synced_calendar_ids 里移除指定 cal_id。
+
+    返回清理的文件数。失败静默返回 0。
+    """
+    n = 0
+    for loader, finder_all, writer in (
+        # (load单文件函数, 扫描全部函数, 写函数) —— task
+        (load_task_file, lambda: (VAULT_ROOT / TASK_DIR_NAME).glob("task_*.md"), write_task_file),
+        (load_event_file, lambda: (VAULT_ROOT / EVENT_DIR_NAME).glob("event_*.md"), write_event_file),
+    ):
+        try:
+            for path in finder_all():
+                try:
+                    rec = loader(path)
+                except Exception:
+                    continue
+                synced = rec.get("synced_calendar_ids", [])
+                if cal_id in synced:
+                    new_synced = [x for x in synced if x != cal_id]
+                    meta = {k: v for k, v in rec.items() if k not in ("body", "path")}
+                    meta["synced_calendar_ids"] = ",".join(new_synced)
+                    writer(path, meta, rec.get("body", ""), is_new=False)
+                    n += 1
+        except Exception:
+            continue
+    return n
+
+
+def cleanup_source_ref(source_id: str) -> int:
+    """从所有 task/event 的 related_source 字段清空(指向该 source 的)。
+
+    删除文章后调用,避免 related_source 悬空 404。返回清理的文件数。
+    """
+    n = 0
+    for loader, finder_all, writer in (
+        (load_task_file, lambda: (VAULT_ROOT / TASK_DIR_NAME).glob("task_*.md"), write_task_file),
+        (load_event_file, lambda: (VAULT_ROOT / EVENT_DIR_NAME).glob("event_*.md"), write_event_file),
+    ):
+        try:
+            for path in finder_all():
+                try:
+                    rec = loader(path)
+                except Exception:
+                    continue
+                if rec.get("related_source", "").strip() == source_id:
+                    meta = {k: v for k, v in rec.items() if k not in ("body", "path")}
+                    meta["related_source"] = ""
+                    writer(path, meta, rec.get("body", ""), is_new=False)
+                    n += 1
+        except Exception:
+            continue
+    return n
+
+
+def cleanup_dead_calendar_items() -> int:
+    """删除回指已不存在的 task/event 的孤儿日历项(M6)。
+
+    供 CLI reconcile 命令调用。返回删除的孤儿项数。
+    """
+    cal = load_calendar()
+    items = cal.get("items", {})
+    dead = []
+    for cal_id, item in list(items.items()):
+        src_type = item.get("source_type", "")
+        ref_id = item.get("task_id", "") or item.get("event_id", "")
+        if src_type == "task" and ref_id:
+            if _find_task_file(ref_id) is None:
+                dead.append(cal_id)
+        elif src_type == "event" and ref_id:
+            if _find_event_file(ref_id) is None:
+                dead.append(cal_id)
+    for cal_id in dead:
+        del items[cal_id]
+    if dead:
+        cal["items"] = items
+        save_calendar(cal)
+    return len(dead)
 
 
 def cmd_clean_x(args: argparse.Namespace) -> int:

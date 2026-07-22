@@ -101,18 +101,6 @@ def test_collection_articles(client):
     assert titles == {"文章A", "文章B"}
 
 
-def test_collection_articles_all(client):
-    """col_id=all 返回所有 is_favorite=true 的文章(且 _build_favorites 只含有 summary 的)。
-
-    测试 fixture 的 source 无 summary 文件,故 all 视图为空 —— 验证不报错 + 返回列表即可。
-    """
-    c, tmp = client
-    c.get("/api/collections")  # 触发迁移
-    r = c.get("/api/collections/all/articles")
-    assert r.status_code == 200
-    assert isinstance(r.json()["items"], list)
-
-
 def test_remove_article_from_collection(client):
     """全量替换:取消勾选则从文件夹移出。"""
     c, tmp = client

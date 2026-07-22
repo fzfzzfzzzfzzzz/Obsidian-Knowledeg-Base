@@ -130,7 +130,7 @@ async function deleteTask(id) {
 async function openTaskForm(opts) {
   opts = opts || {};
   const isEdit = opts.mode === 'edit';
-  let task = { title:'', category:'开发', status:'active', deadline:'', blocker:'', body:'', checklist:[] };
+  let task = { title:'', category:'开发', project:'', status:'active', priority:'', deadline:'', blocker:'', next_action:'', body:'', checklist:[] };
   if (isEdit) {
     try {
       const r = await fetch('/api/tasks/'+opts.id);
@@ -146,17 +146,24 @@ async function openTaskForm(opts) {
     + '<div class="cal-form-field"><label>标题 <span class="required">*</span></label>'
     + '<input type="text" id="tk-title" class="search-input" value="'+escapeHtml(task.title)+'"></div>'
     + '<div class="cal-form-row2">'
+      + '<div class="cal-form-field"><label>所属项目</label><input id="tk-project" class="search-input" placeholder="例如 AAAI-27" value="'+escapeHtml(task.project||'')+'"></div>'
       + '<div class="cal-form-field"><label>分类</label><select id="tk-category" class="search-input">'
         + ['开发','调研','写作','阅读','整理','其他'].map(c => '<option'+(c===task.category?' selected':'')+'>'+c+'</option>').join('')
       + '</select></div>'
+    + '</div>'
+    + '<div class="cal-form-row2">'
       + '<div class="cal-form-field"><label>状态</label><select id="tk-status" class="search-input">'
         + ['active','done','blocked','archived'].map(s => '<option value="'+s+'"'+(s===task.status?' selected':'')+'>'+(TK_STATUS_META[s]||{label:s}).label+'</option>').join('')
+      + '</select></div>'
+      + '<div class="cal-form-field"><label>优先级</label><select id="tk-priority" class="search-input">'
+        + ['','P0','P1','P2','P3'].map(p => '<option value="'+p+'"'+(p===(task.priority||'')?' selected':'')+'>'+(p||'未设置')+'</option>').join('')
       + '</select></div>'
     + '</div>'
     + '<div class="cal-form-row2">'
       + '<div class="cal-form-field"><label>截止日期</label><input id="tk-deadline" type="date" class="search-input" value="'+escapeHtml(task.deadline||'')+'"></div>'
       + '<div class="cal-form-field"><label>当前问题/阻塞</label><input id="tk-blocker" class="search-input" placeholder="卡在哪里?" value="'+escapeHtml(task.blocker||'')+'"></div>'
     + '</div>'
+    + '<div class="cal-form-field"><label>下一步行动</label><input id="tk-next-action" class="search-input" placeholder="接下来具体要做什么?" value="'+escapeHtml(task.next_action||'')+'"></div>'
     + '<div class="cal-form-field"><label>描述</label><textarea id="tk-body" class="search-input" rows="3">'+escapeHtml(task.body||'')+'</textarea></div>'
     + '<div class="cal-form-field"><label>Checklist 子任务</label>'
       + '<div id="tk-checklist" class="cl-list">'+clHtml+'</div>'
@@ -215,10 +222,13 @@ async function saveTask(opts, btn, isEdit) {
   if (!title) { alert('标题不能为空'); btn.disabled = false; btn.textContent = isEdit?'保存':'创建'; return; }
   const payload = {
     title,
+    project: document.getElementById('tk-project').value,
     category: document.getElementById('tk-category').value,
     status: document.getElementById('tk-status').value,
+    priority: document.getElementById('tk-priority').value,
     deadline: document.getElementById('tk-deadline').value,
     blocker: document.getElementById('tk-blocker').value,
+    next_action: document.getElementById('tk-next-action').value,
     body: document.getElementById('tk-body').value,
     checklist: (window._tkCl||[]).filter(x => x.text && x.text.trim()),
   };

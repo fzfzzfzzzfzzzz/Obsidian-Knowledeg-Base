@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -29,38 +28,47 @@ def _save_reading_state(source_id: str, **updates) -> dict:
     """更新某 source 的阅读状态字段,写回 state.json。返回更新后的完整记录。
 
     updates 只允许 READING_FIELDS 中的键。写前备份。
+    全程持 state 锁(v0.4.12),防跨进程并发丢更新。
     """
     for k in updates:
         if k not in READING_FIELDS:
             raise HTTPException(400, f"非法字段:{k}")
 
-    state = kb.load_state()
-    sources = state.get("sources", {})
-    if source_id not in sources:
-        raise HTTPException(404, f"找不到 source:{source_id}")
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            sources = state.get("sources", {})
+            if source_id not in sources:
+                raise HTTPException(404, f"找不到 source:{source_id}")
 
-    # 备份(命名带时分秒,避免同日多次写覆盖)
-    backup_file(kb.STATE_FILE, "state")
+            # 备份(命名带时分秒,避免同日多次写覆盖)
+            backup_file(kb.STATE_FILE, "state")
 
-    rec = sources[source_id]
-    for k, v in updates.items():
-        rec[k] = v
+            rec = sources[source_id]
+            for k, v in updates.items():
+                rec[k] = v
 
-    kb.save_state(state)
-    return _ensure_reading_fields(rec)
+            kb.save_state(state)
+            return _ensure_reading_fields(rec)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
 
 def _mark_read(source_id: str) -> None:
     """标记已读:last_read_at=now, read_count+1, reading_status=read。失败静默。"""
     try:
-        state = kb.load_state()
-        sources = state.get("sources", {})
-        if source_id not in sources:
-            return
-        rec = sources[source_id]
-        rec["last_read_at"] = datetime.now().isoformat(timespec="seconds")
-        rec["read_count"] = int(rec.get("read_count", 0) or 0) + 1
-        rec["reading_status"] = "read"
-        kb.save_state(state)
+        with kb.state_lock():
+            state = kb.load_state()
+            sources = state.get("sources", {})
+            if source_id not in sources:
+                return
+            rec = sources[source_id]
+            rec["last_read_at"] = kb.now_ts()
+            rec["read_count"] = int(rec.get("read_count", 0) or 0) + 1
+            rec["reading_status"] = "read"
+            kb.save_state(state)
     except Exception:
         pass
 
@@ -126,7 +134,11 @@ def _write_summary_frontmatter_tags(summary_path: Path, tags: list[str]) -> bool
         return False
 
 def _set_article_tags(source_id: str, tags: list[str]) -> list[str]:
-    """设置文章 tags,双写 state.json + summary frontmatter。返回最终 tags。"""
+    """设置文章 tags,双写 state.json + summary frontmatter。返回最终 tags。
+
+    全程持 state 锁(v0.4.12)。summary frontmatter 写在锁内(虽是另一文件,但与
+    state 双写应原子,避免半完成状态)。
+    """
     # 去重保序
     seen: set[str] = set()
     deduped: list[str] = []
@@ -136,24 +148,31 @@ def _set_article_tags(source_id: str, tags: list[str]) -> list[str]:
             seen.add(t)
             deduped.append(t)
 
-    state = kb.load_state()
-    sources = state.get("sources", {})
-    if source_id not in sources:
-        raise HTTPException(404, f"找不到 source:{source_id}")
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            sources = state.get("sources", {})
+            if source_id not in sources:
+                raise HTTPException(404, f"找不到 source:{source_id}")
 
-    # 备份(命名带时分秒,避免同日多次写覆盖)
-    backup_file(kb.STATE_FILE, "state")
+            # 备份(命名带时分秒,避免同日多次写覆盖)
+            backup_file(kb.STATE_FILE, "state")
 
-    # 写 state.json
-    sources[source_id]["tags"] = deduped
-    kb.save_state(state)
+            # 写 state.json
+            sources[source_id]["tags"] = deduped
+            kb.save_state(state)
 
-    # 写 summary frontmatter(如果有 summary)
-    summary_path = sources[source_id].get("summary_path")
-    if summary_path:
-        _write_summary_frontmatter_tags(kb.VAULT_ROOT / summary_path, deduped)
+            # 写 summary frontmatter(如果有 summary)
+            summary_path = sources[source_id].get("summary_path")
+            if summary_path:
+                _write_summary_frontmatter_tags(kb.VAULT_ROOT / summary_path, deduped)
 
-    return deduped
+            return deduped
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
 
 def _add_article_tags(source_id: str, new_tags: list[str]) -> list[str]:
     """追加 tags(不覆盖旧 tags,自动去重)。返回最终 tags。"""
@@ -223,22 +242,29 @@ def _delete_one(source_id: str, state: dict) -> dict[str, Any]:
                     sug_path.write_text(new_txt, encoding=ENC)
         # 5. 清理关联的日历事项(PRD 11.6:删除知识时移除日历关联)
         try:
-            cal = kb.load_calendar()
-            cal_changed = False
-            for cal_id, cal_item in list(cal.get("items", {}).items()):
-                if cal_item.get("source_id") == source_id:
-                    # 移除关联(source_id 清空),事项本身保留
-                    cal_item["source_id"] = ""
-                    cal_item["source_type"] = ""
-                    cal_item["source_title"] = ""
-                    cal_item["updated_at"] = datetime.now().isoformat(timespec="seconds")
-                    cal_changed = True
-            if cal_changed:
-                kb.save_calendar(cal)
+            with kb.calendar_lock():
+                cal = kb.load_calendar()
+                cal_changed = False
+                for cal_id, cal_item in list(cal.get("items", {}).items()):
+                    if cal_item.get("source_id") == source_id:
+                        # 移除关联(source_id 清空),事项本身保留
+                        cal_item["source_id"] = ""
+                        cal_item["source_type"] = ""
+                        cal_item["source_title"] = ""
+                        cal_item["updated_at"] = kb.now_ts()
+                        cal_changed = True
+                if cal_changed:
+                    kb.save_calendar(cal)
         except Exception:
             pass  # 日历清理失败不阻断删除
 
-        # 6. 从 state 删记录
+        # 6. 清理 task/event 里指向该 source 的 related_source(v0.4.12 M5)
+        try:
+            kb.cleanup_source_ref(source_id)
+        except Exception:
+            pass  # 清理失败不阻断删除
+
+        # 7. 从 state 删记录
         del sources[source_id]
         return {"ok": True, "source_id": source_id, "deleted_files": deleted_files}
     except Exception as e:

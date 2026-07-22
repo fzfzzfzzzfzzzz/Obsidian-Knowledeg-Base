@@ -110,19 +110,26 @@ async def api_collections_create(payload: CollectionNameRequest):
         raise HTTPException(400, "文件夹名称不能为空")
     if len(name) > 40:
         raise HTTPException(400, "文件夹名称过长(最多 40 字)")
-    state = kb.load_state()
-    _migrate_default_collection(state)
-    cols = state.setdefault("collections", {})
-    # 同名也允许(用户责任),但 id 唯一
-    import uuid
-    col_id = "col_" + uuid.uuid4().hex[:10]
-    cols[col_id] = {
-        "id": col_id,
-        "name": name,
-        "created_at": date.today().isoformat(),
-        "source_ids": [],
-    }
-    kb.save_state(state)
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            _migrate_default_collection(state)
+            cols = state.setdefault("collections", {})
+            # 同名也允许(用户责任),但 id 唯一
+            import uuid
+            col_id = "col_" + uuid.uuid4().hex[:10]
+            cols[col_id] = {
+                "id": col_id,
+                "name": name,
+                "created_at": kb.today_iso(),
+                "source_ids": [],
+            }
+            kb.save_state(state)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
     return JSONResponse({"ok": True, "item": cols[col_id]})
 
 @router.patch("/api/collections/{col_id}")
@@ -131,28 +138,42 @@ async def api_collections_rename(col_id: str, payload: CollectionNameRequest):
     name = (payload.name or "").strip()
     if not name:
         raise HTTPException(400, "文件夹名称不能为空")
-    state = kb.load_state()
-    cols = _get_collections(state)
-    if col_id not in cols:
-        raise HTTPException(404, f"找不到文件夹:{col_id}")
-    cols[col_id]["name"] = name
-    kb.save_state(state)
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            cols = _get_collections(state)
+            if col_id not in cols:
+                raise HTTPException(404, f"找不到文件夹:{col_id}")
+            cols[col_id]["name"] = name
+            kb.save_state(state)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
     return JSONResponse({"ok": True, "item": cols[col_id]})
 
 @router.delete("/api/collections/{col_id}")
 async def api_collections_delete(col_id: str):
     """删除收藏夹文件夹(文章不删,只解除关联)。"""
-    state = kb.load_state()
-    cols = _get_collections(state)
-    if col_id not in cols:
-        raise HTTPException(404, f"找不到文件夹:{col_id}")
-    # 清理所有 source 的 collection_ids 里对该夹的引用
-    for rec in state.get("sources", {}).values():
-        cids = rec.get("collection_ids", [])
-        if col_id in cids:
-            rec["collection_ids"] = [c for c in cids if c != col_id]
-    del cols[col_id]
-    kb.save_state(state)
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            cols = _get_collections(state)
+            if col_id not in cols:
+                raise HTTPException(404, f"找不到文件夹:{col_id}")
+            # 清理所有 source 的 collection_ids 里对该夹的引用
+            for rec in state.get("sources", {}).values():
+                cids = rec.get("collection_ids", [])
+                if col_id in cids:
+                    rec["collection_ids"] = [c for c in cids if c != col_id]
+            del cols[col_id]
+            kb.save_state(state)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
     return JSONResponse({"ok": True, "id": col_id})
 
 @router.get("/api/collections/{col_id}/articles")

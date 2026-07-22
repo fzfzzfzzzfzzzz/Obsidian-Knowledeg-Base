@@ -24,12 +24,15 @@ VALID_IDEA_STATUS = {
     "pending_review",
     "accepted_research",
     "accepted_productivity",
+    "accepted_general",  # v0.4.11:统一清单去向(general_ideas.md)
     "rejected",
     "archived",
     "moved",
 }
 VALID_TODO_STATUS = {
     "pending_review",
+    "accepted",
+    # 向后兼容:历史数据可能仍带这三态,归一为 accepted
     "accepted_weekly",
     "accepted_monthly",
     "accepted_someday",

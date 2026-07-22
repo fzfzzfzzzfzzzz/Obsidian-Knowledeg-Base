@@ -71,17 +71,12 @@ def test_extract_json_list_empty_array_is_valid():
 
 
 def test_extract_json_list_garbage_returns_none():
-    """垃圾文本无法解析时返回 None(不是 [])。
+    """垃圾文本/空串无法解析时返回 None(不是 [])。
 
     修复前:返回 [],导致调用方 if items is None 永远 False,raise 走不到。
     """
-    out = kb_llm._extract_json_list("这不是 JSON")
-    assert out is None
-
-
-def test_extract_json_list_empty_string_returns_none():
-    out = kb_llm._extract_json_list("")
-    assert out is None
+    assert kb_llm._extract_json_list("这不是 JSON") is None
+    assert kb_llm._extract_json_list("") is None  # 空串同属降级分支
 
 
 def test_extract_json_list_markdown_code_block():
@@ -126,11 +121,8 @@ def test_extract_json_returns_none_for_array():
 
 
 def test_extract_json_returns_none_for_garbage():
-    out = kb_llm._extract_json("这不是 JSON")
-    assert out is None
-
-
-def test_extract_json_returns_none_for_empty():
+    """垃圾文本/空串无法解析时返回 None(空串同属降级分支)。"""
+    assert kb_llm._extract_json("这不是 JSON") is None
     assert kb_llm._extract_json("") is None
 
 
@@ -199,13 +191,8 @@ def test_parse_env_file_skips_lines_without_equals(tmp_path):
 
 
 def test_parse_env_file_nonexistent_returns_empty(tmp_path):
-    """文件不存在时返回空 dict。"""
-    out = kb_llm._parse_env_file(tmp_path / "no_such.env")
-    assert out == {}
-
-
-def test_parse_env_file_empty_file(tmp_path):
-    """空文件返回空 dict。"""
+    """文件不存在或空时返回空 dict(两种降级同属一条路径)。"""
+    assert kb_llm._parse_env_file(tmp_path / "no_such.env") == {}
     f = tmp_path / ".env"
     f.write_text("", encoding="utf-8")
     assert kb_llm._parse_env_file(f) == {}

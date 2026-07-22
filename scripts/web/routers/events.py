@@ -77,6 +77,7 @@ async def api_events_create(payload: EventCreate):
         "status": payload.status,
         "related_source": payload.related_source.strip(),
         "synced_calendar_ids": "",
+        "completed_at": "",  # v0.4.12: 完成(status=done)时由 write_event_file 写入
     }
     kb.write_event_file(path, meta, payload.body, is_new=True)
 

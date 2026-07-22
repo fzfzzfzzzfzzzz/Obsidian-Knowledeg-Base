@@ -130,94 +130,124 @@ async def api_delete_summary(source_id: str):
 
     删除后文章回到"无 summary"状态,可让别的 Agent 重新生成。
     """
-    state = kb.load_state()
-    sources = state.get("sources", {})
-    if source_id not in sources:
-        raise HTTPException(404, f"找不到 source:{source_id}")
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            sources = state.get("sources", {})
+            if source_id not in sources:
+                raise HTTPException(404, f"找不到 source:{source_id}")
 
-    old_sp = sources[source_id].get("summary_path")
-    if not old_sp:
-        raise HTTPException(400, "该文章没有 summary")
+            old_sp = sources[source_id].get("summary_path")
+            if not old_sp:
+                raise HTTPException(400, "该文章没有 summary")
 
-    old_path = kb.VAULT_ROOT / old_sp
-    # 备份
-    if old_path.exists():
-        backup_dir = kb.VAULT_ROOT / ".kb" / "logs" / "web_backups"
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now().strftime("%H%M%S")
-        backup_name = f"{old_path.stem}_delsum_{ts}.md"
-        shutil.copy2(old_path, backup_dir / backup_name)
-        old_path.unlink()
+            old_path = kb.VAULT_ROOT / old_sp
+            # 备份
+            if old_path.exists():
+                backup_dir = kb.VAULT_ROOT / ".kb" / "logs" / "web_backups"
+                backup_dir.mkdir(parents=True, exist_ok=True)
+                ts = kb.now_ts().replace(":", "").replace("-", "")[9:]
+                backup_name = f"{old_path.stem}_delsum_{ts}.md"
+                shutil.copy2(old_path, backup_dir / backup_name)
+                old_path.unlink()
 
-    # 清除 state
-    sources[source_id].pop("summary_path", None)
-    sources[source_id].pop("action_status", None)
-    kb.save_state(state)
+            # 清除 state
+            sources[source_id].pop("summary_path", None)
+            sources[source_id].pop("action_status", None)
+            kb.save_state(state)
 
-    # 回填 source note 的 status(改回 source_created)
-    sn_path = kb.VAULT_ROOT / sources[source_id].get("path", "") if sources[source_id].get("path") else None
-    if sn_path and sn_path.exists():
-        text = sn_path.read_text(encoding=ENC)
-        text = re.sub(r"^status:.*", "status: source_created", text, flags=re.MULTILINE)
-        text = re.sub(r"summary_location:.*", "summary_location:", text)
-        sn_path.write_text(text, encoding=ENC)
-
+            # 回填 source note 的 status(改回 source_created)
+            sn_path = kb.VAULT_ROOT / sources[source_id].get("path", "") if sources[source_id].get("path") else None
+            if sn_path and sn_path.exists():
+                text = sn_path.read_text(encoding=ENC)
+                text = re.sub(r"^status:.*", "status: source_created", text, flags=re.MULTILINE)
+                text = re.sub(r"summary_location:.*", "summary_location:", text)
+                sn_path.write_text(text, encoding=ENC)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
     return JSONResponse({"ok": True, "source_id": source_id, "deleted_summary": old_sp})
 
 @router.post("/api/article/{source_id}/collections")
 async def api_article_set_collections(source_id: str, payload: ArticleCollectionsRequest):
     """设置某文章的文件夹归属(全量替换 collection_ids)。同步更新各夹的 source_ids。"""
-    state = kb.load_state()
-    sources = state.get("sources", {})
-    if source_id not in sources:
-        raise HTTPException(404, f"找不到 source:{source_id}")
-    cols = _get_collections(state)
-    new_ids = [c for c in payload.collection_ids if c in cols]
-    rec = sources[source_id]
-    old_ids = set(rec.get("collection_ids", []))
-    new_set = set(new_ids)
-    # 加进新夹
-    for cid in new_set - old_ids:
-        sids = cols[cid].setdefault("source_ids", [])
-        if source_id not in sids:
-            sids.append(source_id)
-    # 从旧夹移除
-    for cid in old_ids - new_set:
-        if cid in cols:
-            cols[cid]["source_ids"] = [
-                s for s in cols[cid].get("source_ids", []) if s != source_id
-            ]
-    rec["collection_ids"] = new_ids
-    kb.save_state(state)
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            sources = state.get("sources", {})
+            if source_id not in sources:
+                raise HTTPException(404, f"找不到 source:{source_id}")
+            cols = _get_collections(state)
+            new_ids = [c for c in payload.collection_ids if c in cols]
+            rec = sources[source_id]
+            old_ids = set(rec.get("collection_ids", []))
+            new_set = set(new_ids)
+            # 加进新夹
+            for cid in new_set - old_ids:
+                sids = cols[cid].setdefault("source_ids", [])
+                if source_id not in sids:
+                    sids.append(source_id)
+            # 从旧夹移除
+            for cid in old_ids - new_set:
+                if cid in cols:
+                    cols[cid]["source_ids"] = [
+                        s for s in cols[cid].get("source_ids", []) if s != source_id
+                    ]
+            rec["collection_ids"] = new_ids
+            kb.save_state(state)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
     return JSONResponse({"ok": True, "source_id": source_id, "collection_ids": new_ids})
 
 @router.post("/api/article/{source_id}/read-later")
 async def api_toggle_read_later(source_id: str):
-    """切换稍后阅读标记。"""
-    state = kb.load_state()
-    sources = state.get("sources", {})
-    if source_id not in sources:
-        raise HTTPException(404, f"找不到 source:{source_id}")
-    rec = _ensure_reading_fields(sources[source_id])
-    new_val = not rec["read_later"]
-    updated = _save_reading_state(source_id, read_later=new_val)
-    return JSONResponse(
-        {"ok": True, "source_id": source_id, "read_later": updated["read_later"]}
-    )
+    """切换稍后阅读标记。
+
+    读+取反+写全程在同一把 state 锁内(不调 _save_reading_state 避免嵌套加锁)。
+    """
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            sources = state.get("sources", {})
+            if source_id not in sources:
+                raise HTTPException(404, f"找不到 source:{source_id}")
+            rec = _ensure_reading_fields(sources[source_id])
+            new_val = not rec["read_later"]
+            sources[source_id]["read_later"] = new_val  # 写回原 dict(_ensure 的副本不生效)
+            backup_file(kb.STATE_FILE, "state")
+            kb.save_state(state)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
+    return JSONResponse({"ok": True, "source_id": source_id, "read_later": new_val})
 
 @router.post("/api/article/{source_id}/favorite")
 async def api_toggle_favorite(source_id: str):
-    """切换收藏标记。"""
-    state = kb.load_state()
-    sources = state.get("sources", {})
-    if source_id not in sources:
-        raise HTTPException(404, f"找不到 source:{source_id}")
-    rec = _ensure_reading_fields(sources[source_id])
-    new_val = not rec["is_favorite"]
-    updated = _save_reading_state(source_id, is_favorite=new_val)
-    return JSONResponse(
-        {"ok": True, "source_id": source_id, "is_favorite": updated["is_favorite"]}
-    )
+    """切换收藏标记。读+取反+写全程在同一把 state 锁内。"""
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            sources = state.get("sources", {})
+            if source_id not in sources:
+                raise HTTPException(404, f"找不到 source:{source_id}")
+            rec = _ensure_reading_fields(sources[source_id])
+            new_val = not rec["is_favorite"]
+            sources[source_id]["is_favorite"] = new_val  # 写回原 dict
+            backup_file(kb.STATE_FILE, "state")
+            kb.save_state(state)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
+    return JSONResponse({"ok": True, "source_id": source_id, "is_favorite": new_val})
 
 @router.delete("/api/article/{source_id}")
 async def api_delete_article(source_id: str):
@@ -225,14 +255,20 @@ async def api_delete_article(source_id: str):
 
     删除前备份 state.json。物理文件直接删除(不可恢复)。
     """
-    # 备份(命名带时分秒)
-    backup_file(kb.STATE_FILE, "state")
-
-    state = kb.load_state()
-    if source_id not in state.get("sources", {}):
-        raise HTTPException(404, f"找不到 source:{source_id}")
-    result = _delete_one(source_id, state)
-    kb.save_state(state)
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            # 备份(命名带时分秒)
+            backup_file(kb.STATE_FILE, "state")
+            if source_id not in state.get("sources", {}):
+                raise HTTPException(404, f"找不到 source:{source_id}")
+            result = _delete_one(source_id, state)
+            kb.save_state(state)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
     if not result["ok"]:
         raise HTTPException(500, result.get("error", "删除失败"))
     return JSONResponse(result)

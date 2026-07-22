@@ -203,12 +203,14 @@ def test_generate_ideas_llm_failure(client, isolate_vault, monkeypatch):
 
 
 def test_backward_compat_extract_without_hint(monkeypatch):
-    """现有调用方(CLI / 批量动作)不带 hint 调用,行为不变。"""
-    # 只验证签名兼容:能以单参数调用(真实 chat 不触发,这里只测签名)
-    # extract_ideas_from_summary(summary_text) 必须可调用不报 TypeError
-    import inspect
-    sig = inspect.signature(kb_llm.extract_ideas_from_summary)
-    assert list(sig.parameters) == ["summary_text", "hint"]
-    assert sig.parameters["hint"].default is None
-    sig2 = inspect.signature(kb_llm.extract_todos_from_summary)
-    assert sig2.parameters["hint"].default is None
+    """现有调用方(CLI / 批量动作)不带 hint 调用,行为不变。
+
+    用行为断言(真正单参数调用)而非 inspect.signature 锁死参数名 —— 后者会
+    阻碍合理的参数重命名/重排。
+    """
+    def fake_chat(messages, **kwargs):
+        return {"content": "[]"}
+    monkeypatch.setattr(kb_llm, "chat", fake_chat)
+    # 不带 hint 能正常调用,不抛 TypeError
+    assert kb_llm.extract_ideas_from_summary("正文") == []
+    assert kb_llm.extract_todos_from_summary("正文") == []

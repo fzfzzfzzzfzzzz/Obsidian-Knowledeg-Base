@@ -4,12 +4,13 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from fastapi import HTTPException
 from web.utils import ENC, sanitize_html
 import kb
+import kb_date
 import kb_llm
 from web.services.parsing import _parse_frontmatter
 from web.services.state_io import _ensure_reading_fields, _get_article_tags
@@ -115,7 +116,7 @@ def _migrate_default_collection(state: dict) -> bool:
         state["collections"][col_id] = {
             "id": col_id,
             "name": "默认收藏夹",
-            "created_at": date.today().isoformat(),
+            "created_at": kb.today_iso(),
             "source_ids": fav_ids,
         }
         # 反向写回 source.collection_ids
@@ -127,10 +128,11 @@ def _migrate_default_collection(state: dict) -> bool:
 
 def _build_collections_list() -> list[dict[str, Any]]:
     """所有收藏夹文件夹 + 每个的文章数。含一次性迁移。"""
-    state = kb.load_state()
-    if _migrate_default_collection(state):
-        kb.save_state(state)
-    cols = _get_collections(state)
+    with kb.state_lock():
+        state = kb.load_state()
+        if _migrate_default_collection(state):
+            kb.save_state(state)
+        cols = _get_collections(state)
     items = []
     for cid, col in cols.items():
         # source_ids 里过滤掉已不存在的 source(防孤儿)
@@ -350,3 +352,155 @@ def _read_summary_detail(source_id: str) -> dict[str, Any]:
         "has_summary": False,
         "source_url": source_url,
     }
+
+
+# ---------------------------------------------------------------------------
+# 工作台聚合(v0.4.11):本周概览 + 智能提醒
+# 实时聚合,不落盘 —— 数据永远准,代价是每次请求扫几个目录(量级小,<50ms)。
+# ---------------------------------------------------------------------------
+
+def _week_range(reference: date | None = None) -> tuple[date, date]:
+    """返回 reference 所在 ISO 周的 (周一, 周日)。
+
+    与 kb_date._today() 同款时区语义:reference 默认取 kb_date._today()(时区感知),
+    避免云端 UTC 服务器上"今天"与用户视角差一天。
+    """
+    ref = reference or kb_date._today()
+    monday = ref - timedelta(days=ref.weekday())  # weekday(): 周一=0 ... 周日=6
+    sunday = monday + timedelta(days=6)
+    return monday, sunday
+
+
+def _build_workspace_overview() -> dict[str, Any]:
+    """本周概览:阅读进度 / 任务完成数 / 任务创建数 / 提醒摘要。
+
+    实时聚合 —— 调用现有扫描函数,按本周时间窗口过滤,不写任何状态文件。
+    依赖 task 的 completed_at 字段(v0.4.11 新增)做"本周完成数"统计;
+    旧任务文件无该字段时算作未完成,不会计入。
+    """
+    monday, sunday = _week_range()
+    # ISO 周标签(2026-W30),供前端显示
+    iso_year, iso_week, _ = monday.isocalendar()
+
+    # —— 阅读统计(只算有 summary 的文章,与 _build_dashboard 口径一致) ——
+    cards = _summary_cards_only()
+    read_this_week = sum(
+        1 for c in cards
+        if c.get("last_read_at")
+        and _within_week(c["last_read_at"], monday, sunday)
+    )
+    new_articles_this_week = sum(
+        1 for c in cards
+        if c.get("summarized_at")
+        and _within_week(c["summarized_at"], monday, sunday)
+    )
+    total_read = sum(1 for c in cards if c.get("reading_status") == "read")
+    total_summaries = len(cards)
+    progress_pct = round(total_read / total_summaries * 100, 1) if total_summaries else 0
+
+    # —— 任务统计 ——
+    tasks = kb.scan_tasks()
+    created_this_week = sum(
+        1 for t in tasks
+        if t.get("created_at")
+        and _within_week(t["created_at"], monday, sunday)
+    )
+    completed_this_week = sum(
+        1 for t in tasks
+        if t.get("completed_at")
+        and _within_week(t["completed_at"], monday, sunday)
+    )
+    active_total = sum(1 for t in tasks if t.get("status") == "active")
+
+    # —— 提醒摘要(只数任务 deadline) ——
+    reminders = _build_reminders()
+    overdue = sum(1 for r in reminders if r["urgency"] == "overdue")
+    due_today = sum(1 for r in reminders if r["urgency"] == "due_today")
+    due_this_week = sum(1 for r in reminders if r["urgency"] == "due_this_week")
+
+    return {
+        "week": {
+            "start": monday.isoformat(),
+            "end": sunday.isoformat(),
+            "label": f"{iso_year}-W{iso_week:02d}",
+        },
+        "reading": {
+            "read_this_week": read_this_week,
+            "new_articles_this_week": new_articles_this_week,
+            "total_read": total_read,
+            "total_summaries": total_summaries,
+            "progress_pct": progress_pct,
+        },
+        "tasks": {
+            "created_this_week": created_this_week,
+            "completed_this_week": completed_this_week,
+            "active_total": active_total,
+        },
+        "reminders": {
+            "overdue": overdue,
+            "due_today": due_today,
+            "due_this_week": due_this_week,
+        },
+    }
+
+
+def _build_reminders() -> list[dict[str, Any]]:
+    """智能提醒:所有 active 任务中带 deadline 的项,按 urgency 分桶。
+
+    只覆盖任务 deadline(07_Tasks),不含事件/日历 —— 三者来源不同,
+    合并会重复,前端如需可另行调用 /api/events / /api/calendar。
+    urgency 规则(days_left = deadline - 今天):
+      < 0          → overdue(红)
+      == 0         → due_today(橙)
+      1..7         → due_this_week(黄)
+      > 7          → later(灰,前端默认折叠)
+    """
+    today = kb_date._today()
+    items: list[dict[str, Any]] = []
+    for t in kb.scan_tasks():
+        if t.get("status") != "active":
+            continue
+        dl = t.get("deadline", "")
+        if not dl:
+            continue
+        try:
+            dl_date = date.fromisoformat(dl)
+        except ValueError:
+            continue
+        days_left = (dl_date - today).days
+        if days_left < 0:
+            urgency = "overdue"
+        elif days_left == 0:
+            urgency = "due_today"
+        elif days_left <= 7:
+            urgency = "due_this_week"
+        else:
+            urgency = "later"
+        items.append({
+            "id": t.get("id", ""),
+            "title": t.get("title", ""),
+            "deadline": dl,
+            "status": t.get("status", "active"),
+            "days_left": days_left,
+            "urgency": urgency,
+            "category": t.get("category", ""),
+        })
+    # 排序:逾期优先,其次按 deadline 升序(days_left 升序天然满足)
+    urgency_order = {"overdue": 0, "due_today": 1, "due_this_week": 2, "later": 3}
+    items.sort(key=lambda r: (urgency_order.get(r["urgency"], 9), r["days_left"]))
+    return items
+
+
+def _within_week(iso_ts: str, monday: date, sunday: date) -> bool:
+    """判断 ISO 时间戳(可能含时分秒)的日期部分是否落在 [monday, sunday] 内。
+
+    宽容解析:截取前 10 位(YYYY-MM-DD)即可,失败返回 False。
+    """
+    if not iso_ts:
+        return False
+    day_str = iso_ts[:10]
+    try:
+        d = date.fromisoformat(day_str)
+    except ValueError:
+        return False
+    return monday <= d <= sunday

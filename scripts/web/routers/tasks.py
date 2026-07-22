@@ -88,12 +88,16 @@ async def api_tasks_create(payload: TaskCreate):
         "id": task_id,
         "title": title,
         "category": payload.category.strip() or "其他",
+        "project": payload.project.strip(),
         "status": payload.status,
+        "priority": payload.priority.strip(),
         "deadline": payload.deadline.strip(),
         "blocker": payload.blocker.strip(),
+        "next_action": payload.next_action.strip(),
         "checklist": [item.model_dump() for item in payload.checklist],
         "related_source": payload.related_source.strip(),
         "synced_calendar_ids": "",
+        "completed_at": "",  # v0.4.11: 完成(status=done)时由 write_task_file 写入
     }
     kb.write_task_file(path, meta, payload.body, is_new=True)
     task = kb.load_task_file(path)
@@ -119,10 +123,14 @@ def _update_task_fields(task: dict, payload: TaskUpdate) -> dict:
         meta["title"] = payload.title.strip()
     if payload.category is not None:
         meta["category"] = payload.category.strip() or "其他"
+    if payload.project is not None:
+        meta["project"] = payload.project.strip()
     if payload.status is not None:
         if payload.status not in VALID_TASK_STATUS:
             raise HTTPException(400, f"非法 status 值:{payload.status}")
         meta["status"] = payload.status
+    if payload.priority is not None:
+        meta["priority"] = payload.priority.strip()
     if payload.deadline is not None:
         dl = payload.deadline.strip()
         if dl:
@@ -133,6 +141,8 @@ def _update_task_fields(task: dict, payload: TaskUpdate) -> dict:
         meta["deadline"] = dl
     if payload.blocker is not None:
         meta["blocker"] = payload.blocker.strip()
+    if payload.next_action is not None:
+        meta["next_action"] = payload.next_action.strip()
     if payload.checklist is not None:
         meta["checklist"] = [item.model_dump() for item in payload.checklist]
     if payload.related_source is not None:

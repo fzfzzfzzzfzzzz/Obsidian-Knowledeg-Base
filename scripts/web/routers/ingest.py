@@ -111,7 +111,9 @@ def _generate_summary_for_source(source_id: str) -> dict[str, Any]:
     """对单个 source 生成 summary。复用 kb.py 的核心逻辑。
 
     返回 {ok, source_id, summary_path?, error?}
+    LLM 调用(耗时)在锁外;只有 state 写回在 state 锁内(v0.4.12)。
     """
+    # 锁外读 + LLM 调用(避免长时间持锁)
     state = kb.load_state()
     sources = state.get("sources", {})
     if source_id not in sources:
@@ -143,10 +145,19 @@ def _generate_summary_for_source(source_id: str) -> dict[str, Any]:
     summary_path = kb._write_summary(source_id, rec, summary_body)
     # 回填 source note
     kb._backfill_source_note(source_note_path, source_id, summary_path, "summarized")
-    # 更新 state
-    rec["summary_path"] = summary_path.relative_to(kb.VAULT_ROOT).as_posix()
-    rec.setdefault("action_status", "undecided")
-    kb.save_state(state)
+    # 更新 state(锁内:重新 load 最新,避免覆盖并发改动)
+    try:
+        with kb.state_lock():
+            st = kb.load_state()
+            kb._check_corrupt(st, "state")
+            if source_id in st.get("sources", {}):
+                st["sources"][source_id]["summary_path"] = summary_path.relative_to(kb.VAULT_ROOT).as_posix()
+                st["sources"][source_id].setdefault("action_status", "undecided")
+                kb.save_state(st)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
 
     return {
         "ok": True,
@@ -192,7 +203,7 @@ async def api_ingest(payload: IngestRequest):
 
     # 找本次新增的 source
     state = kb.load_state()
-    today_str = date.today().isoformat()
+    today_str = kb.today_iso()
     new_source_ids = [
         sid for sid, rec in state.get("sources", {}).items()
         if rec.get("ingested_at") == today_str and not rec.get("summary_path")
@@ -296,25 +307,32 @@ async def api_ingest_image(
         raise HTTPException(500, f"ingest 失败:\n{log}")
 
     # 找新增的 source
-    state = kb.load_state()
-    today_str = date.today().isoformat()
-    new_source_ids = [
-        sid for sid, rec in state.get("sources", {}).items()
-        if rec.get("ingested_at") == today_str and not rec.get("summary_path")
-    ]
-    new_sources = [
-        {"source_id": sid, "title": state["sources"][sid].get("source_title", sid),
-         "source_type": state["sources"][sid].get("source_type", "?")}
-        for sid in new_source_ids
-    ]
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            today_str = kb.today_iso()
+            new_source_ids = [
+                sid for sid, rec in state.get("sources", {}).items()
+                if rec.get("ingested_at") == today_str and not rec.get("summary_path")
+            ]
+            new_sources = [
+                {"source_id": sid, "title": state["sources"][sid].get("source_title", sid),
+                 "source_type": state["sources"][sid].get("source_type", "?")}
+                for sid in new_source_ids
+            ]
 
-    # 把图片保存到 raw_text(覆盖 ingest 生成的 txt)
-    for sid in new_source_ids:
-        img_path = kb.RAW_TEXT_DIR / f"{sid}{ext}"
-        img_path.write_bytes(image_bytes)
-        # 更新 state 记录标记来源为 ocr
-        state["sources"][sid]["metadata_source"] = "ocr"
-    kb.save_state(state)
+            # 把图片保存到 raw_text(覆盖 ingest 生成的 txt)
+            for sid in new_source_ids:
+                img_path = kb.RAW_TEXT_DIR / f"{sid}{ext}"
+                img_path.write_bytes(image_bytes)
+                # 更新 state 记录标记来源为 ocr
+                state["sources"][sid]["metadata_source"] = "ocr"
+            kb.save_state(state)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
 
     # 可选:自动生成 summary
     summary_results = []
@@ -344,117 +362,152 @@ async def api_generate_summary(source_id: str):
 @router.post("/api/article/{source_id}/regenerate-summary")
 async def api_regenerate_summary(source_id: str):
     """重新生成 summary(覆盖已有)。先备份旧 summary 到 .kb/logs/web_backups/。"""
-    state = kb.load_state()
-    sources = state.get("sources", {})
-    if source_id not in sources:
-        raise HTTPException(404, f"找不到 source:{source_id}")
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            sources = state.get("sources", {})
+            if source_id not in sources:
+                raise HTTPException(404, f"找不到 source:{source_id}")
 
-    # 备份旧 summary(如果存在)
-    old_sp = sources[source_id].get("summary_path")
-    if old_sp:
-        old_path = kb.VAULT_ROOT / old_sp
-        if old_path.exists():
-            backup_dir = kb.VAULT_ROOT / ".kb" / "logs" / "web_backups"
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            ts = datetime.now().strftime("%H%M%S")
-            backup_name = f"{old_path.stem}_regen_{ts}.md"
-            shutil.copy2(old_path, backup_dir / backup_name)
-            # 删除旧 summary,清除 summary_path,让 _generate_summary_for_source 重新生成
-            old_path.unlink()
-            sources[source_id].pop("summary_path", None)
-            sources[source_id].pop("action_status", None)
-            kb.save_state(state)
+            # 备份旧 summary(如果存在)
+            old_sp = sources[source_id].get("summary_path")
+            if old_sp:
+                old_path = kb.VAULT_ROOT / old_sp
+                if old_path.exists():
+                    backup_dir = kb.VAULT_ROOT / ".kb" / "logs" / "web_backups"
+                    backup_dir.mkdir(parents=True, exist_ok=True)
+                    ts = kb.now_ts().replace(":", "").replace("-", "")[9:]
+                    backup_name = f"{old_path.stem}_regen_{ts}.md"
+                    shutil.copy2(old_path, backup_dir / backup_name)
+                    # 删除旧 summary,清除 summary_path,让 _generate_summary_for_source 重新生成
+                    old_path.unlink()
+                    sources[source_id].pop("summary_path", None)
+                    sources[source_id].pop("action_status", None)
+                    kb.save_state(state)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
 
     return JSONResponse(_generate_summary_for_source(source_id))
 
 @router.post("/api/batch")
 async def api_batch(payload: BatchRequest):
-    """批量操作。单条失败不影响其他,返回成功/失败/跳过数量 + 失败项。"""
+    """批量操作。单条失败不影响其他,返回成功/失败/跳过数量 + 失败项。
+
+    v0.4.12:state 直接修改类(archive/favorite/unfavorite/delete/extract)在
+    state 锁内统一执行;add_tags/generate_summary 因子函数各自加锁(避免嵌套死锁),
+    在锁外逐个调用。
+    """
     if not payload.source_ids:
         raise HTTPException(400, "source_ids 不能为空")
     if payload.action not in VALID_BATCH_ACTIONS:
         raise HTTPException(400, f"非法 action:{payload.action}")
 
-    # 删除操作先备份(命名带时分秒)
-    if payload.action == "delete":
-        backup_file(kb.STATE_FILE, "state")
-
-    state = kb.load_state()
-    sources = state.get("sources", {})
     results = {"success": 0, "failed": 0, "skipped": 0, "failed_items": []}
 
-    for sid in payload.source_ids:
-        if sid not in sources:
-            results["failed"] += 1
-            results["failed_items"].append({"source_id": sid, "error": "source 不存在"})
-            continue
-
-        try:
-            if payload.action == "archive":
-                sources[sid]["reading_status"] = "archived"
-                results["success"] += 1
-            elif payload.action == "delete":
-                r = _delete_one(sid, state)
-                if r["ok"]:
+    # add_tags / generate_summary 子函数内部各自加 state 锁,不能在 batch 锁内调(嵌套死锁),
+    # 移到锁外逐个执行。
+    if payload.action in ("add_tags", "generate_summary"):
+        state = kb.load_state()
+        for sid in payload.source_ids:
+            if sid not in state.get("sources", {}):
+                results["failed"] += 1
+                results["failed_items"].append({"source_id": sid, "error": "source 不存在"})
+                continue
+            try:
+                if payload.action == "add_tags":
+                    if not state["sources"][sid].get("summary_path"):
+                        results["skipped"] += 1
+                        continue
+                    _add_article_tags(sid, payload.tags)
                     results["success"] += 1
-                else:
-                    results["failed"] += 1
-                    results["failed_items"].append({"source_id": sid, "error": r.get("error", "")})
-            elif payload.action == "favorite":
-                sources[sid]["is_favorite"] = True
-                results["success"] += 1
-            elif payload.action == "unfavorite":
-                sources[sid]["is_favorite"] = False
-                results["success"] += 1
-            elif payload.action == "add_tags":
-                if not sources[sid].get("summary_path"):
-                    results["skipped"] += 1
-                    continue
-                _add_article_tags(sid, payload.tags)
-                results["success"] += 1
-            elif payload.action == "generate_summary":
-                if sources[sid].get("summary_path"):
-                    results["skipped"] += 1
-                    continue
-                r = _generate_summary_for_source(sid)
-                if r.get("ok"):
-                    results["success"] += 1
-                else:
-                    results["failed"] += 1
-                    results["failed_items"].append({"source_id": sid, "error": r.get("error", "")})
-            elif payload.action == "extract_suggestions":
-                if not sources[sid].get("summary_path"):
-                    results["skipped"] += 1
-                    continue
-                if sources[sid].get("action_status") == "todo_suggested":
-                    results["skipped"] += 1
-                    continue
-                # 调抽取逻辑
-                sp = sources[sid]["summary_path"]
-                spath = kb.VAULT_ROOT / sp
-                if not spath.exists():
-                    results["skipped"] += 1
-                    continue
-                _, body = _parse_frontmatter(spath.read_text(encoding=ENC))
-                ideas = kb_llm.extract_ideas_from_summary(body)
-                todos = kb_llm.extract_todos_from_summary(body)
-                today = date.today().isoformat()
-                for it in ideas:
-                    kb._append_section(
-                        kb.VAULT_ROOT / "03_Ideas" / "idea_suggestions.md",
-                        kb._format_idea_suggestion(sid, sources[sid], it, today),
-                    )
-                for it in todos:
-                    kb._append_section(
-                        kb.VAULT_ROOT / "04_Plans" / "todo_suggestions.md",
-                        kb._format_todo_suggestion(sid, sources[sid], it, today),
-                    )
-                sources[sid]["action_status"] = "todo_suggested"
-                results["success"] += 1
-        except Exception as e:
-            results["failed"] += 1
-            results["failed_items"].append({"source_id": sid, "error": str(e)})
+                else:  # generate_summary
+                    if state["sources"][sid].get("summary_path"):
+                        results["skipped"] += 1
+                        continue
+                    r = _generate_summary_for_source(sid)
+                    if r.get("ok"):
+                        results["success"] += 1
+                    else:
+                        results["failed"] += 1
+                        results["failed_items"].append({"source_id": sid, "error": r.get("error", "")})
+            except Exception as e:
+                results["failed"] += 1
+                results["failed_items"].append({"source_id": sid, "error": str(e)})
+        return JSONResponse(results)
 
-    # 统一保存(add_tags/generate_summary/extract_suggestions 内部可能已 save,再 save 一次保证一致)
-    kb.save_state(state)
+    # 其余 action(archive/favorite/unfavorite/delete/extract_suggestions)在 state 锁内统一执行
+    try:
+        with kb.state_lock():
+            # 删除操作先备份(命名带时分秒)
+            if payload.action == "delete":
+                backup_file(kb.STATE_FILE, "state")
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            sources = state.get("sources", {})
+
+            for sid in payload.source_ids:
+                if sid not in sources:
+                    results["failed"] += 1
+                    results["failed_items"].append({"source_id": sid, "error": "source 不存在"})
+                    continue
+
+                try:
+                    if payload.action == "archive":
+                        sources[sid]["reading_status"] = "archived"
+                        results["success"] += 1
+                    elif payload.action == "delete":
+                        r = _delete_one(sid, state)
+                        if r["ok"]:
+                            results["success"] += 1
+                        else:
+                            results["failed"] += 1
+                            results["failed_items"].append({"source_id": sid, "error": r.get("error", "")})
+                    elif payload.action == "favorite":
+                        sources[sid]["is_favorite"] = True
+                        results["success"] += 1
+                    elif payload.action == "unfavorite":
+                        sources[sid]["is_favorite"] = False
+                        results["success"] += 1
+                    elif payload.action == "extract_suggestions":
+                        if not sources[sid].get("summary_path"):
+                            results["skipped"] += 1
+                            continue
+                        if sources[sid].get("action_status") == "todo_suggested":
+                            results["skipped"] += 1
+                            continue
+                        # 调抽取逻辑
+                        sp = sources[sid]["summary_path"]
+                        spath = kb.VAULT_ROOT / sp
+                        if not spath.exists():
+                            results["skipped"] += 1
+                            continue
+                        _, body = _parse_frontmatter(spath.read_text(encoding=ENC))
+                        ideas = kb_llm.extract_ideas_from_summary(body)
+                        todos = kb_llm.extract_todos_from_summary(body)
+                        today = kb.today_iso()
+                        for it in ideas:
+                            kb._append_section(
+                                kb.VAULT_ROOT / "03_Ideas" / "idea_suggestions.md",
+                                kb._format_idea_suggestion(sid, sources[sid], it, today),
+                            )
+                        for it in todos:
+                            kb._append_section(
+                                kb.VAULT_ROOT / "04_Plans" / "todo_suggestions.md",
+                                kb._format_todo_suggestion(sid, sources[sid], it, today),
+                            )
+                        sources[sid]["action_status"] = "todo_suggested"
+                        results["success"] += 1
+                except Exception as e:
+                    results["failed"] += 1
+                    results["failed_items"].append({"source_id": sid, "error": str(e)})
+
+            # 统一保存(extract 改了 action_status;delete 已在 _delete_one 改 state)
+            kb.save_state(state)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
     return JSONResponse(results)

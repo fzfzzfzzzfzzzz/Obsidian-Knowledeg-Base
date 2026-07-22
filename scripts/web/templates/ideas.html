@@ -4,6 +4,11 @@
 <h1 class="page-title">Idea</h1>
 <p class="page-hint muted">「待定」是 AI 抽取的候选(来自 idea_suggestions.md);「已确定」是 accept 后进入正式清单的 idea(来自 03_Ideas/*_ideas.md)。</p>
 
+<div class="cal-toolbar">
+  <div></div>
+  <button class="btn btn-primary btn-sm" onclick="openIdeaForm()">+ 新建 idea</button>
+</div>
+
 <div class="tab-bar">
   <button class="tab active" data-tab="pending" onclick="switchTab('pending')">待定</button>
   <button class="tab" data-tab="confirmed" onclick="switchTab('confirmed')">已确定</button>
@@ -35,5 +40,45 @@
       loadConfirmedIdeas();
     }
   });
+
+  // v0.4.11: 新建 idea 模态框(直接操作 modalOverlay,照 events/tasks 模式)
+  function openIdeaForm() {
+    const overlay = document.getElementById('modalOverlay');
+    if (!overlay) { alert('modal 不可用'); return; }
+    document.getElementById('modalTitle').textContent = '新建 idea';
+    document.getElementById('modalBody').innerHTML =
+      '<div class="cal-form">'
+      + '<div class="cal-form-field"><label>标题 <span class="required">*</span></label>'
+      + '<input type="text" id="idea-form-title" class="search-input" maxlength="120" placeholder="一句话描述这个 idea"></div>'
+      + '<div class="cal-form-actions">'
+      + '<button class="btn btn-ghost" id="idea-form-cancel">取消</button>'
+      + '<button class="btn btn-primary" id="idea-form-save">创建</button></div>'
+      + '</div>';
+    document.getElementById('modalActions').innerHTML = '';
+    overlay.hidden = false;
+    document.getElementById('idea-form-title').focus();
+    document.getElementById('idea-form-cancel').onclick = function() { overlay.hidden = true; };
+    document.getElementById('idea-form-save').onclick = async function() {
+      const btn = this;
+      const title = document.getElementById('idea-form-title').value.trim();
+      if (!title) { alert('标题不能为空'); return; }
+      btn.disabled = true; btn.textContent = '创建中...';
+      try {
+        const r = await fetch('/api/ideas', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({title: title})
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || '创建失败');
+        overlay.hidden = true;
+        toast('已创建,可在待定列表查看', 'success');
+        btn.disabled = false; btn.textContent = '创建';
+        loadSuggestions('idea');
+      } catch(e) {
+        alert('创建失败:' + e.message);
+        btn.disabled = false; btn.textContent = '创建';
+      }
+    };
+  }
 </script>
 {% endblock %}

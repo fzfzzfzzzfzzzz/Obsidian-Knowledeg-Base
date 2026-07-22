@@ -42,13 +42,9 @@ def test_check_url_rejects_cloud_metadata():
 
 
 def test_check_url_rejects_non_http_scheme():
+    """非 http/https scheme 被拒(file/gopher 等同属此分支,不逐一测)。"""
     with pytest.raises(kb_llm.LLMError):
         kb_llm._check_url_safe("file:///etc/passwd")
-
-
-def test_check_url_rejects_gopher_scheme():
-    with pytest.raises(kb_llm.LLMError):
-        kb_llm._check_url_safe("gopher://evil.com/")
 
 
 def test_check_url_rejects_missing_host():

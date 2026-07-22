@@ -49,6 +49,8 @@ from web.services.cards import (
     _get_collections,
     _scan_summaries,
     _read_summary_detail,
+    _build_workspace_overview,
+    _build_reminders,
 )
 from web.services.state_io import (
     _ensure_reading_fields,
@@ -130,6 +132,64 @@ async def api_recent():
 async def api_health():
     """健康检查。"""
     return {"ok": True, "vault": str(kb.VAULT_ROOT)}
+
+
+@router.get("/api/workspace/overview")
+async def api_workspace_overview():
+    """工作台本周概览:阅读进度 / 任务完成数 / 任务创建数 / 提醒摘要。
+
+    实时聚合,不落盘。本周窗口用 ISO 周(周一~周日),与 kb_date 时区语义一致。
+    """
+    return JSONResponse(_build_workspace_overview())
+
+
+@router.get("/api/workspace/reminders")
+async def api_workspace_reminders():
+    """工作台智能提醒:所有 active 任务中带 deadline 的项,按 urgency 排序。
+
+    urgency: overdue / due_today / due_this_week / later。
+    只覆盖任务 deadline;事件/日历请另行请求对应接口。
+    """
+    return JSONResponse({"items": _build_reminders()})
+
+
+def _auto_pick_current_task(tasks: list[dict]) -> dict | None:
+    """自动挑选当前任务:优先 active 状态且 deadline 最近的任务。"""
+    active = [t for t in tasks if t.get("status") == "active"]
+    if not active:
+        return None
+    # 有 deadline 的按 deadline 升序,无 deadline 的排最后
+    active.sort(key=lambda t: t.get("deadline") or "9999")
+    return active[0]
+
+
+@router.get("/api/workspace/current_task")
+async def api_workspace_current_task():
+    """获取当前聚焦任务。未指定时按规则自动挑选;若存储的任务已删除也自动回退。"""
+    state = kb.load_workspace_state()
+    tasks = kb.scan_tasks()
+    current_id = state.get("current_task_id", "")
+    if current_id:
+        path = kb._find_task_file(current_id)
+        if path is not None:
+            return JSONResponse({"task": kb.load_task_file(path), "auto": False})
+    # 未指定或已删除,自动挑选
+    picked = _auto_pick_current_task(tasks)
+    return JSONResponse({"task": picked, "auto": True})
+
+
+@router.patch("/api/workspace/current_task")
+async def api_workspace_set_current_task(payload: dict[str, Any]):
+    """设置当前聚焦任务。task_id 为空串表示取消手动指定(下次 GET 自动挑选)。"""
+    task_id = payload.get("task_id", "")
+    if task_id:
+        path = kb._find_task_file(task_id)
+        if path is None:
+            raise HTTPException(404, f"找不到任务:{task_id}")
+    state = kb.load_workspace_state()
+    state["current_task_id"] = task_id
+    kb.save_workspace_state(state)
+    return JSONResponse({"ok": True, "current_task_id": task_id})
 
 
 # /api/shutdown 需要的延迟退出逻辑;独立函数便于测试 monkeypatch
