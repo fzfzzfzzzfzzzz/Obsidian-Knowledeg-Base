@@ -193,7 +193,6 @@
           + '<span class="ws-cl-text'+(it.done?' done':'')+'">'+esc(it.text)+'</span>'
           + '</label>';
       }).join('') : '<div class="ws-empty">暂无 checklist</div>';
-      var nextHtml = t.next_action ? ('<div class="ws-info-row"><span class="ws-info-label">下一步行动</span><span class="ws-info-val">'+esc(t.next_action)+'</span></div>') : '';
       var blockerHtml = t.blocker ? ('<div class="ws-info-row"><span class="ws-info-label">当前问题</span><span class="ws-info-val ws-info-danger">'+esc(t.blocker)+'</span></div>') : '';
       var priorityHtml = t.priority ? ('<span class="ws-meta-pill priority">'+esc(t.priority)+'</span>') : '';
       var relHtml = t.related_source || t.project
@@ -217,7 +216,6 @@
             + '</div>'
             + '<div class="ws-task-info">'
               + '<div class="ws-info-row '+dlClass+'"><span class="ws-info-label">截止日期</span><span class="ws-info-val">'+esc(dlText)+'</span></div>'
-              + nextHtml
               + blockerHtml
             + '</div>'
             + (relHtml ? '<div class="ws-task-rel">'+relHtml+'</div>' : '')

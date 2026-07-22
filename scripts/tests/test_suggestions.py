@@ -67,20 +67,15 @@ def test_replace_status_in_block():
 
 
 def test_format_idea_suggestion_fields():
-    it = {
-        "title": "想法",
-        "recommended_area": "research",
-        "priority": "P1",
-        "feasibility": "high",
-        "novelty": "medium",
-        "estimated_investment": "3d",
-        "reason": "r",
-        "what": "w",
-        "challenges": "c",
-    }
+    # v0.4.13: idea suggestion 简化为只写 title + id + status + source
+    it = {"title": "想法"}
     block = kb._format_idea_suggestion(
         "source_ff_aa", {"source_title": "T"}, it, "2026-07-15"
     )
     assert "## Idea Suggestion: 想法" in block
     assert "status: pending_review" in block
-    assert "recommended_area: research" in block
+    assert "source_summary: [[summary_source_ff_aa]]" in block
+    # v0.4.13: 不再有 recommended_area / priority / feasibility / novelty 字段
+    assert "recommended_area" not in block
+    assert "priority" not in block
+    assert "feasibility" not in block

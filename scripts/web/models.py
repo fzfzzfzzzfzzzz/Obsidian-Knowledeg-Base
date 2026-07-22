@@ -106,7 +106,6 @@ class TaskCreate(BaseModel):
     priority: str = ""  # P0/P1/P2/P3 或 高/中/低
     deadline: str = ""  # YYYY-MM-DD,可空
     blocker: str = ""  # 当前问题/阻塞
-    next_action: str = ""  # 下一步行动
     body: str = ""  # 正文 Markdown
     checklist: list[ChecklistItem] = []  # 子任务清单
     related_source: str = ""  # 可选,关联文章 source_id
@@ -125,7 +124,6 @@ class TaskUpdate(BaseModel):
     priority: str | None = None
     deadline: str | None = None
     blocker: str | None = None
-    next_action: str | None = None
     body: str | None = None
     checklist: list[ChecklistItem] | None = None
     related_source: str | None = None

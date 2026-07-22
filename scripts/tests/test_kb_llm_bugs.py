@@ -201,19 +201,20 @@ def test_parse_env_file_nonexistent_returns_empty(tmp_path):
 # —— estimated_time 不再硬兜底 "2-4h"(v0.4.7, ROADMAP P1-#6) ——
 
 def test_extract_todos_no_estimated_time_stays_empty(monkeypatch):
-    """LLM 没返回 estimated_time 时,结果应保持空字符串,而不是伪造 "2-4h"。
+    """v0.4.13: extract_todos_from_summary 简化为只返回 title。
 
-    修复前:kb_llm.py 用 `str(it.get("estimated_time", "")).strip() or "2-4h"`,
-    把 LLM 漏填的字段伪造一个值,污染 review 队列。
-    修复后:对照 extract_ideas_from_summary 的 estimated_investment 写法,留空。
+    验证:LLM 返回的额外字段(recommended_plan/priority/difficulty)被忽略,
+    结果只含 title,不再有 estimated_time 字段。
     """
-    # fake LLM:返回的 todo 没有 estimated_time 字段
+    # fake LLM:返回的 todo 带旧字段(但简化后应被忽略)
     def fake_chat(messages, **kwargs):
         return {"content": '[{"title": "测试 todo", "recommended_plan": "weekly", "priority": "P1", "difficulty": "low"}]'}
 
     monkeypatch.setattr(kb_llm, "chat", fake_chat)
     todos = kb_llm.extract_todos_from_summary("一段 summary 正文")
     assert len(todos) == 1
-    # 关键断言:estimated_time 是空字符串,不是 "2-4h"
-    assert todos[0]["estimated_time"] == ""
-    assert todos[0]["estimated_time"] != "2-4h"
+    # v0.4.13: 结果只含 title
+    assert todos[0] == {"title": "测试 todo"}
+    # 不再有 estimated_time / priority / difficulty 字段
+    assert "estimated_time" not in todos[0]
+    assert "priority" not in todos[0]

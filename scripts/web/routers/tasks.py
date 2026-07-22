@@ -93,7 +93,6 @@ async def api_tasks_create(payload: TaskCreate):
         "priority": payload.priority.strip(),
         "deadline": payload.deadline.strip(),
         "blocker": payload.blocker.strip(),
-        "next_action": payload.next_action.strip(),
         "checklist": [item.model_dump() for item in payload.checklist],
         "related_source": payload.related_source.strip(),
         "synced_calendar_ids": "",
@@ -141,8 +140,6 @@ def _update_task_fields(task: dict, payload: TaskUpdate) -> dict:
         meta["deadline"] = dl
     if payload.blocker is not None:
         meta["blocker"] = payload.blocker.strip()
-    if payload.next_action is not None:
-        meta["next_action"] = payload.next_action.strip()
     if payload.checklist is not None:
         meta["checklist"] = [item.model_dump() for item in payload.checklist]
     if payload.related_source is not None:

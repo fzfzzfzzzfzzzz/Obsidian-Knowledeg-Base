@@ -1135,53 +1135,32 @@ def generate_summary(source_text: str, source_type: str) -> str:
 
 IDEA_EXTRACT_SYSTEM_PROMPT = """你是一个研究/产品想法提炼助手。用户给你一份内容总结,你要从中提炼出值得长期跟进的 idea 候选。
 
-只输出一个 JSON 数组(不要任何解释、不要 markdown 代码块标记),数组每个元素是一个对象,字段如下:
+只输出一个 JSON 数组(不要任何解释、不要 markdown 代码块标记),数组每个元素是一个对象,只含 title 字段:
 
 [
-  {
-    "title": "idea 的简短中文标题(不超过 25 字)",
-    "recommended_area": "research | productivity | product | ai_agent | web_design | other 之一",
-    "priority": "P0 | P1 | P2 | P3 之一",
-    "feasibility": "high | medium | low 之一",
-    "novelty": "high | medium | low 之一",
-    "estimated_investment": "预估投入,例如 3-5 days / 1 周 / 2h",
-    "reason": "为什么值得做(1-2 句)",
-    "what": "这个 idea 具体是什么(1-2 句)",
-    "challenges": "主要难点(1 句)"
-  }
+  { "title": "idea 的简短中文标题(不超过 25 字)" }
 ]
 
 规则:
 - 只提炼真正有价值的 idea,宁缺毋滥。如果总结里没有可转化的 idea,返回空数组 []。
 - 不要编造总结里没有的内容。
 - 优先提炼和 AI agent、本地工具、效率提升相关的 idea。
-- 如果用户在消息开头提供了【用户偏好】,请优先体现,但每条候选仍可根据自身性质独立定级,不强制套用到所有候选。
+- 如果用户在消息开头提供了【用户偏好】,请优先体现。
 """
 
 TODO_EXTRACT_SYSTEM_PROMPT = """你是一个行动项提炼助手。用户给你一份内容总结,你要从中提炼出具体可执行的 todo 候选。
 
-只输出一个 JSON 数组(不要任何解释、不要 markdown 代码块标记),数组每个元素是一个对象,字段如下:
+只输出一个 JSON 数组(不要任何解释、不要 markdown 代码块标记),数组每个元素是一个对象,只含 title 字段:
 
 [
-  {
-    "title": "todo 的简短中文标题(不超过 25 字)",
-    "recommended_plan": "weekly | monthly | someday 之一",
-    "priority": "P0 | P1 | P2 | P3 之一",
-    "estimated_time": "预估时间,例如 30min / 1h / 2-4h / 半天 / 1-2 天",
-    "difficulty": "low | medium | high 之一",
-    "why": "为什么值得做(1 句)",
-    "what": "具体要做什么(1-2 句)",
-    "challenges": "主要难点(1 句)",
-    "acceptance": "验收标准(1 句)"
-  }
+  { "title": "todo 的简短中文标题(不超过 25 字)" }
 ]
 
 规则:
 - 每个 todo 必须是具体可执行的动作(读文档、跑 demo、写脚本、做对比实验),不是抽象方向。
-- 必须给出合理的 estimated_time 和 difficulty,不要全部填 low / 30min。
 - 宁缺毋滥。如果总结里没有可转化的 todo,返回空数组 []。
 - 不要编造总结里没有的内容。
-- 如果用户在消息开头提供了【用户偏好】,请优先体现,但每条候选仍可根据自身性质独立定级,不强制套用到所有候选。
+- 如果用户在消息开头提供了【用户偏好】,请优先体现。
 """
 
 
@@ -1240,15 +1219,10 @@ def extract_ideas_from_summary(
 ) -> list[dict[str, str]]:
     """从 summary 提炼 idea 候选。
 
-    参数:
-        summary_text: summary 正文
-        hint: 用户引导(可选)。非空时拼到 user message 头部,作为偏好提示;
-              为空时维持原行为,向后兼容现有调用方。
+    v0.4.13: 简化为只返回 title(LLM prompt 也只要求 title)。
+    保留 hint 参数向后兼容(仍作为偏好提示拼进 user message)。
 
-    返回 list[dict],每个 dict 字段均为字符串:
-        title, recommended_area, priority, feasibility, novelty,
-        estimated_investment, reason, what, challenges
-    字段名统一(不带前缀),调用方负责包装成模板格式。
+    返回 list[dict],每个 dict 只含 title 字段(字符串)。
 
     异常:
         LLMError: 调用失败或输出无法解析
@@ -1271,31 +1245,13 @@ def extract_ideas_from_summary(
             f"LLM 输出无法解析为 JSON 数组。原始回复前 200 字: {result['content'][:200]}"
         )
 
+    # v0.4.13: 只保留 title,过滤掉没标题的
     cleaned: list[dict[str, str]] = []
     for it in items:
-        cleaned.append(
-            {
-                "title": str(it.get("title", "")).strip(),
-                "recommended_area": _clamp_enum(
-                    it.get("recommended_area", ""), VALID_AREAS, "other"
-                ),
-                "priority": _clamp_enum(
-                    it.get("priority", ""), ("P0", "P1", "P2", "P3"), "P2"
-                ),
-                "feasibility": _clamp_enum(
-                    it.get("feasibility", ""), ("high", "medium", "low"), "medium"
-                ),
-                "novelty": _clamp_enum(
-                    it.get("novelty", ""), ("high", "medium", "low"), "medium"
-                ),
-                "estimated_investment": str(it.get("estimated_investment", "")).strip(),
-                "reason": str(it.get("reason", "")).strip(),
-                "what": str(it.get("what", "")).strip(),
-                "challenges": str(it.get("challenges", "")).strip(),
-            }
-        )
-    # 过滤掉没标题的
-    return [c for c in cleaned if c["title"]]
+        title = str(it.get("title", "")).strip()
+        if title:
+            cleaned.append({"title": title})
+    return cleaned
 
 
 def extract_todos_from_summary(
@@ -1303,14 +1259,10 @@ def extract_todos_from_summary(
 ) -> list[dict[str, str]]:
     """从 summary 提炼 todo 候选。
 
-    参数:
-        summary_text: summary 正文
-        hint: 用户引导(可选)。非空时拼到 user message 头部,作为偏好提示;
-              为空时维持原行为,向后兼容现有调用方。
+    v0.4.13: 简化为只返回 title(LLM prompt 也只要求 title)。
+    保留 hint 参数向后兼容(仍作为偏好提示拼进 user message)。
 
-    返回 list[dict],字段均为字符串:
-        title, recommended_plan, priority, estimated_time, difficulty,
-        why, what, challenges, acceptance
+    返回 list[dict],每个 dict 只含 title 字段(字符串)。
     """
     if not summary_text.strip():
         raise LLMError("空 summary,无法抽取 todo")
@@ -1332,28 +1284,10 @@ def extract_todos_from_summary(
 
     cleaned: list[dict[str, str]] = []
     for it in items:
-        cleaned.append(
-            {
-                "title": str(it.get("title", "")).strip(),
-                "recommended_plan": _clamp_enum(
-                    it.get("recommended_plan", ""),
-                    ("weekly", "monthly", "someday"),
-                    "someday",
-                ),
-                "priority": _clamp_enum(
-                    it.get("priority", ""), ("P0", "P1", "P2", "P3"), "P2"
-                ),
-                "estimated_time": str(it.get("estimated_time", "")).strip(),
-                "difficulty": _clamp_enum(
-                    it.get("difficulty", ""), ("low", "medium", "high"), "medium"
-                ),
-                "why": str(it.get("why", "")).strip(),
-                "what": str(it.get("what", "")).strip(),
-                "challenges": str(it.get("challenges", "")).strip(),
-                "acceptance": str(it.get("acceptance", "")).strip(),
-            }
-        )
-    return [c for c in cleaned if c["title"]]
+        title = str(it.get("title", "")).strip()
+        if title:
+            cleaned.append({"title": title})
+    return cleaned
 
 
 # ---------------------------------------------------------------------------

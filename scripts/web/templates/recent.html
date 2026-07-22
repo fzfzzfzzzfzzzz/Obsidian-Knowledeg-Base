@@ -7,6 +7,12 @@
   <a href="/recent" class="active">最近阅读</a>
   <a href="/submit">投稿</a>
 </nav>
+<div class="home-search-bar">
+  <form action="/search" method="get" class="search-form">
+    <input type="text" name="q" placeholder="搜索文章标题、摘要、标签..." class="search-input" aria-label="搜索">
+    <button type="submit" class="btn btn-primary">搜索</button>
+  </form>
+</div>
 <h1 class="page-title">🕒 最近阅读</h1>
 <p class="page-hint muted">按最近打开时间倒序,最多 30 篇。打开文章详情会自动记录。</p>
 <div id="recent-grid" class="card-grid">

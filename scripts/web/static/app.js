@@ -22,7 +22,7 @@ function applyTheme(theme) {
   const btn = document.getElementById('themeToggle');
   if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'dark' ? '#0f172a' : '#f7f8fa');
+  if (meta) meta.setAttribute('content', theme === 'dark' ? '#030014' : '#f7f8fa');
 }
 
 function initTheme() {
@@ -470,55 +470,40 @@ async function loadSuggestions(type) {
   try {
     const res = await fetch(`/api/${type}s`);
     const data = await res.json();
-    if (!data.items || data.items.length === 0) {
+    // 待定列表只显示 pending_review;已接受/已移动/已拒绝的不再留在这里
+    const items = (data.items || []).filter(it => it.status === 'pending_review');
+    if (items.length === 0) {
       grid.innerHTML = `<div class="empty">还没有 ${type} 候选。运行 <code>python scripts/kb.py extract-suggestions</code> 抽取。</div>`;
       return;
     }
-    grid.innerHTML = data.items.map(item => renderSuggestionCard(item, type)).join('');
+    grid.innerHTML = items.map(item => renderSuggestionCard(item, type)).join('');
   } catch (e) {
     grid.innerHTML = `<div class="error">加载失败:${escapeHtml(e.message)}</div>`;
   }
 }
 
 function renderSuggestionCard(item, type) {
-  const f = item.fields || {};
   const status = item.status;
-  const isAccepted = status && status.startsWith('accepted_');
-  const isMoved = status === 'moved';
+  const sid = escapeHtml(item.id);
 
+  // 待定列表只承载 pending_review 卡片,接受/拒绝后即从列表移除(loadSuggestions 已过滤)
   let actions = '';
-  if (status === 'pending_review') {
-    const sid = escapeHtml(item.id);
-    if (type === 'idea') {
-      // v0.4.11: idea 简化为单一接受(统一进 general 清单)+ 拒绝
-      actions = `
-        <button class="btn btn-accept" data-action="update-status" data-kind="idea" data-sid="${sid}" data-status="accepted_general">接受</button>
-        <button class="btn btn-ghost" data-action="update-status" data-kind="idea" data-sid="${sid}" data-status="rejected">拒绝</button>
-      `;
-    } else {
-      // v0.4.12: todo 简化为接受 / 拒绝;接受弹窗可选填截止日期,按日期自动归类去向
-      actions = `
-        <button class="btn btn-accept" data-action="accept-todo" data-sid="${sid}">接受</button>
-        <button class="btn btn-ghost" data-action="update-status" data-kind="todo" data-sid="${sid}" data-status="rejected">拒绝</button>
-      `;
-    }
-  } else if (isAccepted) {
-    actions = `<span class="muted" style="font-size:13px;">已确认 · 运行 <code>accept-${type}s</code> 后进入正式清单</span>`;
-  } else if (isMoved) {
-    actions = `<span class="muted" style="font-size:13px;">已进入正式清单</span>`;
-  }
-
-  let fieldsHtml = '';
   if (type === 'idea') {
-    // v0.4.11: idea 卡片只留标题,不显示字段网格和正文
-    fieldsHtml = '';
+    // v0.4.11: idea 简化为单一接受(统一进 general 清单)+ 拒绝
+    actions = `
+      <button class="btn btn-accept" data-action="update-status" data-kind="idea" data-sid="${sid}" data-status="accepted_general">接受</button>
+      <button class="btn btn-ghost" data-action="update-status" data-kind="idea" data-sid="${sid}" data-status="rejected">拒绝</button>
+    `;
+  } else {
+    // v0.4.12: todo 简化为接受 / 拒绝;接受弹窗可选填截止日期,按日期自动归类去向
+    actions = `
+      <button class="btn btn-accept" data-action="accept-todo" data-sid="${sid}">接受</button>
+      <button class="btn btn-ghost" data-action="update-status" data-kind="todo" data-sid="${sid}" data-status="rejected">拒绝</button>
+    `;
   }
-  // v0.4.12: todo 也不再显示建议计划/优先级/预估时间/难度,卡片只保留标题+正文摘要
 
-  // v0.4.12: todo 正文过滤掉「主要难点」「验收标准」两节,只留为什么/做什么
-  const bodyHtml = (item.body && type !== 'idea')
-    ? `<div class="suggestion-body">${formatSuggestionBody(item.body, type)}</div>`
-    : '';
+  // v0.4.13: idea 和 todo 卡片都只留标题,不再显示正文
+  const bodyHtml = '';
 
   return `
     <div class="card suggestion-card" id="card-${escapeHtml(item.id)}">
@@ -526,7 +511,6 @@ function renderSuggestionCard(item, type) {
         <span class="status-badge ${statusBadgeClass(status)}">${statusLabel(status)}</span>
       </div>
       <h3 class="card-title">${escapeHtml(item.title || item.id)}</h3>
-      ${fieldsHtml ? `<div class="suggestion-fields">${fieldsHtml}</div>` : ''}
       ${bodyHtml}
       <div class="action-row">${actions}</div>
     </div>
@@ -535,9 +519,17 @@ function renderSuggestionCard(item, type) {
 
 function formatSuggestionBody(body, type) {
   let text = body;
-  // v0.4.12: todo 过滤掉「主要难点」「验收标准」两节(只保留为什么值得做/具体要做什么)
+  // v0.4.12: todo 过滤掉「主要难点」「验收标准」两节(连同其正文),只保留其它小节
   if (type === 'todo') {
-    text = text.replace(/^###\s+(主要难点|验收标准)\s*$[\s\S]*?(?=^###\s|\n\n\s*$|$)/gm, '').trim();
+    const DROP = ['主要难点', '验收标准'];
+    const parts = text.split(/^###\s+/m);   // [前导文本, "标题\n正文", ...]
+    text = parts.map(function (part, idx) {
+      if (idx === 0) return part;            // heading 之前的导言,保留
+      const nl = part.indexOf('\n');
+      const heading = (nl === -1 ? part : part.slice(0, nl)).trim();
+      if (DROP.indexOf(heading) !== -1) return '';
+      return '### ' + part;
+    }).join('').trim();
   }
   let html = escapeHtml(text);
   html = html.replace(/^###\s+(.+)$/gm, '<h4>$1</h4>');
@@ -697,13 +689,9 @@ async function loadConfirmedTodos() {
 function renderFormalTodoCard(item, calItem) {
   // v0.4.6: 存全局 todoStore,点击时按 id 取回完整 item(替代 onclick=JSON.stringify 注入)
   if (item.id) window.todoStore.set(item.id, item);
+  // v0.4.13: 已确定 todo 卡片简化——只留标题 + 完成状态 + 日历关联按钮
   const doneBadge = item.done ? '<span class="tag" style="background:#dcfce7;color:#166534">✓ 已完成</span>'
                               : '<span class="tag tag-area">☐ 待办</span>';
-  const period = item.period ? '<span class="tag">' + escapeHtml(item.period) + '</span>' : '';
-  const time = item.estimated_time ? '<span class="tag">⏱ ' + escapeHtml(item.estimated_time) + '</span>' : '';
-  const diff = item.difficulty ? '<span class="tag">' + escapeHtml(item.difficulty) + '</span>' : '';
-  const source = item.source ? '<div class="muted">来源:' + escapeHtml(item.source) + '</div>' : '';
-  const note = item.note ? '<div class="suggestion-body"><p>' + escapeHtml(item.note) + '</p></div>' : '';
   const itemId = escapeHtml(item.id || '');
   // 日历关联区:已加入显示日期+编辑,未加入显示「放入日历」按钮
   let calSection;
@@ -718,9 +706,8 @@ function renderFormalTodoCard(item, calItem) {
       '</div>';
   }
   return '<div class="card suggestion-card' + (item.done ? ' card-done' : '') + '">' +
-    '<div class="card-header">' + doneBadge + period + time + diff + '</div>' +
+    '<div class="card-header">' + doneBadge + '</div>' +
     '<h3 class="card-title">' + escapeHtml(item.title) + '</h3>' +
-    source + note +
     calSection +
     '</div>';
 }
@@ -1525,8 +1512,6 @@ if (document.readyState === 'loading') {
         : '<div class="muted" style="padding:var(--sp-3)">暂无子任务</div>';
       const blockerHtml = t.blocker
         ? '<div class="td-blocker"><strong>⛔ 当前问题:</strong> ' + escapeHtml(t.blocker) + '</div>' : '';
-      const nextHtml = t.next_action
-        ? '<div class="td-section"><h4 class="td-section-title">下一步行动</h4><p>' + escapeHtml(t.next_action) + '</p></div>' : '';
       const bodyHtml = t.body && t.body.trim() && t.body.trim() !== '（暂无描述）'
         ? '<div class="td-section"><h4 class="td-section-title">描述</h4><div class="td-body">' + escapeHtml(t.body.trim()) + '</div></div>' : '';
       const html =
@@ -1547,7 +1532,6 @@ if (document.readyState === 'loading') {
           + '<h4 class="td-section-title">Checklist <span class="td-prog-muted">(' + clDone + '/' + cl.length + ')</span></h4>'
           + '<div class="td-checklist" id="drawer-checklist">' + clHtml + '</div>'
         + '</section>'
-        + nextHtml
         + bodyHtml;
       openDrawer('任务详情', html);
       // 绑定 checklist

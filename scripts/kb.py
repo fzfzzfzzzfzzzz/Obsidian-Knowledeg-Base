@@ -2429,42 +2429,32 @@ def _split_suggestion_blocks(text: str, kind: str) -> list[tuple[str, dict, str]
 
 
 def _format_idea_suggestion(source_id: str, info: dict, it: dict, today: str) -> str:
-    """把 LLM 抽取的 idea dict 格式化成 idea_suggestion 模板格式的块。"""
+    """把 LLM 抽取的 idea dict 格式化成 idea_suggestion 模板格式的块。
+
+    v0.4.13: 简化为只写 title + id + status + source(保留 source 追溯来源文章)。
+    LLM 抽取现在只返回 title;旧数据若带其他字段则忽略(向后兼容)。
+    """
     slug = make_slug(it.get("title", "untitled")) or "untitled"
     # v0.4.12: 加 4 字节随机后缀(8 hex),防同日同标题撞 id。
-    # 用 secrets 而非 time_ns:循环内毫秒级连续生成时 time_ns 分辨率不够会撞。
     import secrets
     suffix = secrets.token_hex(4)
     iid = f"idea_suggestion_{today.replace('-', '')}_{slug}_{suffix}"
     src_summary = f"[[summary_{source_id}]]"
     return f"""
-## Idea Suggestion: {it['title']}
+## Idea Suggestion: {it.get('title', 'untitled')}
 
 - id: {iid}
 - status: pending_review
-- recommended_area: {it['recommended_area']}
 - source_summary: {src_summary}
-- priority: {it['priority']}
-- feasibility: {it['feasibility']}
-- novelty: {it['novelty']}
-- estimated_investment: {it.get('estimated_investment', '')}
-
-### 推荐理由
-
-{it.get('reason', '')}
-
-### 这个 idea 是什么
-
-{it.get('what', '')}
-
-### 主要难点
-
-{it.get('challenges', '')}
 """
 
 
 def _format_todo_suggestion(source_id: str, info: dict, it: dict, today: str) -> str:
-    """把 LLM 抽取的 todo dict 格式化成 todo_suggestion 模板格式的块。"""
+    """把 LLM 抽取的 todo dict 格式化成 todo_suggestion 模板格式的块。
+
+    v0.4.13: 简化为只写 title + id + status + source(保留 source 追溯来源文章)。
+    LLM 抽取现在只返回 title;旧数据若带其他字段则忽略(向后兼容)。
+    """
     slug = make_slug(it.get("title", "untitled")) or "untitled"
     # v0.4.12: 加 4 字节随机后缀(8 hex),防同日同标题撞 id。
     import secrets
@@ -2472,36 +2462,20 @@ def _format_todo_suggestion(source_id: str, info: dict, it: dict, today: str) ->
     tid = f"todo_suggestion_{today.replace('-', '')}_{slug}_{suffix}"
     src_summary = f"[[summary_{source_id}]]"
     return f"""
-## Todo Suggestion: {it['title']}
+## Todo Suggestion: {it.get('title', 'untitled')}
 
 - id: {tid}
 - status: pending_review
 - source_summary: {src_summary}
-- recommended_plan: {it['recommended_plan']}
-- priority: {it['priority']}
-- estimated_time: {it.get('estimated_time', '')}
-- difficulty: {it['difficulty']}
-
-### 为什么值得做
-
-{it.get('why', '')}
-
-### 具体要做什么
-
-{it.get('what', '')}
-
-### 主要难点
-
-{it.get('challenges', '')}
-
-### 验收标准
-
-{it.get('acceptance', '')}
 """
 
 
 def _format_formal_idea(meta: dict, body: str, area: str) -> str:
-    """把 accepted idea suggestion 转成正式 idea list 条目(idea_template 格式)。"""
+    """把 accepted idea suggestion 转成正式 idea list 条目(idea_template 格式)。
+
+    v0.4.13: 简化为只写 title + id + status + source(与抽取简化一致)。
+    保留 sources 追溯来源文章。
+    """
     title = meta.get("title", meta.get("id", "untitled"))
     today = today_iso()
     slug = make_slug(title) or "untitled"
@@ -2513,19 +2487,18 @@ def _format_formal_idea(meta: dict, body: str, area: str) -> str:
 - id: {iid}
 - status: candidate
 - maturity: spark
-- priority: {meta.get('priority', 'P2')}
 - sources:
   - {meta.get('source_summary', '')}
-- estimated_investment: {meta.get('estimated_investment', '')}
-- main_challenges:
-  - {meta.get('feasibility', '')} 可行性 / {meta.get('novelty', '')} 新颖度
 
 {body or '（待补充）'}
 """
 
 
 def _format_weekly_task(meta: dict, body: str) -> str:
-    """把 accepted todo suggestion 转成 weekly/monthly task 格式(plan.md 11.1)。"""
+    """把 accepted todo suggestion 转成 weekly/monthly task 格式(plan.md 11.1)。
+
+    v0.4.13: 简化为只写 title + 来源 + 截止日期(若有)。
+    """
     title = meta.get("title", meta.get("id", "untitled"))
     deadline = meta.get("deadline", "") if meta else ""
     deadline_line = f"  - 截止日期:{deadline}\n" if deadline else ""
@@ -2533,9 +2506,6 @@ def _format_weekly_task(meta: dict, body: str) -> str:
 
 - [ ] {title}
   - 来源:{meta.get('source_summary', '')}
-  - 预计时间:{meta.get('estimated_time', '')}
-  - 难度:{meta.get('difficulty', '')}
-  - 难点:{meta.get('challenges', '') if 'challenges' in meta else '见 suggestion'}
 {deadline_line}"""
 
 
@@ -2889,7 +2859,7 @@ def _format_task_file(meta: dict, body: str) -> str:
         cl = json.dumps(cl, ensure_ascii=False)
     lines = ["---"]
     for key in ("id", "title", "category", "project", "status", "priority",
-                "deadline", "blocker", "next_action", "checklist",
+                "deadline", "blocker", "checklist",
                 "related_source", "synced_calendar_ids",
                 "created_at", "updated_at", "completed_at"):
         val = meta.get(key, "")
@@ -2937,7 +2907,6 @@ def load_task_file(path: Path) -> dict:
         "priority": meta.get("priority", "").strip(),
         "deadline": meta.get("deadline", "").strip(),
         "blocker": meta.get("blocker", "").strip(),
-        "next_action": meta.get("next_action", "").strip(),
         "checklist": checklist,
         "related_source": meta.get("related_source", "").strip(),
         "synced_calendar_ids": synced,

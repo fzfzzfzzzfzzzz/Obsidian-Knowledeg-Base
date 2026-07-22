@@ -7,6 +7,12 @@
   <a href="/recent">最近阅读</a>
   <a href="/submit">投稿</a>
 </nav>
+<div class="home-search-bar">
+  <form action="/search" method="get" class="search-form">
+    <input type="text" name="q" placeholder="搜索文章标题、摘要、标签..." class="search-input" aria-label="搜索">
+    <button type="submit" class="btn btn-primary">搜索</button>
+  </form>
+</div>
 <h1 class="page-title">📚 全部文章</h1>
 <p class="page-hint muted">所有文章(含未生成 summary 的)。点击卡片进入详情。</p>
 <div id="articles-grid" class="card-grid">

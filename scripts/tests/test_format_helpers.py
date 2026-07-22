@@ -8,19 +8,15 @@ import kb
 # —— _format_formal_idea ——
 
 def test_format_formal_idea_required_fields():
+    # v0.4.13: 正式 idea 简化为只写 title + status + maturity + source
     meta = {
         "title": "测试想法",
-        "priority": "P1",
-        "feasibility": "high",
-        "novelty": "medium",
-        "estimated_investment": "3d",
         "source_summary": "02_Summaries/x/summary_xx.md",
     }
     out = kb._format_formal_idea(meta, "正文内容", "research")
     assert "## Idea: 测试想法" in out
     assert "status: candidate" in out
     assert "maturity: spark" in out
-    assert "priority: P1" in out
     assert "02_Summaries/x/summary_xx.md" in out
     assert "正文内容" in out
 
@@ -39,22 +35,18 @@ def test_format_formal_idea_fallbacks_when_missing():
     """meta 缺字段时用合理默认值,不应抛错。"""
     out = kb._format_formal_idea({}, "", "research")
     assert "## Idea:" in out  # 标题用默认
-    assert "priority: P2" in out  # 默认 priority
 
 
 # —— _format_weekly_task ——
 
 def test_format_weekly_task_uses_metadata():
+    # v0.4.13: weekly task 简化为只写 title + 来源 + 截止日期(若有)
     meta = {
         "title": "周任务",
-        "estimated_time": "2-4h",
-        "difficulty": "medium",
         "source_summary": "02_Summaries/x/summary_xx.md",
     }
     out = kb._format_weekly_task(meta, "正文")
     assert "- [ ] 周任务" in out
-    assert "2-4h" in out
-    assert "medium" in out
     assert "02_Summaries/x/summary_xx.md" in out
 
 
@@ -66,36 +58,31 @@ def test_format_weekly_task_handles_missing_meta():
 # —— _format_todo_suggestion ——
 
 def test_format_todo_suggestion_empty_estimated_time():
-    """LLM 没给 estimated_time 时,格式化输出应留空,不伪造 "2-4h"(v0.4.7, ROADMAP P1-#6)。
-
-    修复前:kb.py 用 it.get('estimated_time', '2-4h') 兜底,
-    和 kb_llm.py 的 or "2-4h" 一样会伪造数据。
+    """v0.4.13: todo suggestion 简化为只写 title + id + status + source,
+    不再有 estimated_time 字段。验证精简格式 + 无伪造默认值。
     """
-    it = {
-        "title": "测试 todo",
-        "recommended_plan": "weekly",
-        "priority": "P1",
-        "difficulty": "low",
-        # 故意不传 estimated_time
-    }
+    it = {"title": "测试 todo"}
     out = kb._format_todo_suggestion("src_20260101_x", {"source_type": "web"}, it, "2026-07-21")
-    # estimated_time 行存在但值为空
-    assert "- estimated_time:" in out
-    # 关键:不应出现伪造的 "2-4h"
-    assert "2-4h" not in out
+    assert "## Todo Suggestion: 测试 todo" in out
+    assert "status: pending_review" in out
+    # v0.4.13: 不再有 estimated_time / priority / difficulty 字段
+    assert "estimated_time" not in out
+    assert "priority" not in out
+    assert "difficulty" not in out
 
 
 def test_todo_suggestion_preserves_provided_estimated_time():
-    """LLM 给了 estimated_time 时正常写入(对照测试,确认修复没误伤合法值)。"""
+    """v0.4.13: 即使旧数据 it 带了 estimated_time,精简格式也忽略它(只写 title)。
+    保留测试名以维持回归覆盖,断言更新为验证精简行为。
+    """
     it = {
         "title": "测试 todo",
-        "recommended_plan": "weekly",
-        "priority": "P1",
-        "estimated_time": "30min",
-        "difficulty": "low",
+        "estimated_time": "30min",  # 旧字段,精简后应被忽略
     }
     out = kb._format_todo_suggestion("src_20260101_x", {"source_type": "web"}, it, "2026-07-21")
-    assert "- estimated_time: 30min" in out
+    assert "## Todo Suggestion: 测试 todo" in out
+    # 精简格式不输出 estimated_time
+    assert "estimated_time" not in out
 
 
 # —— _replace_status_in_block ——
