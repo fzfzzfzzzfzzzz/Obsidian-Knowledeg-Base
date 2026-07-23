@@ -23,11 +23,31 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from web.utils import (
     ENC,
     templates,
+    sanitize_html,
     VALID_TASK_STATUS,
 )
 from web.models import TaskCreate, TaskUpdate, ChecklistItemUpdate
 
 import kb
+
+
+def _render_task_body_html(body: str) -> str:
+    """把任务正文 Markdown 渲染成消毒后的 HTML(供详情页清晰阅读)。
+
+    与 summary 详情(cards.py)同款:markdown.markdown + sanitize_html。
+    空正文返回空串。
+    """
+    if not body or not body.strip() or body.strip() == "（暂无描述）":
+        return ""
+    try:
+        import markdown as md
+        return sanitize_html(md.markdown(
+            body,
+            extensions=["extra", "codehilite", "toc"],
+            extension_configs={"codehilite": {"guess_lang": False}},
+        ))
+    except Exception:
+        return ""
 
 router = APIRouter()
 
@@ -104,7 +124,6 @@ async def api_tasks_create(payload: TaskCreate):
         "category": payload.category.strip() or "其他",
         "project": payload.project.strip(),
         "status": payload.status,
-        "priority": payload.priority.strip(),
         "deadline": payload.deadline.strip(),
         "blocker": payload.blocker.strip(),
         "checklist": [item.model_dump() for item in payload.checklist],
@@ -119,11 +138,13 @@ async def api_tasks_create(payload: TaskCreate):
 
 @router.get("/api/tasks/{task_id}")
 async def api_tasks_get(task_id: str):
-    """获取单个任务详情(含正文 + checklist)。"""
+    """获取单个任务详情(含正文 + checklist + 渲染后的 html_body)。"""
     path = kb._find_task_file(task_id)
     if path is None:
         raise HTTPException(404, f"找不到任务:{task_id}")
-    return JSONResponse(kb.load_task_file(path))
+    task = kb.load_task_file(path)
+    task["html_body"] = _render_task_body_html(task.get("body", ""))
+    return JSONResponse(task)
 
 
 def _update_task_fields(task: dict, payload: TaskUpdate) -> dict:
@@ -142,8 +163,6 @@ def _update_task_fields(task: dict, payload: TaskUpdate) -> dict:
         if payload.status not in VALID_TASK_STATUS:
             raise HTTPException(400, f"非法 status 值:{payload.status}")
         meta["status"] = payload.status
-    if payload.priority is not None:
-        meta["priority"] = payload.priority.strip()
     if payload.deadline is not None:
         dl = payload.deadline.strip()
         if dl:

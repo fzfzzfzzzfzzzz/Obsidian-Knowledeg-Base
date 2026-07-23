@@ -4,17 +4,17 @@
 <div id="task-detail-root" class="task-detail">
   <div class="loading">加载中...</div>
 </div>
-<a href="/tasks" class="back-link">← 返回任务列表</a>
 {% endblock %}
 {% block scripts %}
 <script>
 // 任务详情页:加载 + 渲染 + checklist 单项打勾
 const TK_DETAIL_STATUS = {
-  'active':   { color: '#2563eb', label: '进行中' },
-  'done':     { color: '#16a34a', label: '已完成' },
-  'blocked':  { color: '#dc2626', label: '阻塞' },
-  'archived': { color: '#64748b', label: '已归档' },
+  'active':   { color: '#2563eb', label: '进行中', icon: '▶' },
+  'done':     { color: '#16a34a', label: '已完成', icon: '✓' },
+  'blocked':  { color: '#dc2626', label: '阻塞', icon: '⛔' },
+  'archived': { color: '#64748b', label: '已归档', icon: '📦' },
 };
+const TK_DETAIL_CAT = { '开发':'#2563eb','调研':'#16a34a','写作':'#8b5cf6','阅读':'#0d9488','整理':'#d97706','其他':'#64748b' };
 const TASK_ID = "{{ task_id }}";
 const tkTodayStr = new Date().toISOString().slice(0, 10);
 
@@ -34,40 +34,90 @@ async function loadTaskDetail() {
   }
 }
 
+function fmtDateLabel(d) {
+  if (!d) return '';
+  try {
+    const dt = new Date(d + 'T00:00:00');
+    const today = new Date(tkTodayStr + 'T00:00:00');
+    const diff = Math.round((dt - today) / 86400000);
+    if (diff === 0) return '今天';
+    if (diff === 1) return '明天';
+    if (diff === -1) return '昨天';
+    return d;
+  } catch(e) { return d; }
+}
+
 function renderDetail(t) {
-  const sm = TK_DETAIL_STATUS[t.status] || { color: '#64748b', label: t.status };
+  const sm = TK_DETAIL_STATUS[t.status] || { color: '#64748b', label: t.status, icon: '•' };
   const dl = t.deadline;
-  const dlClass = dl && dl < tkTodayStr ? 'tk-dl-overdue' : (dl && dl <= tkTodayStr ? 'tk-dl-today' : '');
-  const dlText = dl ? (dl < tkTodayStr ? '⚠ 已逾期: ' : (dl === tkTodayStr ? '⏰ 今天截止: ' : '截止: ')) + dl : '无截止日期';
+  const dlOverdue = dl && dl < tkTodayStr;
+  const dlToday = dl && dl === tkTodayStr;
+  const dlClass = dlOverdue ? 'td-dl-overdue' : (dlToday ? 'td-dl-today' : '');
   const clItems = t.checklist || [];
   const clDone = clItems.filter(x => x.done).length;
+  const clPct = clItems.length ? Math.round(clDone / clItems.length * 100) : 0;
   const clHtml = clItems.length
     ? clItems.map(it => checklistDetailRow(it)).join('')
-    : '<div class="muted" style="padding:var(--sp-3)">暂无子任务</div>';
+    : '<div class="td-cl-empty muted">暂无子任务</div>';
+  const catColor = (TK_DETAIL_CAT[t.category] || '#64748b');
+
+  // 元数据条(只显示有值的)
+  const meta = [];
+  if (t.project) meta.push({ icon: '📁', label: '项目', val: t.project });
+  if (t.priority) meta.push({ icon: '🔖', label: '优先级', val: t.priority });
+  if (t.created_at) meta.push({ icon: '🕒', label: '创建', val: t.created_at.slice(0, 10) });
+  if (t.updated_at && t.updated_at !== t.created_at) meta.push({ icon: '✏️', label: '更新', val: t.updated_at.slice(0, 10) });
+  const metaHtml = meta.length
+    ? '<div class="td-meta-grid">' + meta.map(m =>
+        '<div class="td-meta-item"><span class="td-meta-label">' + m.icon + ' ' + escapeHtml(m.label) + '</span><span class="td-meta-val">' + escapeHtml(m.val) + '</span></div>'
+      ).join('') + '</div>'
+    : '';
+
+  // 截止日期徽章
+  const dlBadge = dl
+    ? '<span class="td-deadline-badge ' + dlClass + '">'
+        + (dlOverdue ? '⚠ 已逾期 · ' : (dlToday ? '⏰ 今天 · ' : '📅 ')) + escapeHtml(fmtDateLabel(dl)) + ' (' + escapeHtml(dl) + ')'
+      + '</span>'
+    : '';
+
+  // 阻塞提示
   const blockerHtml = t.blocker
-    ? '<div class="td-blocker"><strong>⛔ 当前问题:</strong> ' + escapeHtml(t.blocker) + '</div>' : '';
-  const bodyHtml = t.body && t.body.trim() && t.body.trim() !== '（暂无描述）'
-    ? '<div class="td-body markdown-body">' + escapeHtml(t.body.trim()) + '</div>' : '';
-  const catColor = ({'开发':'#2563eb','调研':'#16a34a','写作':'#8b5cf6','阅读':'#0d9488','整理':'#d97706','其他':'#64748b'})[t.category] || '#64748b';
+    ? '<div class="td-blocker"><span class="td-blocker-icon">⛔</span><div><div class="td-blocker-label">当前问题 / 阻塞</div><div class="td-blocker-text">' + escapeHtml(t.blocker) + '</div></div></div>'
+    : '';
+
+  // 正文(服务端渲染好的 html_body)
+  const bodyHtml = t.html_body
+    ? '<section class="td-section"><h3 class="td-section-title">📝 详细描述</h3><div class="td-body markdown-body">' + t.html_body + '</div></section>'
+    : '';
 
   document.getElementById('task-detail-root').innerHTML =
-    '<div class="td-header">'
-      + '<span class="tk-status-badge" style="background:'+sm.color+'">'+sm.label+'</span>'
-      + '<span class="tk-cat-tag" style="--tk-cat:'+catColor+'">'+escapeHtml(t.category)+'</span>'
-      + '<span class="td-date '+dlClass+'">'+escapeHtml(dlText)+'</span>'
-    + '</div>'
-    + '<h1 class="td-title">'+escapeHtml(t.title)+'</h1>'
-    + '<div class="td-actions">'
-      + '<a class="btn btn-sm" href="/task/'+encodeURIComponent(TASK_ID)+'/edit">✏ 编辑</a>'
-      + (dl ? '<button class="btn btn-sm" id="td-sync">📅 同步到日历</button>' : '')
-      + '<button class="btn btn-sm btn-danger" id="td-delete">🗑 删除</button>'
-    + '</div>'
-    + blockerHtml
-    + '<section class="td-section">'
-      + '<h3 class="td-section-title">Checklist <span class="td-prog-muted">('+clDone+'/'+clItems.length+')</span></h3>'
-      + '<div class="td-checklist" id="td-checklist">'+clHtml+'</div>'
-    + '</section>'
-    + bodyHtml;
+    '<a href="/tasks" class="td-back">← 返回任务列表</a>'
+    + '<article class="td-card" style="--td-status:'+sm.color+';--td-cat:'+catColor+'">'
+      + '<header class="td-card-head">'
+        + '<div class="td-badges">'
+          + '<span class="td-status-badge" style="background:'+sm.color+'">' + sm.icon + ' ' + escapeHtml(sm.label) + '</span>'
+          + '<span class="td-cat-tag">' + escapeHtml(t.category) + '</span>'
+          + dlBadge
+        + '</div>'
+        + '<h1 class="td-title">'+escapeHtml(t.title)+'</h1>'
+        + '<div class="td-actions">'
+          + '<a class="btn btn-sm btn-primary" href="/task/'+encodeURIComponent(TASK_ID)+'/edit">✏ 编辑</a>'
+          + (dl ? '<button class="btn btn-sm" id="td-sync">📅 同步到日历</button>' : '')
+          + '<button class="btn btn-sm btn-danger" id="td-delete">🗑 删除</button>'
+        + '</div>'
+      + '</header>'
+      + metaHtml
+      + blockerHtml
+      + '<section class="td-section td-checklist-section">'
+        + '<div class="td-section-head">'
+          + '<h3 class="td-section-title">✅ Checklist <span class="td-prog-muted">'+clDone+' / '+clItems.length+'</span></h3>'
+          + (clItems.length ? '<span class="td-prog-pct">'+clPct+'%</span>' : '')
+        + '</div>'
+        + (clItems.length ? '<div class="td-prog-bar"><div class="td-prog-fill" style="width:'+clPct+'%"></div></div>' : '')
+        + '<div class="td-checklist" id="td-checklist">'+clHtml+'</div>'
+      + '</section>'
+      + bodyHtml
+    + '</article>';
 
   // 绑定 checklist 打勾
   document.querySelectorAll('#td-checklist .cl-toggle').forEach(cb => {
@@ -93,13 +143,28 @@ async function toggleChecklistItem(itemId, done, cbEl) {
       body: JSON.stringify({done: done})
     });
     if (!r.ok) throw new Error('更新失败');
-    // 就地更新文本样式(不重渲染,避免打断)
+    // 就地更新文本样式 + 进度条(不整页重渲染,避免打断)
     const span = cbEl.parentElement.querySelector('.td-cl-text');
     if (span) span.classList.toggle('td-cl-done', done);
+    updateChecklistProgress();
   } catch(e) {
     cbEl.checked = !done;  // 回滚
     toast(e.message);
   }
+}
+
+function updateChecklistProgress() {
+  const items = document.querySelectorAll('#td-checklist .cl-toggle');
+  if (!items.length) return;
+  const done = Array.from(items).filter(cb => cb.checked).length;
+  const total = items.length;
+  const pct = total ? Math.round(done / total * 100) : 0;
+  const muted = document.querySelector('.td-prog-muted');
+  if (muted) muted.textContent = done + ' / ' + total;
+  const pctEl = document.querySelector('.td-prog-pct');
+  if (pctEl) pctEl.textContent = pct + '%';
+  const fill = document.querySelector('.td-prog-fill');
+  if (fill) fill.style.width = pct + '%';
 }
 
 async function syncDetailTask() {
