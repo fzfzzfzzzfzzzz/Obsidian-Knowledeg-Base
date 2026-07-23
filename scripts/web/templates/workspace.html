@@ -184,12 +184,17 @@
       var cl = t.checklist || [];
       var clDone = cl.filter(function(x){return x.done;}).length;
       var clPct = cl.length ? Math.round(clDone/cl.length*100) : 0;
-      var clHtml = cl.length ? cl.map(function(it,i){
+      // 卡片里只显示前 3 项,避免 checklist 多时卡片过长;进度仍按全部计算
+      var clShow = cl.slice(0, 3);
+      var clHtml = cl.length ? clShow.map(function(it,i){
         return '<label class="ws-cl-item">'
           + '<input type="checkbox" class="ws-cl-check" data-item-id="'+esc(it.id)+'" '+(it.done?'checked':'')+'>'
           + '<span class="ws-cl-text'+(it.done?' done':'')+'">'+esc(it.text)+'</span>'
           + '</label>';
       }).join('') : '<div class="ws-empty">暂无 checklist</div>';
+      if (cl.length > 3) {
+        clHtml += '<a class="ws-cl-more" href="/task/'+esc(t.id)+'">还有 '+(cl.length-3)+' 项,查看全部 →</a>';
+      }
       var blockerHtml = t.blocker ? ('<div class="ws-info-row"><span class="ws-info-label">当前问题</span><span class="ws-info-val ws-info-danger">'+esc(t.blocker)+'</span></div>') : '';
       var relHtml = t.related_source || t.project
         ? ('<a class="ws-meta-link" href="'+(t.related_source ? ('/summary/'+esc(t.related_source)) : '/tasks')+'">查看关联项目 →</a>')
@@ -225,6 +230,11 @@
         + '</div>';
       setBody('ws-current-task', html);
       bindCurrentTask(t.id);
+      // 首次渲染:进度条从 0 增长到目标宽度,营造动态效果
+      requestAnimationFrame(function(){
+        var bar = document.querySelector('.ws-task-progress-bar');
+        if(bar && clPct > 0){ bar.style.width = '0%'; requestAnimationFrame(function(){ bar.style.width = clPct + '%'; }); }
+      });
     }).catch(function(){ setBody('ws-current-task', emptyHTML('加载失败')); });
   }
 
@@ -294,10 +304,16 @@
         var urgency = '';
         if(x.date === todayStr) urgency = '<span class="ws-tl-urgent">今天</span>';
         else if(x.date < todayStr) urgency = '<span class="ws-tl-urgent overdue">已逾期</span>';
-        return '<a class="ws-tl-card" href="'+esc(x.href)+'" style="--ev:'+c+'">'
-          + '<div class="ws-tl-top"><span class="ws-tl-dot"></span><span class="ws-tl-date">'+esc(fmtDate(x.date))+'</span>'+urgency+'</div>'
-          + '<div class="ws-tl-title">'+esc(x.title)+'</div>'
-          + '<div class="ws-tl-bottom"><span class="ws-tl-icon">'+icon+'</span><span class="ws-tl-cat" style="--ev:'+c+'">'+esc(x.cat||'其他')+'</span></div>'
+        return '<a class="ws-tl-node" href="'+esc(x.href)+'" style="--ev:'+c+'">'
+          + '<div class="ws-tl-head">'
+            + '<span class="ws-tl-date">'+esc(fmtDate(x.date))+'</span>'
+            + urgency
+          + '</div>'
+          + '<div class="ws-tl-axis"><span class="ws-tl-dot"></span></div>'
+          + '<div class="ws-tl-body">'
+            + '<div class="ws-tl-title">'+esc(x.title)+'</div>'
+            + '<div class="ws-tl-cat"><span class="ws-tl-icon">'+icon+'</span>'+esc(x.cat||'其他')+'</div>'
+          + '</div>'
           + '</a>';
       }).join('') + '</div>';
       setBody('ws-timeline', html);
