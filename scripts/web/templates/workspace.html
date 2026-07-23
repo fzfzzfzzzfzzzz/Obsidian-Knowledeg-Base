@@ -12,7 +12,6 @@
     <div class="ws-search">
       <svg class="ws-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
       <input type="text" id="wsSearchInput" placeholder="搜索 Idea、笔记、内容…" aria-label="搜索">
-      <span class="ws-search-kbd">⌘ K</span>
     </div>
     <a class="ws-submit" href="/submit" title="投稿">＋</a>
     <button class="ws-notify" id="wsNotify" aria-label="通知">
@@ -97,7 +96,6 @@
             <a class="ws-quick-item" href="/events#new"><span class="ws-quick-icon">📌</span><span>新建事件</span></a>
             <a class="ws-quick-item" href="/submit"><span class="ws-quick-icon">✍️</span><span>投稿</span></a>
           </div>
-          <a class="ws-quick-more" href="/kb">更多工具与功能 →</a>
         </div>
       </section>
     </div>
@@ -115,7 +113,6 @@
         <div class="ws-stat"><span class="ws-stat-num" id="rs-unread">0</span><span class="ws-stat-label">未读</span></div>
         <div class="ws-stat"><span class="ws-stat-num" id="rs-read">0</span><span class="ws-stat-label">已读</span></div>
         <div class="ws-stat"><span class="ws-stat-num" id="rs-progress">0%</span><span class="ws-stat-label">完成进度</span></div>
-        <div class="ws-stat"><span class="ws-stat-num" id="rs-ideas">0</span><span class="ws-stat-label">Idea 待看</span></div>
       </div>
       <div class="ws-articles" id="ws-recommend-body">
         <div class="ws-placeholder">加载中...</div>
@@ -203,8 +200,10 @@
             + '<h3 class="ws-task-title">'+esc(t.title)+'</h3>'
             + (t.project ? '<div class="ws-task-project">所属项目：'+esc(t.project)+'</div>' : '')
             + '<div class="ws-task-progress">'
-              + '<div class="ws-task-progress-bar" style="width:'+clPct+'%"></div>'
-              + '<span class="ws-task-progress-text">'+clDone+' / '+cl.length+'</span>'
+              + '<div class="ws-task-progress-track">'
+                + '<div class="ws-task-progress-bar" style="width:'+clPct+'%"></div>'
+              + '</div>'
+              + '<span class="ws-task-progress-text">'+clPct+'% &nbsp;'+clDone+' / '+cl.length+'</span>'
             + '</div>'
             + '<div class="ws-checklist">'+clHtml+'</div>'
           + '</div>'
@@ -247,16 +246,28 @@
       cb.addEventListener('change', function(){
         var done = cb.checked;
         var itemId = cb.dataset.itemId;
+        updateProgressLive(done ? 1 : -1);
         fetch('/api/tasks/'+esc(taskId)+'/checklist/'+esc(itemId), {
           method:'PATCH', headers:{'Content-Type':'application/json'},
           body: JSON.stringify({done: done})
         }).then(function(r){ if(!r.ok) throw new Error('更新失败');
           var span = cb.parentElement.querySelector('.ws-cl-text');
           if(span) span.classList.toggle('done', done);
-          loadCurrentTask();
-        }).catch(function(e){ cb.checked = !done; toast(e.message || '更新失败'); });
+        }).catch(function(e){ cb.checked = !done; updateProgressLive(done ? -1 : 1); toast(e.message || '更新失败'); });
       });
     });
+  }
+
+  // 即时更新进度条宽度(±1 个已完成项),让 width 过渡动画在勾选时实时播放
+  function updateProgressLive(delta){
+    var bar = document.querySelector('.ws-task-progress-bar');
+    var text = document.querySelector('.ws-task-progress-text');
+    var checks = document.querySelectorAll('.ws-cl-check');
+    if(!bar || !checks.length) return;
+    var done = Array.prototype.filter.call(checks, function(c){return c.checked;}).length;
+    var pct = Math.round(done/checks.length*100);
+    bar.style.width = pct + '%';
+    if(text) text.textContent = pct + '% \u00a0' + done + ' / ' + checks.length;
   }
 
   // ---- 今日时间线(横向) ----
@@ -353,19 +364,14 @@
 
   // ---- 推荐阅读 ----
   function loadRecommend(){
-    Promise.all([
-      fetch('/api/dashboard_full').then(function(r){return r.json();}).catch(function(){return {unread:[],read:[]};}),
-      fetch('/api/ideas').then(function(r){return r.json();}).catch(function(){return {items:[]};})
-    ]).then(function(res){
-      var unread = res[0].unread || [];
-      var read = res[0].read || [];
+    fetch('/api/dashboard_full').then(function(r){return r.json();}).catch(function(){return {unread:[],read:[]};}).then(function(d){
+      var unread = d.unread || [];
+      var read = d.read || [];
       var total = unread.length + read.length;
       var progress = total ? Math.round(read.length/total*100) : 0;
-      var ideas = (res[1].items||[]).filter(function(x){return x.status==='pending_review';});
       document.getElementById('rs-unread').textContent = unread.length;
       document.getElementById('rs-read').textContent = read.length;
       document.getElementById('rs-progress').textContent = progress + '%';
-      document.getElementById('rs-ideas').textContent = ideas.length;
 
       var items = unread.slice(0,5);
       if(!items.length){ setBody('ws-recommend-body', emptyHTML('没有未读文章,去 /kb 看全部')); return; }
@@ -391,13 +397,7 @@
     }).catch(function(){ setBody('ws-recommend-body', emptyHTML('加载失败')); });
   }
 
-  // ---- 搜索快捷键 ----
-  document.addEventListener('keydown', function(e){
-    if((e.metaKey || e.ctrlKey) && e.key === 'k'){
-      var input = document.getElementById('wsSearchInput');
-      if(input){ e.preventDefault(); input.focus(); }
-    }
-  });
+  // 搜索框 Enter 提交(⌘K 装饰已移除)
   var searchInput = document.getElementById('wsSearchInput');
   if(searchInput){
     searchInput.addEventListener('keydown', function(e){
@@ -410,6 +410,18 @@
 
   // 暴露给 app.js 的抽屉/切换逻辑刷新
   window.loadCurrentTask = loadCurrentTask;
+
+  // ---- 推荐阅读栏 收起/展开 ----
+  var railBtn = document.getElementById('wsRailCollapse');
+  if (railBtn) {
+    railBtn.onclick = function () {
+      var card = railBtn.closest('.ws-rail-card');
+      if (!card) return;
+      var collapsed = card.classList.toggle('is-collapsed');
+      railBtn.textContent = collapsed ? '展开 ↓' : '收起 ↑';
+      railBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+    };
+  }
 
   // 初始化加载
   loadCurrentTask();

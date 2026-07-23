@@ -2629,7 +2629,7 @@ section.card-soft { margin-bottom: var(--sp-6); }
 .cl-list { display: flex; flex-direction: column; gap: var(--sp-1); margin-bottom: var(--sp-2); }
 .cl-row { display: flex; align-items: center; gap: var(--sp-2); }
 .cl-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--c-primary); flex-shrink: 0; }
-.cl-row .cl-text { flex: 1; min-width: 0; }
+.cl-row .cl-text { flex: 1; min-width: 0; width: auto; }
 .cl-row .icon-btn { flex-shrink: 0; }
 .cal-form-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
 
@@ -2647,7 +2647,7 @@ section.card-soft { margin-bottom: var(--sp-6); }
   display: block; font-size: var(--fs-sm); font-weight: 600; margin-bottom: var(--sp-2);
 }
 .task-edit-form .te-field .required { color: var(--c-danger); }
-.task-edit-form .te-field input,
+.task-edit-form .te-field input:not([type="checkbox"]):not(.cl-text),
 .task-edit-form .te-field select,
 .task-edit-form .te-field textarea {
   width: 100%; padding: 10px 12px; border: 1px solid var(--c-border);
@@ -2662,9 +2662,9 @@ section.card-soft { margin-bottom: var(--sp-6); }
 }
 .te-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
 .te-title-input { font-size: var(--fs-lg) !important; font-weight: 600; }
-/* 正文区:大且可纵向拉伸,支持写长文 */
+/* 正文区:可纵向拉伸,默认高度压缩为原来的 1/3(用户可按需拉高) */
 .te-body-input {
-  min-height: 360px !important;
+  min-height: 120px !important;
   resize: vertical;
   line-height: 1.7;
   font-family: var(--font-mono, inherit);
@@ -2763,6 +2763,37 @@ body { position: relative; }
   border-right: 1px solid var(--glass-border);
   z-index: 200;
 }
+
+/* ---------- 深色:侧栏玻璃质感(显式锁定,确保不被任何层叠覆盖) ---------- */
+[data-theme="dark"] .sidebar {
+  background: rgba(10,6,28,0.72);
+  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
+  border-right: 1px solid var(--glass-border);
+}
+
+/* ---------- 浅色主题:侧栏改为干净的白色导航(只作用于浅色,不动暗色) ---------- */
+:root:not([data-theme="dark"]) .sidebar {
+  background: var(--c-surface);
+  border-right: 1px solid var(--c-border);
+  box-shadow: var(--shadow-sm);
+}
+:root:not([data-theme="dark"]) .nav-brand { color: var(--c-text); }
+:root:not([data-theme="dark"]) .sb-link { color: var(--c-text); }
+:root:not([data-theme="dark"]) .sb-link:hover {
+  color: var(--c-text);
+  background: var(--c-surface-2);
+}
+:root:not([data-theme="dark"]) .sb-link.active {
+  color: var(--c-primary);
+  background: color-mix(in srgb, var(--c-primary) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--c-primary) 22%, transparent);
+}
+:root:not([data-theme="dark"]) .nav-close:hover {
+  color: var(--c-text);
+  background: var(--c-surface-2);
+}
+
 .sidebar-brand { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
 .nav-brand { font-weight: 700; font-size: var(--fs-lg); color: var(--c-text); text-decoration: none; white-space: nowrap; }
 .nav-close {
@@ -2792,18 +2823,6 @@ body { position: relative; }
 }
 
 .sidebar-foot { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: auto; }
-.sidebar-promo {
-  display: flex; align-items: flex-start; gap: var(--sp-3);
-  padding: var(--sp-3); border-radius: var(--r-md);
-  background: var(--aurora-grad); color: #0b0322;
-}
-.sidebar-promo .promo-ico { font-size: 22px; flex-shrink: 0; }
-.promo-body { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; flex: 1; }
-.promo-text { display: flex; flex-direction: column; line-height: 1.3; min-width: 0; }
-.promo-text strong { font-size: var(--fs-sm); }
-.promo-text small { font-size: 11px; opacity: 0.8; }
-.promo-btn { align-self: flex-start; padding: 6px 12px; border-radius: var(--r-sm); border: none; background: rgba(11,3,34,0.12); color: #0b0322; font-size: 12px; font-weight: 600; cursor: pointer; }
-.promo-btn:hover { background: rgba(11,3,34,0.2); }
 .sidebar-actions { display: flex; gap: var(--sp-2); }
 .sidebar-actions .theme-toggle,
 .sidebar-actions .nav-shutdown { margin-left: 0; flex: 1; }
@@ -2826,7 +2845,6 @@ body { position: relative; }
 }
 @media (max-width: 640px) {
   .container { padding: var(--sp-5) var(--sp-4) var(--sp-10); padding-top: calc(var(--sp-6) + 52px); }
-  .sidebar-promo { display: none; }
 }
 
 /* ---------- 深色:玻璃质感统一覆盖(表面类元素加毛玻璃) ---------- */
@@ -3051,11 +3069,19 @@ body { position: relative; }
   display: flex; align-items: center; gap: var(--sp-3);
   margin-bottom: var(--sp-4);
 }
-.ws-task-progress-bar {
-  flex: 1; height: 6px; border-radius: var(--r-pill);
-  background: linear-gradient(90deg, var(--c-primary), var(--c-accent));
+.ws-task-progress-track {
+  flex: 1; height: 8px; border-radius: var(--r-pill);
+  background: var(--c-surface-2);
+  overflow: hidden;
 }
-.ws-task-progress-text { font-size: var(--fs-xs); color: var(--c-text-muted); font-variant-numeric: tabular-nums; }
+.ws-task-progress-bar {
+  height: 100%; width: 0;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--c-primary), var(--c-accent));
+  box-shadow: 0 0 8px rgba(122, 162, 255, 0.35);
+  transition: width 600ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ws-task-progress-text { font-size: var(--fs-xs); color: var(--c-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .ws-checklist { display: flex; flex-direction: column; gap: var(--sp-2); }
 .ws-cl-item {
@@ -3078,7 +3104,6 @@ body { position: relative; }
   font-size: var(--fs-xs); font-weight: 600;
 }
 .ws-meta-pill.status { background: color-mix(in srgb, var(--st, var(--c-primary)) 16%, var(--c-surface)); color: var(--st, var(--c-primary)); }
-.ws-meta-pill.priority { background: color-mix(in srgb, var(--c-warning) 16%, var(--c-surface)); color: var(--c-warning); }
 .ws-task-info { display: flex; flex-direction: column; gap: var(--sp-3); }
 .ws-info-row { display: flex; flex-direction: column; gap: 2px; }
 .ws-info-label { font-size: 11px; color: var(--c-text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
@@ -3173,12 +3198,13 @@ body { position: relative; }
 
 .ws-quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-3); }
 .ws-quick-item {
-  display: flex; align-items: center; gap: var(--sp-2);
-  padding: var(--sp-3);
+  display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-md);
   background: var(--c-surface-2);
   border: 1px solid var(--c-border);
-  text-decoration: none; color: var(--c-text); font-size: var(--fs-sm);
+  text-decoration: none; color: var(--c-text); font-size: var(--fs-xs);
+  white-space: nowrap;
   transition: border-color var(--t-fast), background var(--t-fast);
 }
 .ws-quick-item:hover { border-color: var(--c-border-strong); background: color-mix(in srgb, var(--c-primary) 6%, var(--c-surface-2)); }
@@ -3209,6 +3235,10 @@ body { position: relative; }
 .ws-rail-title { margin: 0; font-size: var(--fs-lg); font-weight: 700; }
 .ws-rail-collapse { font-size: var(--fs-xs); color: var(--c-text-muted); background: transparent; border: none; cursor: pointer; }
 .ws-rail-collapse:hover { color: var(--c-text); }
+/* 收起状态:隐藏统计与文章列表,只留标题栏 + 按钮 */
+.ws-rail-card.is-collapsed .ws-reading-stats,
+.ws-rail-card.is-collapsed .ws-articles,
+.ws-rail-card.is-collapsed .ws-rail-more { display: none; }
 
 .ws-reading-stats {
   display: grid;
@@ -3392,7 +3422,6 @@ body { position: relative; }
 #rs-unread { color: var(--c-primary); }
 
 /* 进度条渐变更鲜明 */
-.ws-task-progress-bar,
 .ws-progress-bar {
   background: linear-gradient(90deg, var(--c-primary), var(--c-accent));
   box-shadow: 0 0 8px rgba(122, 162, 255, 0.35);
@@ -3405,5 +3434,77 @@ body { position: relative; }
 .suggestion-card .suggestion-body { margin-top: var(--sp-2); font-size: var(--fs-xs); }
 .suggestion-card .suggestion-body p { margin: 4px 0; }
 .suggestion-card .suggestion-body h4 { font-size: var(--fs-xs); margin: var(--sp-2) 0 2px; }
+
+
+/* ============================================================
+   33. 暗色模式对比度修复层(置于末尾,层叠优先级最高)
+   根因:Ardot 暗色把 primary / success / warning / danger 改为浅色强调色,
+   但按钮、徽章、日历事件块仍写死 white 文字,造成"浅底白字"看不清。
+   修复方式:暗色下给这些元素叠加一层暗色内阴影压暗背景,使白字对比度
+   全面达到 WCAG AA(含黄/浅绿等低对比底色),无需逐色切换文字色
+   (否则蓝底会反成"深字深底")。仅作用于 [data-theme="dark"]。
+   排除 .sb-link.active(深紫渐变底白字本身已≈13:1,保留原观感)。
+   ============================================================ */
+
+/* 第一段暗色块未定义 --c-text-soft,补上避免副标题/占位符黑字黑底 */
+[data-theme="dark"] {
+  --c-text-soft: #c9c9e8;
+}
+
+/* 浅色/中等明度强调底 + 白字:压暗背景以保白字可读 */
+[data-theme="dark"] .btn-accept,
+[data-theme="dark"] .btn-danger:hover,
+[data-theme="dark"] .btn-warn:hover,
+[data-theme="dark"] .icon-btn.active-rl,
+[data-theme="dark"] .icon-btn.active-fav,
+[data-theme="dark"] .icon-btn-danger:hover,
+[data-theme="dark"] .detail-action-btn.active-rl,
+[data-theme="dark"] .detail-action-btn.active-fav,
+[data-theme="dark"] .cal-list-del:hover,
+[data-theme="dark"] .cal-today-badge,
+[data-theme="dark"] .tl-today-tag,
+[data-theme="dark"] .cal-day-item,
+[data-theme="dark"] .tl-item-cat,
+[data-theme="dark"] .tk-status-badge,
+[data-theme="dark"] .skip-link,
+[data-theme="dark"] .status-pending_review,
+[data-theme="dark"] .status-accepted_research,
+[data-theme="dark"] .status-accepted_productivity,
+[data-theme="dark"] .status-accepted_weekly,
+[data-theme="dark"] .status-accepted_monthly,
+[data-theme="dark"] .status-accepted_someday,
+[data-theme="dark"] .status-rejected,
+[data-theme="dark"] .status-archived {
+  box-shadow: inset 0 0 0 999px rgba(15, 23, 42, 0.5);
+}
+
+/* .status-moved 为深底 + 浅字,本身已达标,不叠加(保持原样) */
+
+/* ============================================================
+   34. 深色模式下拉框(select)对比度修复
+   根因:Ardot 玻璃版把 --c-surface 设为半透明白、--c-text 设为浅色,
+   原生 <select> 的 option 下拉列表背景由浏览器决定(默认白底),
+   文字却继承浅色,造成"白底 + 淡灰字"看不清。
+   修复:深色下给 select 折叠态与 option 列表统一设为不透明深色底 + 浅色字,
+   仅作用于 [data-theme="dark"];浅色主题与文本框(input)不受影响。
+   ============================================================ */
+
+[data-theme="dark"] select {
+  background-color: #141226;            /* 不透明深紫黑,与 Ardot 玻璃协调 */
+  color: #ececff;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+[data-theme="dark"] select option {
+  background-color: #141226;
+  color: #ececff;
+}
+[data-theme="dark"] select option:checked,
+[data-theme="dark"] select option:hover {
+  background-color: #2c2950;
+  color: #ffffff;
+}
+
+/* v0.4.15: 任务网格卡片顶部对齐,避免高度差导致 grid 列分布不均(1-1-4 畸形布局) */
+#task-grid { align-items: start; }
 
 
