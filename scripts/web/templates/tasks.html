@@ -83,9 +83,9 @@ function renderTaskCard(t) {
   const dlClass = dl && dl < tkTodayStr ? 'tk-dl-overdue' : (dl && dl <= tkTodayStr ? 'tk-dl-today' : '');
   const dlText = dl ? (dl < tkTodayStr ? '⚠ ' : '') + dl : '无截止';
   const prog = checklistProgress(t.checklist);
-  const blockerHtml = t.blocker ? '<div class="tk-blocker">⛔ ' + escapeHtml(t.blocker) + '</div>' : '';
+  // v0.4.14: blocker(当前问题)不在列表卡片显示,只在详情页和编辑模态框可见
   const desc = t.body && t.body.trim() && t.body.trim() !== '（暂无描述）'
-    ? '<div class="tk-desc">' + escapeHtml(t.body.trim().slice(0, 100)) + (t.body.length > 100 ? '…' : '') + '</div>' : '';
+    ? '<div class="tk-desc">' + escapeHtml(t.body.trim().slice(0, 100)) + (t.body.length > 100 ? '…' : '') : '';
   return '<div class="task-card" style="--tk-cat:'+catColor+'">'
     + '<div class="tk-card-header">'
       + '<span class="tk-status-badge" style="background:'+sm.color+'">'+sm.icon+' '+sm.label+'</span>'
@@ -97,7 +97,6 @@ function renderTaskCard(t) {
       + (prog ? '<span class="tk-prog">✓ '+prog+'</span>' : '')
     + '</div>'
     + desc
-    + blockerHtml
     + '<div class="tk-card-actions">'
       + '<a class="icon-btn" title="编辑" href="/task/'+encodeURIComponent(t.id)+'/edit">✏</a>'
       + (dl ? '<button class="icon-btn" title="同步到日历" onclick="syncTask(\''+t.id+'\')">📅</button>' : '')
@@ -130,7 +129,7 @@ async function deleteTask(id) {
 async function openTaskForm(opts) {
   opts = opts || {};
   const isEdit = opts.mode === 'edit';
-  let task = { title:'', category:'开发', project:'', status:'active', priority:'', deadline:'', blocker:'', body:'', checklist:[] };
+  let task = { title:'', category:'开发', project:'', status:'active', deadline:'', blocker:'', body:'', checklist:[] };
   if (isEdit) {
     try {
       const r = await fetch('/api/tasks/'+opts.id);
@@ -154,9 +153,6 @@ async function openTaskForm(opts) {
     + '<div class="cal-form-row2">'
       + '<div class="cal-form-field"><label>状态</label><select id="tk-status" class="search-input">'
         + ['active','done','blocked','archived'].map(s => '<option value="'+s+'"'+(s===task.status?' selected':'')+'>'+(TK_STATUS_META[s]||{label:s}).label+'</option>').join('')
-      + '</select></div>'
-      + '<div class="cal-form-field"><label>优先级</label><select id="tk-priority" class="search-input">'
-        + ['','P0','P1','P2','P3'].map(p => '<option value="'+p+'"'+(p===(task.priority||'')?' selected':'')+'>'+(p||'未设置')+'</option>').join('')
       + '</select></div>'
     + '</div>'
     + '<div class="cal-form-row2">'
@@ -224,7 +220,6 @@ async function saveTask(opts, btn, isEdit) {
     project: document.getElementById('tk-project').value,
     category: document.getElementById('tk-category').value,
     status: document.getElementById('tk-status').value,
-    priority: document.getElementById('tk-priority').value,
     deadline: document.getElementById('tk-deadline').value,
     blocker: document.getElementById('tk-blocker').value,
     body: document.getElementById('tk-body').value,
@@ -249,6 +244,13 @@ async function saveTask(opts, btn, isEdit) {
 }
 
 // 启动
-loadTasks('active');
+(function init() {
+  loadTasks('active');
+  // 支持 #new 直接打开新建表单(从工作台常用入口跳来)
+  if (location.hash === '#new') {
+    openTaskForm({ mode: 'create', onSaved: refreshTasks });
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+})();
 </script>
 {% endblock %}

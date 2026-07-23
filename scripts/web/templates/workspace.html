@@ -92,12 +92,12 @@
         </div>
         <div class="ws-card-body" id="ws-quick-access">
           <div class="ws-quick-grid">
-            <a class="ws-quick-item" href="/ideas"><span class="ws-quick-icon">💡</span><span>新建 Idea</span></a>
-            <a class="ws-quick-item" href="/kb"><span class="ws-quick-icon">📚</span><span>打开笔记库</span></a>
-            <a class="ws-quick-item" href="/recent"><span class="ws-quick-icon">📖</span><span>阅读列表</span></a>
-            <a class="ws-quick-item" href="/kb"><span class="ws-quick-icon">🕸️</span><span>知识图谱</span></a>
+            <a class="ws-quick-item" href="/tasks#new"><span class="ws-quick-icon">✅</span><span>新建任务</span></a>
+            <a class="ws-quick-item" href="/recent"><span class="ws-quick-icon">📖</span><span>最近阅读</span></a>
+            <a class="ws-quick-item" href="/events#new"><span class="ws-quick-icon">📌</span><span>新建事件</span></a>
+            <a class="ws-quick-item" href="/submit"><span class="ws-quick-icon">✍️</span><span>投稿</span></a>
           </div>
-          <a class="ws-quick-more" href="/submit">更多工具与功能 →</a>
+          <a class="ws-quick-more" href="/kb">更多工具与功能 →</a>
         </div>
       </section>
     </div>
@@ -194,7 +194,6 @@
           + '</label>';
       }).join('') : '<div class="ws-empty">暂无 checklist</div>';
       var blockerHtml = t.blocker ? ('<div class="ws-info-row"><span class="ws-info-label">当前问题</span><span class="ws-info-val ws-info-danger">'+esc(t.blocker)+'</span></div>') : '';
-      var priorityHtml = t.priority ? ('<span class="ws-meta-pill priority">'+esc(t.priority)+'</span>') : '';
       var relHtml = t.related_source || t.project
         ? ('<a class="ws-meta-link" href="'+(t.related_source ? ('/summary/'+esc(t.related_source)) : '/tasks')+'">查看关联项目 →</a>')
         : '';
@@ -212,7 +211,6 @@
           + '<div class="ws-task-side">'
             + '<div class="ws-task-meta">'
               + '<span class="ws-meta-pill status" style="--st:'+sm.color+'">'+sm.label+'</span>'
-              + priorityHtml
             + '</div>'
             + '<div class="ws-task-info">'
               + '<div class="ws-info-row '+dlClass+'"><span class="ws-info-label">截止日期</span><span class="ws-info-val">'+esc(dlText)+'</span></div>'

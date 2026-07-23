@@ -352,5 +352,10 @@
 
   // 初始化
   loadEvents('upcoming');
+  // 支持 #new 直接打开新建表单(从工作台常用入口跳来)
+  if (location.hash === '#new') {
+    openEventForm({ mode: 'create', onSaved: refreshEvents });
+    history.replaceState(null, '', location.pathname + location.search);
+  }
 </script>
 {% endblock %}
