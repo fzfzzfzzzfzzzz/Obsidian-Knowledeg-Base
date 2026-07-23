@@ -249,6 +249,16 @@ async function saveTask(opts, btn, isEdit) {
 }
 
 // 启动
-loadTasks('active');
+(function init() {
+  loadTasks('active');
+  // 支持从任务详情抽屉的「✏ 编辑」链接跳转过来后自动打开编辑表单
+  // 链接形如 /tasks#edit=<task_id>,这里读取 hash 触发 openTaskForm
+  const m = /^#edit=(.+)$/.exec(location.hash);
+  if (m) {
+    openTaskForm({ mode: 'edit', id: decodeURIComponent(m[1]), onSaved: refreshTasks });
+    // 清掉 hash,避免刷新/返回时重复弹出
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+})();
 </script>
 {% endblock %}
