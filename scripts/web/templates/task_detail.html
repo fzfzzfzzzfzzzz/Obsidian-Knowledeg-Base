@@ -58,7 +58,7 @@ function renderDetail(t) {
     + '</div>'
     + '<h1 class="td-title">'+escapeHtml(t.title)+'</h1>'
     + '<div class="td-actions">'
-      + '<button class="btn btn-sm" onclick="openTaskForm({mode:\'edit\', id:TASK_ID, onSaved: loadTaskDetail})">✏ 编辑</button>'
+      + '<a class="btn btn-sm" href="/task/'+encodeURIComponent(TASK_ID)+'/edit">✏ 编辑</a>'
       + (dl ? '<button class="btn btn-sm" id="td-sync">📅 同步到日历</button>' : '')
       + '<button class="btn btn-sm btn-danger" id="td-delete">🗑 删除</button>'
     + '</div>'
@@ -124,14 +124,6 @@ async function deleteDetailTask() {
     toast('已删除', 'success');
     setTimeout(() => location.href = '/tasks', 600);
   } catch(e) { toast(e.message); }
-}
-
-// 复用 tasks.html 的 openTaskForm 不行(不同页),这里内联精简版编辑入口
-// 直接跳回列表页编辑更简单,但为了一致性,这里提供轻量模态
-async function openTaskForm(opts) {
-  // 跳转列表页并在 hash 带上编辑指令(列表页 openTaskForm 会处理)
-  // 简化:详情页编辑按钮直接导向列表页的编辑模态
-  location.href = '/tasks#edit=' + encodeURIComponent(opts.id);
 }
 
 loadTaskDetail();

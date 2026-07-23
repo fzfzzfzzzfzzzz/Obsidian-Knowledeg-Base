@@ -1524,7 +1524,7 @@ if (document.readyState === 'loading') {
         + (t.project ? '<p style="color:var(--c-text-muted);margin:0 0 var(--sp-3)">所属项目: ' + escapeHtml(t.project) + '</p>' : '')
         + '<div class="td-actions">'
           + '<a class="btn btn-primary" href="/task/' + encodeURIComponent(t.id) + '">进入任务页面</a>'
-          + '<a class="btn btn-sm" href="/tasks#edit=' + encodeURIComponent(t.id) + '">✏ 编辑</a>'
+          + '<a class="btn btn-sm" href="/task/' + encodeURIComponent(t.id) + '/edit">✏ 编辑</a>'
           + (t.deadline ? '<button class="btn btn-sm" id="drawer-sync">📅 同步到日历</button>' : '')
         + '</div>'
         + blockerHtml

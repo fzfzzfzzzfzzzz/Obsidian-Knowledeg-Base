@@ -56,6 +56,20 @@ async def page_task_detail(task_id: str, request: Request):
     )
 
 
+@router.get("/task/{task_id}/edit", response_class=HTMLResponse)
+async def page_task_edit(task_id: str, request: Request):
+    """任务全页编辑器(编辑已有任务用,适合写详细内容)。"""
+    if templates is None:
+        return HTMLResponse("templates 目录不存在", 500)
+    path = kb._find_task_file(task_id)
+    if path is None:
+        raise HTTPException(404, f"找不到任务:{task_id}")
+    return templates.TemplateResponse(
+        request, "task_edit.html",
+        {"active_nav": "tasks", "task_id": task_id},
+    )
+
+
 @router.get("/api/tasks")
 async def api_tasks_list():
     """所有任务(按 deadline 升序)。前端按 status 自行筛选。"""

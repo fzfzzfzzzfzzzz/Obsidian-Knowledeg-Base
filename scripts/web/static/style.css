@@ -2633,6 +2633,45 @@ section.card-soft { margin-bottom: var(--sp-6); }
 .cl-row .icon-btn { flex-shrink: 0; }
 .cal-form-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
 
+/* ---------- 任务全页编辑器(/task/{id}/edit) ---------- */
+/* 宽敞表单:居中、限宽,正文区用大 textarea 方便写详细内容 */
+.task-edit-form {
+  max-width: 820px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.task-edit-form .te-field { margin-bottom: 0; }
+.task-edit-form .te-field > label {
+  display: block; font-size: var(--fs-sm); font-weight: 600; margin-bottom: var(--sp-2);
+}
+.task-edit-form .te-field .required { color: var(--c-danger); }
+.task-edit-form .te-field input,
+.task-edit-form .te-field select,
+.task-edit-form .te-field textarea {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--c-border);
+  border-radius: var(--r-sm); background: var(--c-surface); color: var(--c-text);
+  font-size: var(--fs-base); font-family: inherit;
+}
+.task-edit-form .te-field input:focus,
+.task-edit-form .te-field select:focus,
+.task-edit-form .te-field textarea:focus {
+  outline: none; border-color: var(--c-primary);
+  box-shadow: 0 0 0 3px var(--c-focus);
+}
+.te-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+.te-title-input { font-size: var(--fs-lg) !important; font-weight: 600; }
+/* 正文区:大且可纵向拉伸,支持写长文 */
+.te-body-input {
+  min-height: 360px !important;
+  resize: vertical;
+  line-height: 1.7;
+  font-family: var(--font-mono, inherit);
+}
+.te-actions { display: flex; gap: var(--sp-3); justify-content: flex-end; padding-top: var(--sp-3); border-top: 1px solid var(--c-border); }
+@media (max-width: 640px) { .te-row2 { grid-template-columns: 1fr; } }
+
 /* ============================================================
    28. 全站左侧边栏 + 玻璃拟态工作台(匹配 Ardot 设计)
    设计语言:深紫黑底 #030014 + 蓝/紫/青极光渐变 + 玻璃质感

@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}编辑任务 · 知识库{% endblock %}
+{% block content %}
+<div id="task-edit-root" class="task-edit">
+  <div class="loading">加载中...</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// 任务全页编辑器:加载已有任务 → 宽敞表单 → PATCH 保存 → 返回详情页
+const TASK_ID = "{{ task_id }}";
+
+async function loadTask() {
+  const root = document.getElementById('task-edit-root');
+  try {
+    const r = await fetch('/api/tasks/' + encodeURIComponent(TASK_ID));
+    if (!r.ok) { root.innerHTML = '<div class="error">加载失败(' + r.status + ')</div>'; return; }
+    const t = await r.json();
+    window._tkCl = (t.checklist || []).map(x => Object.assign({}, x));
+    renderForm(t);
+  } catch (e) {
+    root.innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+const TK_STATUS_LABEL = { active: '进行中', done: '已完成', blocked: '阻塞', archived: '已归档' };
+
+function renderForm(t) {
+  const clHtml = (window._tkCl || []).map((it, i) => checklistRow(it, i)).join('')
+    + '<div class="cl-empty muted" style="display:' + ((window._tkCl || []).length ? 'none' : 'block') + '">暂无子任务</div>';
+  document.getElementById('task-edit-root').innerHTML =
+    '<a href="/task/' + encodeURIComponent(TASK_ID) + '" class="back-link">← 返回详情</a>'
+    + '<h1 class="page-title">✏ 编辑任务</h1>'
+    + '<div class="task-edit-form">'
+      + '<div class="te-field">'
+        + '<label>标题 <span class="required">*</span></label>'
+        + '<input type="text" id="te-title" class="search-input te-title-input" value="' + escapeHtml(t.title) + '" maxlength="200">'
+      + '</div>'
+      + '<div class="te-row2">'
+        + '<div class="te-field"><label>所属项目</label><input id="te-project" class="search-input" placeholder="例如 AAAI-27" value="' + escapeHtml(t.project || '') + '"></div>'
+        + '<div class="te-field"><label>分类</label><select id="te-category" class="search-input">'
+          + ['开发', '调研', '写作', '阅读', '整理', '其他'].map(c => '<option' + (c === t.category ? ' selected' : '') + '>' + c + '</option>').join('')
+        + '</select></div>'
+      + '</div>'
+      + '<div class="te-row2">'
+        + '<div class="te-field"><label>状态</label><select id="te-status" class="search-input">'
+          + ['active', 'done', 'blocked', 'archived'].map(s => '<option value="' + s + '"' + (s === t.status ? ' selected' : '') + '>' + (TK_STATUS_LABEL[s] || s) + '</option>').join('')
+        + '</select></div>'
+        + '<div class="te-field"><label>优先级</label><select id="te-priority" class="search-input">'
+          + ['', 'P0', 'P1', 'P2', 'P3'].map(p => '<option value="' + p + '"' + (p === (t.priority || '') ? ' selected' : '') + '>' + (p || '未设置') + '</option>').join('')
+        + '</select></div>'
+      + '</div>'
+      + '<div class="te-row2">'
+        + '<div class="te-field"><label>截止日期</label><input id="te-deadline" type="date" class="search-input" value="' + escapeHtml(t.deadline || '') + '"></div>'
+        + '<div class="te-field"><label>当前问题/阻塞</label><input id="te-blocker" class="search-input" placeholder="卡在哪里?" value="' + escapeHtml(t.blocker || '') + '"></div>'
+      + '</div>'
+      + '<div class="te-field">'
+        + '<label>详细描述</label>'
+        + '<textarea id="te-body" class="search-input te-body-input" rows="16" placeholder="详细记录这个任务的背景、思路、进展、笔记…（支持 Markdown）">' + escapeHtml(t.body && t.body !== '（暂无描述）' ? t.body : '') + '</textarea>'
+      + '</div>'
+      + '<div class="te-field">'
+        + '<label>Checklist 子任务</label>'
+        + '<div id="te-checklist" class="cl-list">' + clHtml + '</div>'
+        + '<button class="btn btn-sm btn-secondary" id="te-add-cl" type="button">+ 添加子任务</button>'
+      + '</div>'
+      + '<div class="te-actions">'
+        + '<a class="btn btn-ghost" href="/task/' + encodeURIComponent(TASK_ID) + '">取消</a>'
+        + '<button class="btn btn-primary" id="te-save" type="button">💾 保存</button>'
+      + '</div>'
+    + '</div>';
+
+  document.getElementById('te-add-cl').onclick = addChecklistRow;
+  document.getElementById('te-save').onclick = saveTask;
+  // Ctrl/Cmd+S 快捷保存
+  document.addEventListener('keydown', teOnKeydown);
+}
+
+function teOnKeydown(e) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+    e.preventDefault();
+    const btn = document.getElementById('te-save');
+    if (btn && !btn.disabled) btn.click();
+  }
+}
+
+function checklistRow(it, i) {
+  return '<div class="cl-row" data-cli="' + i + '">'
+    + '<input type="checkbox" class="cl-done" ' + (it.done ? 'checked' : '') + ' onchange="toggleClRow(' + i + ', this.checked)">'
+    + '<input type="text" class="cl-text search-input" value="' + escapeHtml(it.text || '') + '" oninput="updateClText(' + i + ', this.value)" placeholder="子任务内容">'
+    + '<button class="icon-btn icon-btn-danger" type="button" onclick="removeClRow(' + i + ')">✕</button>'
+  + '</div>';
+}
+function renderChecklistEditor() {
+  const wrap = document.getElementById('te-checklist');
+  if (!wrap) return;
+  const cl = window._tkCl || [];
+  wrap.innerHTML = cl.map((it, i) => checklistRow(it, i)).join('')
+    + '<div class="cl-empty muted" style="display:' + (cl.length ? 'none' : 'block') + '">暂无子任务</div>';
+}
+function addChecklistRow() {
+  window._tkCl = window._tkCl || [];
+  window._tkCl.push({ id: 'cli_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), text: '', done: false });
+  renderChecklistEditor();
+}
+function toggleClRow(i, checked) { if (window._tkCl[i]) window._tkCl[i].done = checked; }
+function updateClText(i, val) { if (window._tkCl[i]) window._tkCl[i].text = val; }
+function removeClRow(i) { if (window._tkCl) { window._tkCl.splice(i, 1); renderChecklistEditor(); } }
+
+async function saveTask() {
+  const btn = document.getElementById('te-save');
+  const title = document.getElementById('te-title').value.trim();
+  if (!title) { toast('标题不能为空', 'error'); return; }
+  const payload = {
+    title,
+    project: document.getElementById('te-project').value,
+    category: document.getElementById('te-category').value,
+    status: document.getElementById('te-status').value,
+    priority: document.getElementById('te-priority').value,
+    deadline: document.getElementById('te-deadline').value,
+    blocker: document.getElementById('te-blocker').value,
+    body: document.getElementById('te-body').value,
+    checklist: (window._tkCl || []).filter(x => x.text && x.text.trim()),
+  };
+  btn.disabled = true; btn.textContent = '保存中...';
+  try {
+    const r = await fetch('/api/tasks/' + encodeURIComponent(TASK_ID), {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || '保存失败');
+    toast('✓ 已保存', 'success');
+    // 返回详情页
+    setTimeout(() => location.href = '/task/' + encodeURIComponent(TASK_ID), 400);
+  } catch (e) {
+    toast('保存失败:' + e.message, 'error');
+    btn.disabled = false; btn.textContent = '💾 保存';
+  }
+}
+
+loadTask();
+</script>
+{% endblock %}
