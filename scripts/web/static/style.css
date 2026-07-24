@@ -3082,9 +3082,20 @@ body { position: relative; }
 /* 今日时间线(横向) */
 .ws-timeline {}
 .ws-timeline-track {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(5, 1fr);
   gap: var(--sp-2);
+  /* 贯穿整条时间轴的横线:即使只有一个节点也完整连续。
+     top = 头部高度(20) + 头部下边距(8) + 轴高一半(9) = 37px */
+}
+.ws-timeline-track::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 37px;
+  height: 2px; transform: translateY(-50%);
+  background: var(--c-border);
+  z-index: 0;
 }
 /* 时间轴节点:日期(上) → 横线+圆点(中) → 内容(下),同一行所有节点共享一条横线 */
 .ws-tl-node {
@@ -3105,29 +3116,23 @@ body { position: relative; }
   color: var(--c-warning);
 }
 .ws-tl-urgent.overdue { background: color-mix(in srgb, var(--c-danger) 18%, var(--c-surface)); color: var(--c-danger); }
-/* 轴:横线贯穿 + 居中圆点 */
+/* 轴:圆点居中(横线由 .ws-timeline-track::before 统一绘制,贯穿全行) */
 .ws-tl-axis {
   position: relative;
   height: 18px;
   display: flex; align-items: center; justify-content: center;
-}
-.ws-tl-axis::before {
-  content: "";
-  position: absolute; left: 0; right: 0; top: 50%;
-  height: 2px; transform: translateY(-50%);
-  background: var(--c-border);
+  z-index: 1;
 }
 .ws-tl-dot {
   position: relative; z-index: 1;
   width: 12px; height: 12px; border-radius: 50%;
-  background: var(--ev, var(--c-primary));
-  border: 3px solid var(--c-bg);
-  box-shadow: 0 0 0 2px var(--ev, var(--c-primary));
+  background: #fff;
+  box-shadow: 0 0 0 3px var(--ev, var(--c-primary));
   transition: transform var(--t-fast), box-shadow var(--t-fast);
 }
 .ws-tl-node:hover .ws-tl-dot {
-  transform: scale(1.25);
-  box-shadow: 0 0 0 2px var(--ev, var(--c-primary)), 0 0 12px var(--ev, var(--c-primary));
+  transform: scale(1.2);
+  box-shadow: 0 0 0 3px var(--ev, var(--c-primary)), 0 0 10px color-mix(in srgb, var(--ev, var(--c-primary)) 60%, transparent);
 }
 /* 内容块(圆点下方) */
 .ws-tl-body {
@@ -3493,6 +3498,27 @@ body { position: relative; }
 [data-theme="dark"] .ws-current-task:hover,
 [data-theme="dark"] .ws-card:hover,
 [data-theme="dark"] .ws-rail-card:hover { box-shadow: 0 10px 32px rgba(0, 0, 0, 0.40); }
+
+/* v0.4.16: Lucide 图标全局尺寸对齐(替换全站 emoji,离线自托管) */
+/* <i data-lucide="x"> 被 lucide.createIcons() 转成 <svg>,这里统一尺寸 */
+.btn svg, .icon-btn svg, .tab svg, .nav-shutdown svg, .theme-toggle svg,
+.nav-toggle svg, .nav-close svg, .drawer-close svg, .brand-ico svg,
+.sb-ico svg, .page-title svg, .ws-quick-icon svg, .kb-subnav a svg,
+.tk-status-badge svg, .tk-date svg, .tk-prog svg, .td-back svg,
+.td-status-badge svg, .td-deadline-badge svg, .td-blocker-icon svg,
+.td-section-title svg, .td-meta-label svg, .warn-banner svg,
+.search-icon-wrap svg, .collection-name svg, .back-link svg {
+  width: 1em; height: 1em;
+  vertical-align: -0.125em;  /* 与文字基线对齐,避免错位 */
+  flex-shrink: 0;
+}
+/* sb-ico 导航图标固定 18px(与原内联 SVG 一致) */
+.sb-ico svg, .brand-ico svg { width: 18px; height: 18px; }
+/* 搜索框图标稍大 */
+.search-icon-wrap svg { width: 16px; height: 16px; }
+/* 按钮内图标 + 文字间距 */
+.btn svg { margin-right: 4px; }
+.btn:not(:has(svg)) svg { margin-right: 0; }
 
 /* 当前任务主卡:视觉焦点 —— 更大圆角 + 渐变描边光晕 */
 .ws-current-task {

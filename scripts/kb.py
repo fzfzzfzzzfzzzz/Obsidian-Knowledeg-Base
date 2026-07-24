@@ -2858,7 +2858,7 @@ def _format_task_file(meta: dict, body: str) -> str:
     if isinstance(cl, list):
         cl = json.dumps(cl, ensure_ascii=False)
     lines = ["---"]
-    for key in ("id", "title", "category", "project", "status", "priority",
+    for key in ("id", "title", "category", "project", "status",
                 "deadline", "blocker", "checklist",
                 "related_source", "synced_calendar_ids",
                 "created_at", "updated_at", "completed_at"):
@@ -2904,7 +2904,6 @@ def load_task_file(path: Path) -> dict:
         "category": meta.get("category", "其他").strip() or "其他",
         "project": meta.get("project", "").strip(),
         "status": meta.get("status", "active").strip() or "active",
-        "priority": meta.get("priority", "").strip(),
         "deadline": meta.get("deadline", "").strip(),
         "blocker": meta.get("blocker", "").strip(),
         "checklist": checklist,

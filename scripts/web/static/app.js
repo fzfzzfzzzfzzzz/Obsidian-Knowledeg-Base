@@ -264,11 +264,11 @@ function renderArticleCard(item) {
       </a>
       <div class="card-actions">
         <button class="icon-btn ${rl ? 'active-rl' : ''}" title="稍后阅读" aria-label="稍后阅读"
-          data-action="toggle-read-later" data-sid="${sid}">${rl ? '📖✓' : '📖'}</button>
+          data-action="toggle-read-later" data-sid="${sid}"><i data-lucide="bookmark"></i></button>
         <button class="icon-btn ${fav ? 'active-fav' : ''}" title="收藏" aria-label="收藏"
-          data-action="toggle-favorite" data-sid="${sid}">${fav ? '⭐✓' : '⭐'}</button>
+          data-action="toggle-favorite" data-sid="${sid}"><i data-lucide="star"></i></button>
         <button class="icon-btn icon-btn-danger" title="删除" aria-label="删除文章"
-          data-action="delete-article" data-sid="${sid}">🗑</button>
+          data-action="delete-article" data-sid="${sid}"><i data-lucide="trash-2"></i></button>
       </div>
     </div>
   `;
@@ -297,11 +297,11 @@ function renderArticleRow(item) {
       <span class="row-meta">${date}${readInfo ? ' · ' + readInfo : ''}</span>
       <div class="row-actions">
         <button class="icon-btn ${rl ? 'active-rl' : ''}" title="稍后阅读" aria-label="稍后阅读"
-          data-action="toggle-read-later" data-sid="${sid}">${rl ? '📖✓' : '📖'}</button>
+          data-action="toggle-read-later" data-sid="${sid}"><i data-lucide="bookmark"></i></button>
         <button class="icon-btn ${fav ? 'active-fav' : ''}" title="收藏" aria-label="收藏"
-          data-action="toggle-favorite" data-sid="${sid}">${fav ? '⭐✓' : '⭐'}</button>
+          data-action="toggle-favorite" data-sid="${sid}"><i data-lucide="star"></i></button>
         <button class="icon-btn icon-btn-danger" title="删除" aria-label="删除文章"
-          data-action="delete-article" data-sid="${sid}">🗑</button>
+          data-action="delete-article" data-sid="${sid}"><i data-lucide="trash-2"></i></button>
       </div>
     </div>
   `;
@@ -438,8 +438,9 @@ function updateDetailButtons(field, value) {
   if (!btn) return;
   btn.classList.toggle('active-rl', field === 'read_later' && value);
   btn.classList.toggle('active-fav', field === 'is_favorite' && value);
-  if (field === 'read_later') btn.textContent = value ? '📖✓ 已加入稍后读' : '📖 稍后阅读';
-  if (field === 'is_favorite') btn.textContent = value ? '⭐✓ 已收藏' : '⭐ 收藏';
+  if (field === 'read_later') btn.innerHTML = (value ? '<i data-lucide="bookmark-check"></i> 已加入稍后读' : '<i data-lucide="bookmark"></i> 稍后阅读');
+  if (field === 'is_favorite') btn.innerHTML = (value ? '<i data-lucide="star"></i> 已收藏' : '<i data-lucide="star"></i> 收藏');
+  if (window.refreshIcons) window.refreshIcons();
 }
 
 /* ====================== idea/todo 审阅 ====================== */
@@ -672,7 +673,7 @@ async function loadConfirmedTodos() {
       const key = groups[it.plan] ? it.plan : 'someday';
       groups[key].push(it);
     });
-    const labels = { weekly: '📅 Weekly(按周)', monthly: '📆 Monthly(按月)', someday: '🗓 Someday', completed: '✅ 已完成' };
+    const labels = { weekly: '<i data-lucide="calendar"></i> Weekly(按周)', monthly: '<i data-lucide="calendar-days"></i> Monthly(按月)', someday: '<i data-lucide="inbox"></i> Someday', completed: '<i data-lucide="check"></i> 已完成' };
     let html = '';
     for (const key of ['weekly', 'monthly', 'someday', 'completed']) {
       if (groups[key].length === 0) continue;
@@ -690,8 +691,8 @@ function renderFormalTodoCard(item, calItem) {
   // v0.4.6: 存全局 todoStore,点击时按 id 取回完整 item(替代 onclick=JSON.stringify 注入)
   if (item.id) window.todoStore.set(item.id, item);
   // v0.4.13: 已确定 todo 卡片简化——只留标题 + 完成状态 + 日历关联按钮
-  const doneBadge = item.done ? '<span class="tag" style="background:#dcfce7;color:#166534">✓ 已完成</span>'
-                              : '<span class="tag tag-area">☐ 待办</span>';
+  const doneBadge = item.done ? '<span class="tag" style="background:#dcfce7;color:#166534"><i data-lucide="check"></i> 已完成</span>'
+                              : '<span class="tag tag-area"><i data-lucide="circle"></i> 待办</span>';
   const itemId = escapeHtml(item.id || '');
   // 日历关联区:已加入显示日期+编辑,未加入显示「放入日历」按钮
   let calSection;
@@ -1050,11 +1051,11 @@ function openCalendarEventForm(opts) {
   // v0.4.2: 类别选择器(预设 6 类 + 自定义)
   const CAT_PRESETS = [
     { value: 'todolist', icon: '📋', label: 'todolist', color: '#64748b' },
-    { value: '会议', icon: '📅', label: '会议', color: '#2563eb' },
-    { value: '财报', icon: '💰', label: '财报', color: '#16a34a' },
-    { value: '截止日期', icon: '⏰', label: '截止日期', color: '#dc2626' },
-    { value: '发布', icon: '🚀', label: '发布', color: '#8b5cf6' },
-    { value: '其他', icon: '📌', label: '其他', color: '#d97706' },
+    { value: '会议', icon: 'users', label: '会议', color: '#2563eb' },
+    { value: '财报', icon: 'trending-up', label: '财报', color: '#16a34a' },
+    { value: '截止日期', icon: 'alarm-clock', label: '截止日期', color: '#dc2626' },
+    { value: '发布', icon: 'rocket', label: '发布', color: '#8b5cf6' },
+    { value: '其他', icon: 'pin', label: '其他', color: '#d97706' },
   ];
   let selectedCategory = category || '';  // 单一真源,点击直接更新此变量
   const isPreset = CAT_PRESETS.some(p => p.value === selectedCategory);
@@ -1499,7 +1500,7 @@ if (document.readyState === 'loading') {
       const dl = t.deadline;
       const todayStr = new Date().toISOString().slice(0, 10);
       const dlClass = dl && dl < todayStr ? 'overdue' : (dl && dl === todayStr ? 'today' : '');
-      const dlText = dl ? (dl < todayStr ? '⚠ 已逾期: ' : (dl === todayStr ? '⏰ 今天截止: ' : '截止: ')) + dl : '无截止日期';
+      const dlText = dl ? (dl < todayStr ? '<i data-lucide="triangle-alert"></i> 已逾期: ' : (dl === todayStr ? '<i data-lucide="alarm-clock"></i> 今天截止: ' : '截止: ')) + dl : '无截止日期';
       const cl = t.checklist || [];
       const clDone = cl.filter(function(x){ return x.done; }).length;
       const clHtml = cl.length
@@ -1511,21 +1512,20 @@ if (document.readyState === 'loading') {
           }).join('')
         : '<div class="muted" style="padding:var(--sp-3)">暂无子任务</div>';
       const blockerHtml = t.blocker
-        ? '<div class="td-blocker"><strong>⛔ 当前问题:</strong> ' + escapeHtml(t.blocker) + '</div>' : '';
+        ? '<div class="td-blocker"><strong><i data-lucide="ban"></i> 当前问题:</strong> ' + escapeHtml(t.blocker) + '</div>' : '';
       const bodyHtml = t.body && t.body.trim() && t.body.trim() !== '（暂无描述）'
         ? '<div class="td-section"><h4 class="td-section-title">描述</h4><div class="td-body">' + escapeHtml(t.body.trim()) + '</div></div>' : '';
       const html =
         '<div class="td-header">'
           + '<span class="tk-status-badge" style="background:' + sm.color + '">' + sm.label + '</span>'
-          + (t.priority ? '<span class="tk-cat-tag">优先级 ' + escapeHtml(t.priority) + '</span>' : '')
           + '<span class="td-date ' + dlClass + '">' + escapeHtml(dlText) + '</span>'
         + '</div>'
         + '<h1 class="td-title">' + escapeHtml(t.title) + '</h1>'
         + (t.project ? '<p style="color:var(--c-text-muted);margin:0 0 var(--sp-3)">所属项目: ' + escapeHtml(t.project) + '</p>' : '')
         + '<div class="td-actions">'
           + '<a class="btn btn-primary" href="/task/' + encodeURIComponent(t.id) + '">进入任务页面</a>'
-          + '<a class="btn btn-sm" href="/task/' + encodeURIComponent(t.id) + '/edit">✏ 编辑</a>'
-          + (t.deadline ? '<button class="btn btn-sm" id="drawer-sync">📅 同步到日历</button>' : '')
+          + '<a class="btn btn-sm" href="/task/' + encodeURIComponent(t.id) + '/edit"><i data-lucide="pencil"></i> 编辑</a>'
+          + (t.deadline ? '<button class="btn btn-sm" id="drawer-sync"><i data-lucide="calendar"></i> 同步到日历</button>' : '')
         + '</div>'
         + blockerHtml
         + '<section class="td-section">'
@@ -1584,7 +1584,7 @@ if (document.readyState === 'loading') {
       const html = '<div class="ws-switch-list">' + items.map(function(t) {
         return '<button class="ws-switch-item' + (t.id === currentId ? ' current' : '') + '" data-task-id="' + escapeHtml(t.id) + '">'
           + '<span class="ws-switch-title">' + escapeHtml(t.title) + '</span>'
-          + '<span class="ws-switch-meta">' + (t.deadline ? escapeHtml(t.deadline) : '无截止') + (t.priority ? ' · ' + escapeHtml(t.priority) : '') + '</span>'
+          + '<span class="ws-switch-meta">' + (t.deadline ? escapeHtml(t.deadline) : '无截止') + '</span>'
           + '</button>';
       }).join('') + '</div>';
       document.getElementById('modalTitle').textContent = '切换当前任务';

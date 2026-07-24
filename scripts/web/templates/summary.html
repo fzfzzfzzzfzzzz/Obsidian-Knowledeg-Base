@@ -37,7 +37,7 @@
 
       const hasSummary = d.has_summary !== false;
       const summaryWarn = !hasSummary
-        ? `<div class="warn-banner">⚠️ 这篇文章还没有生成 summary,以下显示的是原始内容。运行 <code>make-prompts --auto</code> 生成总结。</div>`
+        ? `<div class="warn-banner"><i data-lucide="triangle-alert"></i> 这篇文章还没有生成 summary,以下显示的是原始内容。运行 <code>make-prompts --auto</code> 生成总结。</div>`
         : '';
       const readInfo = readCount > 0 ? `<span class="muted">读过 ${readCount} 次</span>` : '';
 
@@ -48,18 +48,18 @@
       wrap.innerHTML = `
         <div class="summary-layout">
         <div class="summary-article">
-        <a href="/" class="back-link">← 返回首页</a>
+        <a href="/" class="back-link"><i data-lucide="arrow-left"></i> 返回首页</a>
         <div class="detail-action-bar">
           <button class="btn detail-action-btn ${rl ? 'active-rl' : ''}" data-field="read_later"
-            onclick="toggleReadLater('${SOURCE_ID}')">${rl ? '📖✓ 已加入稍后读' : '📖 稍后阅读'}</button>
+            onclick="toggleReadLater('${SOURCE_ID}')">${rl ? '<i data-lucide="bookmark-check"></i> 已加入稍后读' : '<i data-lucide="bookmark"></i> 稍后阅读'}</button>
           <button class="btn detail-action-btn ${fav ? 'active-fav' : ''}" data-field="is_favorite"
-            onclick="toggleFavorite('${SOURCE_ID}')">${fav ? '⭐✓ 已收藏' : '⭐ 收藏'}</button>
-          <button class="btn" onclick="openAddToCollections('${SOURCE_ID}')">📂 加入文件夹</button>
-          <button class="btn" id="calendar-btn" onclick="openCalendarDialog()">📅 添加到日历</button>
-          ${hasSummary ? `<button class="btn btn-warn" id="regen-btn" onclick="regenerateSummary(this)">🔄 重新生成</button>` : ''}
-          ${hasSummary ? `<button class="btn btn-ghost" onclick="deleteSummary(this)">🗑 删除 summary</button>` : ''}
-          ${hasSummary ? `<button class="btn btn-primary" onclick="openGenerateDialog('idea', '${SOURCE_ID}')">💡 生成 Idea 列表</button>` : ''}
-          ${hasSummary ? `<button class="btn btn-primary" onclick="openGenerateDialog('todo', '${SOURCE_ID}')">✅ 生成 Todo 列表</button>` : ''}
+            onclick="toggleFavorite('${SOURCE_ID}')">${fav ? '<i data-lucide="star"></i> 已收藏' : '<i data-lucide="star"></i> 收藏'}</button>
+          <button class="btn" onclick="openAddToCollections('${SOURCE_ID}')"><i data-lucide="folder-plus"></i> 加入文件夹</button>
+          <button class="btn" id="calendar-btn" onclick="openCalendarDialog()"><i data-lucide="calendar-plus"></i> 添加到日历</button>
+          ${hasSummary ? `<button class="btn btn-warn" id="regen-btn" onclick="regenerateSummary(this)"><i data-lucide="refresh-cw"></i> 重新生成</button>` : ''}
+          ${hasSummary ? `<button class="btn btn-ghost" onclick="deleteSummary(this)"><i data-lucide="trash-2"></i> 删除 summary</button>` : ''}
+          ${hasSummary ? `<button class="btn btn-primary" onclick="openGenerateDialog('idea', '${SOURCE_ID}')"><i data-lucide="lightbulb"></i> 生成 Idea 列表</button>` : ''}
+          ${hasSummary ? `<button class="btn btn-primary" onclick="openGenerateDialog('todo', '${SOURCE_ID}')"><i data-lucide="list-checks"></i> 生成 Todo 列表</button>` : ''}
           <button class="btn btn-danger" onclick="deleteArticle('${SOURCE_ID}')">🗑 删除文章</button>
           ${readInfo}
         </div>

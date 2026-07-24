@@ -4,28 +4,29 @@
 
 <div id="batch-bar" class="batch-bar" style="display:none;">
   <span class="batch-info">已选 <strong id="batch-count">0</strong> 篇</span>
-  <button class="btn btn-sm" onclick="batchAction('archive')">📦 归档</button>
-  <button class="btn btn-sm btn-accept" onclick="batchAction('favorite')">⭐ 收藏</button>
+  <button class="btn btn-sm" onclick="batchAction('archive')"><i data-lucide="archive"></i> 归档</button>
+  <button class="btn btn-sm btn-accept" onclick="batchAction('favorite')"><i data-lucide="star"></i> 收藏</button>
   <button class="btn btn-sm" onclick="batchAction('unfavorite')">取消收藏</button>
-  <button class="btn btn-sm" onclick="batchAction('add_tags')">🏷 加标签</button>
-  <button class="btn btn-sm" onclick="batchAction('extract_suggestions')">💡 抽 idea/todo</button>
-  <button class="btn btn-sm" onclick="batchAction('generate_summary')">📝 生成 summary</button>
-  <button class="btn btn-sm btn-danger" onclick="batchAction('delete')">🗑 删除</button>
+  <button class="btn btn-sm" onclick="batchAction('add_tags')"><i data-lucide="tag"></i> 加标签</button>
+  <button class="btn btn-sm" onclick="batchAction('extract_suggestions')"><i data-lucide="lightbulb"></i> 抽 idea/todo</button>
+  <button class="btn btn-sm" onclick="batchAction('generate_summary')"><i data-lucide="file-text"></i> 生成 summary</button>
+  <button class="btn btn-sm btn-danger" onclick="batchAction('delete')"><i data-lucide="trash-2"></i> 删除</button>
   <button class="btn btn-sm btn-ghost" onclick="clearSelection()">取消选择</button>
 </div>
 
 <div class="home-search-bar">
   <form action="/search" method="get" class="search-form">
+    <span class="search-icon-wrap"><i data-lucide="search"></i></span>
     <input type="text" name="q" placeholder="搜索文章标题、摘要、标签..." class="search-input" aria-label="搜索">
     <button type="submit" class="btn btn-primary">搜索</button>
   </form>
 </div>
 
 <nav class="kb-subnav" aria-label="知识库子页面">
-  <a href="/kb"{% if active_nav == 'kb' %} class="active"{% endif %}>仪表盘</a>
-  <a href="/articles"{% if active_nav == 'articles' %} class="active"{% endif %}>全部文章</a>
-  <a href="/recent"{% if active_nav == 'recent' %} class="active"{% endif %}>最近阅读</a>
-  <a href="/submit"{% if active_nav == 'submit' %} class="active"{% endif %}>投稿</a>
+  <a href="/kb"{% if active_nav == 'kb' %} class="active"{% endif %}><i data-lucide="layout-dashboard"></i> 仪表盘</a>
+  <a href="/articles"{% if active_nav == 'articles' %} class="active"{% endif %}><i data-lucide="files"></i> 全部文章</a>
+  <a href="/recent"{% if active_nav == 'recent' %} class="active"{% endif %}><i data-lucide="history"></i> 最近阅读</a>
+  <a href="/submit"{% if active_nav == 'submit' %} class="active"{% endif %}><i data-lucide="upload"></i> 投稿</a>
 </nav>
 
 <div id="stats-overview" class="stats-overview">
@@ -33,9 +34,9 @@
 </div>
 
 <div class="tab-bar" role="tablist" aria-label="文章分组">
-  <button class="tab active" data-tab="unread" role="tab" aria-selected="true">📘 未读 <span class="count-badge" id="count-unread"></span></button>
-  <button class="tab" data-tab="read" role="tab" aria-selected="false">✅ 已读 <span class="count-badge" id="count-read"></span></button>
-  <button class="tab" data-tab="readlater" role="tab" aria-selected="false">📖 稍后阅读 <span class="count-badge" id="count-read-later"></span></button>
+  <button class="tab active" data-tab="unread" role="tab" aria-selected="true"><i data-lucide="book-open"></i> 未读 <span class="count-badge" id="count-unread"></span></button>
+  <button class="tab" data-tab="read" role="tab" aria-selected="false"><i data-lucide="check"></i> 已读 <span class="count-badge" id="count-read"></span></button>
+  <button class="tab" data-tab="readlater" role="tab" aria-selected="false"><i data-lucide="bookmark"></i> 稍后阅读 <span class="count-badge" id="count-read-later"></span></button>
 </div>
 
 <div class="art-view-bar">

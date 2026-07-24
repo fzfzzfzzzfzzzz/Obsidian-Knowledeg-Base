@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}事件 · 知识库{% endblock %}
 {% block content %}
-<h1 class="page-title">📌 事件</h1>
+<h1 class="page-title"><i data-lucide="flag"></i> 事件</h1>
 <p class="page-hint muted">集中管理你关注的事件(比赛、国际会议、财报发布等)。单日期,存为 <code>06_Events/event_*.md</code>。点「同步到日历」会把该事件作为一条日历事项推送过去(单向,两边独立)。</p>
 
 <div class="cal-filter-bar" id="ev-filter-bar">
@@ -16,7 +16,7 @@
     <button class="btn btn-sm btn-secondary" data-evf="past" onclick="loadEvents('past')">已过去</button>
     <button class="btn btn-sm btn-secondary" data-evf="all" onclick="loadEvents('all')">全部</button>
   </div>
-  <button class="btn btn-primary btn-sm" onclick="openEventForm({mode:'create', onSaved: refreshEvents})">+ 新建事件</button>
+  <button class="btn btn-primary btn-sm" onclick="openEventForm({mode:'create', onSaved: refreshEvents})"><i data-lucide="plus"></i> 新建事件</button>
 </div>
 
 <div id="event-grid" class="card-grid">
@@ -27,12 +27,12 @@
 <script>
   // 事件页交互。category 配色与日历共享(复用 CAT_META 思路)。
   const EV_CAT_META = {
-    '会议':     { color: '#2563eb', icon: '📅' },
-    '财报':     { color: '#16a34a', icon: '💰' },
-    '截止日期': { color: '#dc2626', icon: '⏰' },
-    '发布':     { color: '#8b5cf6', icon: '🚀' },
-    '比赛':     { color: '#0d9488', icon: '🏆' },
-    '其他':     { color: '#d97706', icon: '📌' },
+    '会议':     { color: '#2563eb', icon: 'users' },
+    '财报':     { color: '#16a34a', icon: 'trending-up' },
+    '截止日期': { color: '#dc2626', icon: 'alarm-clock' },
+    '发布':     { color: '#8b5cf6', icon: 'rocket' },
+    '比赛':     { color: '#0d9488', icon: 'trophy' },
+    '其他':     { color: '#d97706', icon: 'pin' },
   };
   const EV_CAT_ORDER = ['会议', '财报', '截止日期', '发布', '比赛', '其他'];
   function evCatColor(cat) {

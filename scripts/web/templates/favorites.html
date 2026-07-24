@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}收藏夹 · 知识库{% endblock %}
 {% block content %}
-<h1 class="page-title">⭐ 收藏夹</h1>
-<p class="page-hint muted">按文件夹分类管理收藏的文章。左侧选文件夹,右侧看文章;点文章卡片或详情页的 ⭐ 收藏。详情页可「📂 加入文件夹」。</p>
+<h1 class="page-title"><i data-lucide="star"></i> 收藏夹</h1>
+<p class="page-hint muted">按文件夹分类管理收藏的文章。左侧选文件夹,右侧看文章;点文章卡片或详情页的收藏按钮。详情页可加入文件夹。</p>
 
 <div class="collections-layout">
   <aside class="collections-sidebar">
@@ -36,7 +36,7 @@
       _collectionsCache = data.items || [];
       // 「全部收藏」固定在最前
       let html = '<li class="collection-item' + (_activeCollection === 'all' ? ' active' : '') + '" data-action="select-collection" data-col-id="all">' +
-        '<span class="collection-name">⭐ 全部收藏</span>' +
+        '<span class="collection-name"><i data-lucide="star"></i> 全部收藏</span>' +
         '<span class="collection-count" id="count-all">-</span></li>';
       _collectionsCache.forEach(col => {
         const safeId = escapeHtml(col.id);

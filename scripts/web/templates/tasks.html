@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}任务 · 知识库{% endblock %}
 {% block content %}
-<h1 class="page-title">✅ 任务</h1>
+<h1 class="page-title"><i data-lucide="check-square"></i> 任务</h1>
 <p class="page-hint muted">主动管理的任务,带 checklist、截止日期和阻塞点。存为 <code>07_Tasks/task_*.md</code>。点击卡片进详情页,点编辑用模态框快改。</p>
 
 <div class="cal-toolbar">
@@ -11,7 +11,7 @@
     <button class="btn btn-sm btn-secondary" data-tkf="done" onclick="loadTasks('done')">已完成</button>
     <button class="btn btn-sm btn-secondary" data-tkf="all" onclick="loadTasks('all')">全部</button>
   </div>
-  <button class="btn btn-primary btn-sm" onclick="openTaskForm({mode:'create', onSaved: refreshTasks})">+ 新建任务</button>
+  <button class="btn btn-primary btn-sm" onclick="openTaskForm({mode:'create', onSaved: refreshTasks})"><i data-lucide="plus"></i> 新建任务</button>
 </div>
 
 <div id="task-grid" class="card-grid">
@@ -22,14 +22,14 @@
 <script>
 // 任务页交互。状态徽章配色 + checklist 进度。
 const TK_STATUS_META = {
-  'active':   { color: '#2563eb', label: '进行中', icon: '▶' },
-  'done':     { color: '#16a34a', label: '已完成', icon: '✓' },
-  'blocked':  { color: '#dc2626', label: '阻塞',   icon: '⛔' },
-  'archived': { color: '#64748b', label: '已归档', icon: '📦' },
+  'active':   { color: '#2563eb', label: '进行中', icon: 'play' },
+  'done':     { color: '#16a34a', label: '已完成', icon: 'check' },
+  'blocked':  { color: '#dc2626', label: '阻塞',   icon: 'ban' },
+  'archived': { color: '#64748b', label: '已归档', icon: 'archive' },
 };
 const TK_CAT_COLORS = {
-  '开发': '#2563eb', '调研': '#16a34a', '写作': '#8b5cf6',
-  '阅读': '#0d9488', '整理': '#d97706', '其他': '#64748b',
+  '开发': '#2563eb', '科研': '#16a34a', '个人': '#d97706',
+  '金融': '#ca8a04', '其他': '#8b5cf6',
 };
 function tkCatColor(cat) {
   return TK_CAT_COLORS[cat] || '#64748b';
@@ -63,6 +63,7 @@ async function loadTasks(filter) {
       return;
     }
     grid.innerHTML = items.map(renderTaskCard).join('');
+    if (window.refreshIcons) window.refreshIcons();  // 动态渲染后重新扫描 Lucide 图标
   } catch (e) {
     grid.innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
   }
@@ -84,23 +85,21 @@ function renderTaskCard(t) {
   const dlText = dl ? (dl < tkTodayStr ? '⚠ ' : '') + dl : '无截止';
   const prog = checklistProgress(t.checklist);
   // v0.4.14: blocker(当前问题)不在列表卡片显示,只在详情页和编辑模态框可见
-  const desc = t.body && t.body.trim() && t.body.trim() !== '（暂无描述）'
-    ? '<div class="tk-desc">' + escapeHtml(t.body.trim().slice(0, 100)) + (t.body.length > 100 ? '…' : '') : '';
+  // v0.4.15: desc 也不在列表卡片显示(消除高度差导致的 grid 列分布不均),描述进详情页看
   return '<div class="task-card" style="--tk-cat:'+catColor+'">'
     + '<div class="tk-card-header">'
-      + '<span class="tk-status-badge" style="background:'+sm.color+'">'+sm.icon+' '+sm.label+'</span>'
-      + '<span class="tk-date '+dlClass+'">📅 '+escapeHtml(dlText)+'</span>'
+      + '<span class="tk-status-badge" style="background:'+sm.color+'"><i data-lucide="'+sm.icon+'"></i> '+sm.label+'</span>'
+      + '<span class="tk-date '+dlClass+'"><i data-lucide="calendar"></i> '+escapeHtml(dlText)+'</span>'
     + '</div>'
     + '<a class="tk-card-title" href="/task/'+encodeURIComponent(t.id)+'">'+escapeHtml(t.title)+'</a>'
     + '<div class="tk-card-meta">'
       + '<span class="tk-cat-tag">'+escapeHtml(t.category)+'</span>'
-      + (prog ? '<span class="tk-prog">✓ '+prog+'</span>' : '')
+      + (prog ? '<span class="tk-prog"><i data-lucide="check"></i> '+prog+'</span>' : '')
     + '</div>'
-    + desc
     + '<div class="tk-card-actions">'
-      + '<a class="icon-btn" title="编辑" href="/task/'+encodeURIComponent(t.id)+'/edit">✏</a>'
-      + (dl ? '<button class="icon-btn" title="同步到日历" onclick="syncTask(\''+t.id+'\')">📅</button>' : '')
-      + '<button class="icon-btn icon-btn-danger" title="删除" onclick="deleteTask(\''+t.id+'\')">🗑</button>'
+      + '<a class="icon-btn" title="编辑" href="/task/'+encodeURIComponent(t.id)+'/edit"><i data-lucide="pencil"></i></a>'
+      + (dl ? '<button class="icon-btn" title="同步到日历" onclick="syncTask(\''+t.id+'\')"><i data-lucide="calendar"></i></button>' : '')
+      + '<button class="icon-btn icon-btn-danger" title="删除" onclick="deleteTask(\''+t.id+'\')"><i data-lucide="trash-2"></i></button>'
     + '</div>'
   + '</div>';
 }
@@ -147,7 +146,7 @@ async function openTaskForm(opts) {
     + '<div class="cal-form-row2">'
       + '<div class="cal-form-field"><label>所属项目</label><input id="tk-project" class="search-input" placeholder="例如 AAAI-27" value="'+escapeHtml(task.project||'')+'"></div>'
       + '<div class="cal-form-field"><label>分类</label><select id="tk-category" class="search-input">'
-        + ['开发','调研','写作','阅读','整理','其他'].map(c => '<option'+(c===task.category?' selected':'')+'>'+c+'</option>').join('')
+        + ['开发','科研','个人','金融','其他'].map(c => '<option'+(c===task.category?' selected':'')+'>'+c+'</option>').join('')
       + '</select></div>'
     + '</div>'
     + '<div class="cal-form-row2">'

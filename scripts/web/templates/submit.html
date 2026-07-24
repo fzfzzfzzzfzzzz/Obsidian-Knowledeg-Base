@@ -13,7 +13,7 @@
     <button type="submit" class="btn btn-primary">搜索</button>
   </form>
 </div>
-<h1 class="page-title">投稿</h1>
+<h1 class="page-title"><i data-lucide="upload"></i> 投稿</h1>
 <p class="page-hint muted">粘贴 URL 或文章正文,提交后自动抓取 + 识别 + 生成 source note。</p>
 
 <div class="panel">
@@ -35,7 +35,7 @@
       </label>
     </div>
     <div class="submit-actions">
-      <button class="btn btn-secondary" onclick="addInput()">+ 添加一条</button>
+      <button class="btn btn-secondary" onclick="addInput()"><i data-lucide="plus"></i> 添加一条</button>
       <button class="btn btn-primary" id="submit-btn" onclick="submitContent()">提交并处理</button>
     </div>
   </div>
@@ -435,7 +435,8 @@
         actions.innerHTML = '';
         return;
       }
-      actions.innerHTML = '<button class="btn btn-primary" data-action="generate-all-summaries">⚡ 全部生成(' + items.length + ')</button>';
+      actions.innerHTML = '<button class="btn btn-primary" data-action="generate-all-summaries"><i data-lucide="zap"></i> 全部生成(' + items.length + ')</button>';
+      if (window.refreshIcons) window.refreshIcons();
       grid.innerHTML = items.map(function (item) {
         return '<div class="card pending-card">' +
           '<div class="card-header"><span class="tag tag-' + item.source_type + '">' + item.source_type + '</span></div>' +

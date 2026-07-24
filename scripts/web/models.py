@@ -100,10 +100,9 @@ class ChecklistItem(BaseModel):
 class TaskCreate(BaseModel):
     """创建任务."""
     title: str
-    category: str = "其他"  # 开发/调研/写作/阅读/整理/其他
+    category: str = "其他"  # 开发/科研/个人/金融/其他
     project: str = ""  # 所属项目(业务上区别于任务标题)
     status: str = "active"  # active | done | blocked | archived
-    priority: str = ""  # P0/P1/P2/P3 或 高/中/低
     deadline: str = ""  # YYYY-MM-DD,可空
     blocker: str = ""  # 当前问题/阻塞
     body: str = ""  # 正文 Markdown
@@ -121,7 +120,6 @@ class TaskUpdate(BaseModel):
     category: str | None = None
     project: str | None = None
     status: str | None = None
-    priority: str | None = None
     deadline: str | None = None
     blocker: str | None = None
     body: str | None = None

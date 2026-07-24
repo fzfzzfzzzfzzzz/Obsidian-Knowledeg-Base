@@ -55,7 +55,7 @@ VALID_TASK_STATUS = {
     "archived",
 }
 # 任务分类(建议集,允许自定义)
-VALID_TASK_CATEGORIES = {"开发", "调研", "写作", "阅读", "整理", "其他"}
+VALID_TASK_CATEGORIES = {"开发", "科研", "个人", "金融", "其他"}
 READING_FIELDS = ("read_later", "is_favorite", "last_read_at", "read_count", "reading_status", "collection_ids")
 VALID_READING_STATUS = ("to_read", "reading", "read")
 VALID_BATCH_ACTIONS = {

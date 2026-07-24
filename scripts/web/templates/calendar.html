@@ -22,9 +22,9 @@
 <!-- 月视图 -->
 <div id="cal-month-view" class="cal-month-view">
   <div class="cal-month-nav">
-    <button class="btn btn-sm" onclick="changeMonth(-1)">◀ 上月</button>
+    <button class="btn btn-sm" onclick="changeMonth(-1)"><i data-lucide="chevron-left"></i> 上月</button>
     <span id="cal-month-label" class="cal-month-label"></span>
-    <button class="btn btn-sm" onclick="changeMonth(1)">下月 ▶</button>
+    <button class="btn btn-sm" onclick="changeMonth(1)">下月 <i data-lucide="chevron-right"></i></button>
     <button class="btn btn-sm btn-ghost" onclick="goToday()">今天</button>
   </div>
   <div class="cal-weekdays">
@@ -71,13 +71,13 @@
 
   // v0.4.2: category 配色(预设 6 类)。与 style.css 中 --cat-* 令牌对应。
   const CAT_META = {
-    'todolist':  { color: '#64748b', icon: '📋', label: 'todolist' },
-    '会议':      { color: '#2563eb', icon: '📅', label: '会议' },
-    '财报':      { color: '#16a34a', icon: '💰', label: '财报' },
-    '截止日期':  { color: '#dc2626', icon: '⏰', label: '截止日期' },
-    '发布':      { color: '#8b5cf6', icon: '🚀', label: '发布' },
-    '比赛':      { color: '#0d9488', icon: '🏆', label: '比赛' },
-    '其他':      { color: '#d97706', icon: '📌', label: '其他' },
+    'todolist':  { color: '#64748b', icon: 'list', label: 'todolist' },
+    '会议':      { color: '#2563eb', icon: 'users', label: '会议' },
+    '财报':      { color: '#16a34a', icon: 'trending-up', label: '财报' },
+    '截止日期':  { color: '#dc2626', icon: 'alarm-clock', label: '截止日期' },
+    '发布':      { color: '#8b5cf6', icon: 'rocket', label: '发布' },
+    '比赛':      { color: '#0d9488', icon: 'trophy', label: '比赛' },
+    '其他':      { color: '#d97706', icon: 'pin', label: '其他' },
   };
   const CAT_ORDER = ['todolist', '会议', '财报', '截止日期', '发布', '比赛', '其他'];
 

@@ -18,8 +18,8 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="/static/style.css?v=48">
-  <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css?v=49">
+  <script src="/static/lucide.min.js"></script>
 </head>
 <body>
   <a href="#main" class="skip-link">跳到主内容</a>
@@ -28,7 +28,7 @@
   <aside class="sidebar" id="sidebar" aria-label="主导航">
     <div class="sidebar-brand">
       <a href="/" class="nav-brand"><span class="brand-ico"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span><span>个人工作台</span></a>
-      <button class="nav-close" id="navClose" aria-label="关闭导航菜单" aria-controls="sidebar">✕</button>
+      <button class="nav-close" id="navClose" aria-label="关闭导航菜单" aria-controls="sidebar"><i data-lucide="x"></i></button>
     </div>
 
     <nav class="sidebar-nav" id="navLinks" aria-label="主导航链接">
@@ -44,9 +44,9 @@
 
     <div class="sidebar-foot">
       <div class="sidebar-actions">
-        <button class="theme-toggle" id="themeToggle" aria-label="切换浅色/暗色主题" title="切换主题">🌙</button>
+        <button class="theme-toggle" id="themeToggle" aria-label="切换浅色/暗色主题" title="切换主题"><i data-lucide="moon"></i></button>
         <button class="nav-shutdown" id="kbShutdownBtn" type="button"
-                title="关闭知识库服务" aria-label="关闭知识库服务">⏻</button>
+                title="关闭知识库服务" aria-label="关闭知识库服务"><i data-lucide="power"></i></button>
       </div>
     </div>
   </aside>
@@ -54,7 +54,7 @@
   <div class="nav-overlay" id="navOverlay" hidden></div>
 
   <div class="app-main">
-    <button class="nav-toggle" id="navToggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="sidebar">☰</button>
+    <button class="nav-toggle" id="navToggle" aria-label="打开导航菜单" aria-expanded="false" aria-controls="sidebar"><i data-lucide="menu"></i></button>
     <main class="container" id="main">
       {% block content %}{% endblock %}
     </main>
@@ -65,7 +65,7 @@
     <div class="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle" id="drawerBox">
       <div class="drawer-header">
         <h3 class="drawer-title" id="drawerTitle"></h3>
-        <button class="drawer-close" id="drawerClose" aria-label="关闭抽屉">✕</button>
+        <button class="drawer-close" id="drawerClose" aria-label="关闭抽屉"><i data-lucide="x"></i></button>
       </div>
       <div class="drawer-body" id="drawerBody"></div>
     </div>
@@ -81,7 +81,7 @@
   </div>
   <div class="toast-wrap" id="toastWrap" aria-live="polite" aria-atomic="false"></div>
 
-  <script src="/static/app.js?v=36"></script>
+  <script src="/static/app.js?v=37"></script>
   <script>
   // 关闭知识库服务(独立脚本,与 app.js 解耦,不影响业务逻辑)
   (function(){

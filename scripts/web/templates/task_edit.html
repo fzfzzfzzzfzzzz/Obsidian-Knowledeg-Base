@@ -30,7 +30,7 @@ function renderForm(t) {
     + '<div class="cl-empty muted" style="display:' + (clInit.length ? 'none' : 'block') + '">暂无子任务</div>';
   document.getElementById('task-edit-root').innerHTML =
     '<a href="/task/' + encodeURIComponent(TASK_ID) + '" class="back-link">← 返回详情</a>'
-    + '<h1 class="page-title">✏ 编辑任务</h1>'
+    + '<h1 class="page-title"><i data-lucide="pencil"></i> 编辑任务</h1>'
     + '<div class="task-edit-form">'
       + '<div class="te-field">'
         + '<label>标题 <span class="required">*</span></label>'
@@ -39,33 +39,30 @@ function renderForm(t) {
       + '<div class="te-row2">'
         + '<div class="te-field"><label>所属项目</label><input id="te-project" class="search-input" placeholder="例如 AAAI-27" value="' + escapeHtml(t.project || '') + '"></div>'
         + '<div class="te-field"><label>分类</label><select id="te-category" class="search-input">'
-          + ['开发', '调研', '写作', '阅读', '整理', '其他'].map(c => '<option' + (c === t.category ? ' selected' : '') + '>' + c + '</option>').join('')
+          + ['开发', '科研', '个人', '金融', '其他'].map(c => '<option' + (c === t.category ? ' selected' : '') + '>' + c + '</option>').join('')
         + '</select></div>'
       + '</div>'
       + '<div class="te-row2">'
         + '<div class="te-field"><label>状态</label><select id="te-status" class="search-input">'
           + ['active', 'done', 'blocked', 'archived'].map(s => '<option value="' + s + '"' + (s === t.status ? ' selected' : '') + '>' + (TK_STATUS_LABEL[s] || s) + '</option>').join('')
         + '</select></div>'
-        + '<div class="te-field"><label>优先级</label><select id="te-priority" class="search-input">'
-          + ['', 'P0', 'P1', 'P2', 'P3'].map(p => '<option value="' + p + '"' + (p === (t.priority || '') ? ' selected' : '') + '>' + (p || '未设置') + '</option>').join('')
-        + '</select></div>'
+        + '<div class="te-field"><label>当前问题/阻塞</label><input id="te-blocker" class="search-input" placeholder="卡在哪里?" value="' + escapeHtml(t.blocker || '') + '"></div>'
       + '</div>'
       + '<div class="te-row2">'
         + '<div class="te-field"><label>截止日期</label><input id="te-deadline" type="date" class="search-input" value="' + escapeHtml(t.deadline || '') + '"></div>'
-        + '<div class="te-field"><label>当前问题/阻塞</label><input id="te-blocker" class="search-input" placeholder="卡在哪里?" value="' + escapeHtml(t.blocker || '') + '"></div>'
       + '</div>'
       + '<div class="te-field">'
         + '<label>详细描述</label>'
-        + '<textarea id="te-body" class="search-input te-body-input" rows="16" placeholder="详细记录这个任务的背景、思路、进展、笔记…（支持 Markdown）">' + escapeHtml(t.body && t.body !== '（暂无描述）' ? t.body : '') + '</textarea>'
+        + '<textarea id="te-body" class="search-input te-body-input" rows="5" placeholder="详细记录这个任务的背景、思路、进展、笔记…（支持 Markdown）">' + escapeHtml(t.body && t.body !== '（暂无描述）' ? t.body : '') + '</textarea>'
       + '</div>'
       + '<div class="te-field">'
         + '<label>Checklist 子任务</label>'
         + '<div id="te-checklist" class="cl-list">' + clHtml + '</div>'
-        + '<button class="btn btn-sm btn-secondary" id="te-add-cl" type="button">+ 添加子任务</button>'
+        + '<button class="btn btn-sm btn-secondary" id="te-add-cl" type="button"><i data-lucide="plus"></i> 添加子任务</button>'
       + '</div>'
       + '<div class="te-actions">'
         + '<a class="btn btn-ghost" href="/task/' + encodeURIComponent(TASK_ID) + '">取消</a>'
-        + '<button class="btn btn-primary" id="te-save" type="button">💾 保存</button>'
+        + '<button class="btn btn-primary" id="te-save" type="button"><i data-lucide="save"></i> 保存</button>'
       + '</div>'
     + '</div>';
 
@@ -74,6 +71,7 @@ function renderForm(t) {
   bindChecklistEvents();  // 删除按钮的事件委托
   // Ctrl/Cmd+S 快捷保存
   document.addEventListener('keydown', teOnKeydown);
+  if (window.refreshIcons) window.refreshIcons();  // 动态渲染后重新扫描 Lucide 图标
 }
 
 function teOnKeydown(e) {
@@ -90,7 +88,7 @@ function checklistRow(it) {
   return '<div class="cl-row">'
     + '<input type="checkbox" class="cl-done"' + (it.done ? ' checked' : '') + '>'
     + '<input type="text" class="cl-text search-input" value="' + escapeHtml(it.text || '') + '" placeholder="子任务内容">'
-    + '<button class="icon-btn icon-btn-danger te-cl-del" type="button" title="删除">✕</button>'
+    + '<button class="icon-btn icon-btn-danger te-cl-del" type="button" title="删除"><i data-lucide="x"></i></button>'
   + '</div>';
 }
 function renderChecklistEditor() {
@@ -99,6 +97,7 @@ function renderChecklistEditor() {
   const cl = collectChecklist();
   wrap.innerHTML = (cl.length ? cl.map(it => checklistRow(it)).join('') : '')
     + '<div class="cl-empty muted" style="display:' + (cl.length ? 'none' : 'block') + '">暂无子任务</div>';
+  if (window.refreshIcons) window.refreshIcons();
 }
 function addChecklistRow() {
   // 先保留当前已输入的内容(避免新增时丢失),再追加一个空行
@@ -107,6 +106,7 @@ function addChecklistRow() {
   const wrap = document.getElementById('te-checklist');
   wrap.innerHTML = cl.map(it => checklistRow(it)).join('')
     + '<div class="cl-empty muted" style="display:none">暂无子任务</div>';
+  if (window.refreshIcons) window.refreshIcons();
   // 聚焦到新增的最后一个输入框,方便直接输入
   const inputs = wrap.querySelectorAll('.cl-text');
   if (inputs.length) inputs[inputs.length - 1].focus();
@@ -156,7 +156,6 @@ async function saveTask() {
     project: document.getElementById('te-project').value,
     category: document.getElementById('te-category').value,
     status: document.getElementById('te-status').value,
-    priority: document.getElementById('te-priority').value,
     deadline: document.getElementById('te-deadline').value,
     blocker: document.getElementById('te-blocker').value,
     body: document.getElementById('te-body').value,
