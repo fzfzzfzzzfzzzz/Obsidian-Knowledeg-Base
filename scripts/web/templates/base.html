@@ -105,10 +105,26 @@
   </script>
   <script>
   // Lucide 图标:页面加载时渲染一次;暴露 refreshIcons() 供 app.js 动态渲染后调用
+  // 注:此版本 icons 对象只有 PascalCase key(AlarmClock),无 kebab 别名。
+  // 这里构建 PascalCase→kebab-case 映射 + 全小写别名,让 data-lucide="alarm-clock"/"menu" 都能匹配。
   window.refreshIcons = function(){
-    if (window.lucide && typeof window.lucide.createIcons === 'function') {
-      window.lucide.createIcons();
-    }
+    if (!window.lucide || typeof window.lucide.createIcons !== 'function') return;
+    var base = window.lucide.icons || {};
+    var merged = Object.assign({}, base);
+    Object.keys(base).forEach(function(pascal){
+      // kebab 别名:AlarmClockCheck → alarm-clock-check
+      var kebab = pascal.replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+                        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
+                        .toLowerCase();
+      merged[kebab] = base[pascal];
+      // 全小写别名(单词图标:Menu→menu, X→x)
+      merged[pascal.toLowerCase()] = base[pascal];
+    });
+    // 数字后缀的 kebab 别名:Trash2 → trash-2,Lucide 官方用 trash-2 而非 trash2
+    ['Trash2','Briefcase','Github'].forEach(function(p){
+      if (base[p]) merged[p.replace(/([A-Za-z]+)(\d+)/, '$1-$2').toLowerCase()] = base[p];
+    });
+    window.lucide.createIcons({ icons: merged });
   };
   window.refreshIcons();
   </script>
