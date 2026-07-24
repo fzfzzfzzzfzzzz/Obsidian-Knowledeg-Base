@@ -945,9 +945,11 @@ async function initDashboard() {
         <div class="stat-strip-item stat-total"><span class="stat-num">${s.total}</span><span class="stat-label">总计</span></div>
         <div class="stat-strip-sep"></div>
         <div class="stat-strip-item"><span class="stat-num">${readLater}</span><span class="stat-label">稍后读</span></div>
-        <div class="stat-strip-sep"></div>
-        <div class="stat-strip-item stat-progress"><span class="stat-num">${s.progress}%</span><span class="stat-label">阅读进度</span></div>
-        <div class="stat-strip-progress"><div class="progress-bar-wrap"><div class="progress-bar" style="width:${s.progress}%"></div></div></div>
+      </div>
+      <div class="kb-progress-row">
+        <div class="kb-progress-info"><span class="kb-progress-label">阅读进度</span><span class="kb-progress-pct">${s.progress}%</span></div>
+        <div class="progress-bar-wrap kb-progress-wrap"><div class="progress-bar" style="width:${s.progress}%"></div></div>
+        <div class="kb-progress-detail muted">${s.read} / ${s.total} 篇已读</div>
       </div>
     `;
     DASH.readlater = d.read_later || [];
@@ -1050,7 +1052,7 @@ function openCalendarEventForm(opts) {
 
   // v0.4.2: 类别选择器(预设 6 类 + 自定义)
   const CAT_PRESETS = [
-    { value: 'todolist', icon: '📋', label: 'todolist', color: '#64748b' },
+    { value: 'todolist', icon: 'list', label: 'todolist', color: '#64748b' },
     { value: '会议', icon: 'users', label: '会议', color: '#2563eb' },
     { value: '财报', icon: 'trending-up', label: '财报', color: '#16a34a' },
     { value: '截止日期', icon: 'alarm-clock', label: '截止日期', color: '#dc2626' },
@@ -1066,7 +1068,7 @@ function openCalendarEventForm(opts) {
     CAT_PRESETS.map(p =>
       '<button type="button" class="cal-cat-opt' + (selectedCategory === p.value ? ' is-selected' : '') + '" ' +
       'data-cat-value="' + p.value + '" style="--ev:' + p.color + '">' +
-      '<span>' + p.icon + ' ' + p.label + '</span></button>'
+      '<span><i data-lucide="' + p.icon + '"></i> ' + p.label + '</span></button>'
     ).join('') +
     '<input type="text" id="cal-form-cat-custom" class="cal-cat-custom" value="' + escapeHtml(catCustom) + '" maxlength="20" placeholder="或自定义…">' +
     '</div></div>';

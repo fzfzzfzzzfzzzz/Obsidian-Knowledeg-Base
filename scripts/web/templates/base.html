@@ -18,8 +18,8 @@
       }
     })();
   </script>
-  <link rel="stylesheet" href="/static/style.css?v=49">
-  <script src="/static/lucide.min.js"></script>
+  <link rel="stylesheet" href="/static/style.css?v=51">
+  <script src="/static/lucide.min.js?v=3"></script>
 </head>
 <body>
   <a href="#main" class="skip-link">跳到主内容</a>
@@ -81,7 +81,7 @@
   </div>
   <div class="toast-wrap" id="toastWrap" aria-live="polite" aria-atomic="false"></div>
 
-  <script src="/static/app.js?v=37"></script>
+  <script src="/static/app.js?v=38"></script>
   <script>
   // 关闭知识库服务(独立脚本,与 app.js 解耦,不影响业务逻辑)
   (function(){
@@ -104,28 +104,31 @@
   })();
   </script>
   <script>
-  // Lucide 图标:页面加载时渲染一次;暴露 refreshIcons() 供 app.js 动态渲染后调用
-  // 注:此版本 icons 对象只有 PascalCase key(AlarmClock),无 kebab 别名。
-  // 这里构建 PascalCase→kebab-case 映射 + 全小写别名,让 data-lucide="alarm-clock"/"menu" 都能匹配。
+  // Lucide 图标:createIcons() 内部用 toPascalCase 转换 data-lucide 值,
+  // 所以 data-lucide="alarm-clock" 会自动匹配 icons.AlarmClock。直接用默认调用即可。
   window.refreshIcons = function(){
     if (!window.lucide || typeof window.lucide.createIcons !== 'function') return;
-    var base = window.lucide.icons || {};
-    var merged = Object.assign({}, base);
-    Object.keys(base).forEach(function(pascal){
-      // kebab 别名:AlarmClockCheck → alarm-clock-check
-      var kebab = pascal.replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-                        .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
-                        .toLowerCase();
-      merged[kebab] = base[pascal];
-      // 全小写别名(单词图标:Menu→menu, X→x)
-      merged[pascal.toLowerCase()] = base[pascal];
-    });
-    // 数字后缀的 kebab 别名:Trash2 → trash-2,Lucide 官方用 trash-2 而非 trash2
-    ['Trash2','Briefcase','Github'].forEach(function(p){
-      if (base[p]) merged[p.replace(/([A-Za-z]+)(\d+)/, '$1-$2').toLowerCase()] = base[p];
-    });
-    window.lucide.createIcons({ icons: merged });
+    try {
+      window.lucide.createIcons();
+    } catch(e) {
+      console.error('[lucide] createIcons 抛异常:', e.message);
+    }
   };
+
+  // 自动监听:任何动态插入的 [data-lucide] 元素(事件卡片/筛选栏/表单等)
+  // 都会在下一帧被自动转成 SVG,彻底消除“时序/缓存导致图标显示为文字”的问题。
+  (function(){
+    if (!window.lucide || typeof window.lucide.createIcons !== 'function') return;
+    if (!('MutationObserver' in window)) { window.refreshIcons(); return; }
+    var scheduled = false;
+    var mo = new MutationObserver(function(){
+      if (scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(function(){ scheduled = false; window.refreshIcons(); });
+    });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+  })();
+
   window.refreshIcons();
   </script>
   {% block scripts %}{% endblock %}

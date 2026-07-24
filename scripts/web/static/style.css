@@ -2282,8 +2282,18 @@ code {
 .stat-strip .stat-total .stat-num { color: var(--c-text); }
 .stat-strip .stat-progress .stat-num { color: var(--c-accent); }
 .stat-strip-sep { width: 1px; align-self: stretch; background: var(--c-border); margin: 2px 0; }
-.stat-strip-progress { display: flex; align-items: center; gap: var(--sp-3); margin-left: auto; }
-.stat-strip-progress .progress-bar-wrap { width: 160px; }
+
+/* 阅读进度行:横跨全宽的进度条 */
+.kb-progress-row {
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--c-border);
+}
+.kb-progress-info { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: var(--sp-2); }
+.kb-progress-label { font-size: var(--fs-sm); font-weight: 600; color: var(--c-text); }
+.kb-progress-pct { font-size: var(--fs-xl); font-weight: 700; color: var(--c-accent); }
+.kb-progress-wrap { height: 12px; width: 100%; }
+.kb-progress-detail { font-size: var(--fs-xs); margin-top: var(--sp-1); }
 
 /* 轻量卡片:去掉常驻阴影,仅 hover 时轻微浮起 */
 .card-soft {
@@ -3514,6 +3524,15 @@ body { position: relative; }
 }
 /* sb-ico 导航图标固定 18px(与原内联 SVG 一致) */
 .sb-ico svg, .brand-ico svg { width: 18px; height: 18px; }
+
+/* v0.4.16 全局兜底:所有 Lucide SVG 确保可见(尺寸 + 不被隐藏) */
+svg.lucide {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  vertical-align: -0.125em;
+  flex-shrink: 0;
+}
 /* 搜索框图标稍大 */
 .search-icon-wrap svg { width: 16px; height: 16px; }
 /* 按钮内图标 + 文字间距 */
