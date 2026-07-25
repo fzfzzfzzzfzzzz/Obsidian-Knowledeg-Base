@@ -25,28 +25,11 @@
 {% endblock %}
 {% block scripts %}
 <script>
-  // 事件页交互。category 配色与日历共享(复用 CAT_META 思路)。
-  const EV_CAT_META = {
-    '会议':     { color: '#2563eb', icon: 'users' },
-    '财报':     { color: '#16a34a', icon: 'trending-up' },
-    '截止日期': { color: '#dc2626', icon: 'alarm-clock' },
-    '发布':     { color: '#8b5cf6', icon: 'rocket' },
-    '比赛':     { color: '#0d9488', icon: 'trophy' },
-    '其他':     { color: '#d97706', icon: 'pin' },
-  };
-  const EV_CAT_ORDER = ['会议', '财报', '截止日期', '发布', '比赛', '其他'];
-  function evCatColor(cat) {
-    if (cat && EV_CAT_META[cat]) return EV_CAT_META[cat].color;
-    if (!cat) return EV_CAT_META['其他'].color;
-    // 自定义类别回退:稳定 hash 取色
-    let h = 0;
-    for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) | 0;
-    const palette = ['#0ea5e9', '#9333ea', '#ea580c', '#be185d', '#4f46e5', '#65a30d'];
-    return palette[Math.abs(h) % palette.length];
-  }
-  function evCatIcon(cat) {
-    return (cat && EV_CAT_META[cat]) ? EV_CAT_META[cat].icon : '📌';
-  }
+  // 事件页交互。category 配色用全局共享元数据 cat-meta.js(v0.4.17 消除重复定义)。
+  const EV_CAT_META = KB_CATEGORIES;
+  const EV_CAT_ORDER = KB_CAT_ORDER.filter(function(c){ return c !== 'todolist'; });  // 事件不含 todolist
+  function evCatColor(cat) { return catColor(cat); }
+  function evCatIcon(cat) { return catIcon(cat); }
 
   let evCurrentFilter = 'upcoming';
   let evAllItems = [];
@@ -95,6 +78,8 @@
         + `<span>${evCatIcon(cat)} ${escapeHtml(cat)}</span>`
         + `</label>`;
     }).join('');
+    window.refreshIcons();
+    setTimeout(window.refreshIcons, 50); // 兜底:确保浏览器解析完 innerHTML 后再刷一次图标
   }
 
   function onEvFilterChange() {
@@ -128,6 +113,8 @@
     }
     window.eventStore.clear();
     grid.innerHTML = items.map(ev => renderEventCard(ev)).join('');
+    window.refreshIcons();
+    setTimeout(window.refreshIcons, 50); // 兜底
     // hash 跳转高亮(从日历来源链接点过来时)
     if (location.hash.startsWith('#event_')) {
       const el = document.getElementById(location.hash.slice(1));
@@ -204,7 +191,7 @@
       CAT_PRESETS.map(p =>
         '<button type="button" class="cal-cat-opt' + (category === p.value ? ' is-selected' : '') + '" ' +
         'data-cat-value="' + escapeHtml(p.value) + '" style="--ev:' + p.color + '">' +
-        '<span>' + p.icon + ' ' + escapeHtml(p.label) + '</span></button>'
+        '<span><i data-lucide="' + p.icon + '"></i> ' + escapeHtml(p.label) + '</span></button>'
       ).join('') +
       '<input type="text" id="ev-form-cat-custom" class="cal-cat-custom" value="' + escapeHtml(catCustom) + '" maxlength="20" placeholder="或自定义…">' +
       '</div></div>';
@@ -239,6 +226,8 @@
     document.getElementById('modalTitle').textContent = formTitle;
     document.getElementById('modalBody').innerHTML = formHtml;
     document.getElementById('modalActions').innerHTML = '';
+    window.refreshIcons();
+    setTimeout(window.refreshIcons, 50); // 兜底
     overlay.hidden = false;
 
     let selectedCategory = category;
@@ -357,5 +346,7 @@
     openEventForm({ mode: 'create', onSaved: refreshEvents });
     history.replaceState(null, '', location.pathname + location.search);
   }
+  // 最终兜底:页面完全加载后再次刷新图标(覆盖所有时序/缓存场景)
+  window.addEventListener('load', function(){ setTimeout(window.refreshIcons, 100); });
 </script>
 {% endblock %}

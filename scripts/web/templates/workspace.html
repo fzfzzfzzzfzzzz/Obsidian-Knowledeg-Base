@@ -161,9 +161,8 @@
     return iso.slice(0,10);
   }
 
-  // 类别配色 / 图标
-  var CAT_COLOR = {'会议':'#3b82f6','财报':'#16a34a','截止日期':'#dc2626','发布':'#8b5cf6','比赛':'#0d9488'};
-  var CAT_ICON = {'会议':'users','财报':'trending-up','截止日期':'alarm-clock','发布':'rocket','比赛':'trophy'};
+  // 类别配色 / 图标:v0.4.17 改用全局共享元数据 cat-meta.js(消除重复 + 修"会议"色值不一致)
+  // 原 CAT_COLOR(#3b82f6 错值)/ CAT_ICON 已删,改用 catColor(cat) / catIcon(cat)
   var TK_STATUS_META = {
     'active':   { color: '#2563eb', label: '进行中' },
     'done':     { color: '#16a34a', label: '已完成' },
@@ -299,8 +298,7 @@
       all = all.slice(0, 5);
       if(!all.length){ setBody('ws-timeline', emptyHTML('暂无即将到来的事项')); return; }
       var html = '<div class="ws-timeline-track">' + all.map(function(x){
-        var c = CAT_COLOR[x.cat] || '#d97706';
-        var icon = CAT_ICON[x.cat] || '📌';
+        var c = catColor(x.cat);
         var urgency = '';
         if(x.date === todayStr) urgency = '<span class="ws-tl-urgent">今天</span>';
         else if(x.date < todayStr) urgency = '<span class="ws-tl-urgent overdue">已逾期</span>';
@@ -312,7 +310,7 @@
           + '<div class="ws-tl-axis"><span class="ws-tl-dot"></span></div>'
           + '<div class="ws-tl-body">'
             + '<div class="ws-tl-title">'+esc(x.title)+'</div>'
-            + '<div class="ws-tl-cat"><span class="ws-tl-icon">'+icon+'</span>'+esc(x.cat||'其他')+'</div>'
+            + '<div class="ws-tl-cat"><span class="ws-tl-icon">'+catIcon(x.cat)+'</span>'+esc(x.cat||'其他')+'</div>'
           + '</div>'
           + '</a>';
       }).join('') + '</div>';

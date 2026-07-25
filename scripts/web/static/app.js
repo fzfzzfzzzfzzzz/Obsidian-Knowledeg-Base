@@ -1050,15 +1050,8 @@ function openCalendarEventForm(opts) {
       '</div>';
   }
 
-  // v0.4.2: 类别选择器(预设 6 类 + 自定义)
-  const CAT_PRESETS = [
-    { value: 'todolist', icon: 'list', label: 'todolist', color: '#64748b' },
-    { value: '会议', icon: 'users', label: '会议', color: '#2563eb' },
-    { value: '财报', icon: 'trending-up', label: '财报', color: '#16a34a' },
-    { value: '截止日期', icon: 'alarm-clock', label: '截止日期', color: '#dc2626' },
-    { value: '发布', icon: 'rocket', label: '发布', color: '#8b5cf6' },
-    { value: '其他', icon: 'pin', label: '其他', color: '#d97706' },
-  ];
+  // v0.4.17: 类别选择器改用全局共享元数据 cat-meta.js(消除重复定义)
+  const CAT_PRESETS = catPresets();
   let selectedCategory = category || '';  // 单一真源,点击直接更新此变量
   const isPreset = CAT_PRESETS.some(p => p.value === selectedCategory);
   const catCustom = isPreset ? '' : selectedCategory;

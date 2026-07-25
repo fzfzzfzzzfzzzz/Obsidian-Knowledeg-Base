@@ -70,29 +70,9 @@
   const todayStr = today.toISOString().slice(0, 10);
 
   // v0.4.2: category 配色(预设 6 类)。与 style.css 中 --cat-* 令牌对应。
-  const CAT_META = {
-    'todolist':  { color: '#64748b', icon: 'list', label: 'todolist' },
-    '会议':      { color: '#2563eb', icon: 'users', label: '会议' },
-    '财报':      { color: '#16a34a', icon: 'trending-up', label: '财报' },
-    '截止日期':  { color: '#dc2626', icon: 'alarm-clock', label: '截止日期' },
-    '发布':      { color: '#8b5cf6', icon: 'rocket', label: '发布' },
-    '比赛':      { color: '#0d9488', icon: 'trophy', label: '比赛' },
-    '其他':      { color: '#d97706', icon: 'pin', label: '其他' },
-  };
-  const CAT_ORDER = ['todolist', '会议', '财报', '截止日期', '发布', '比赛', '其他'];
-
-  // 自定义类别回退:基于字符串 hash 取一个稳定颜色
-  function catColor(cat) {
-    if (cat && CAT_META[cat]) return CAT_META[cat].color;
-    if (!cat) return CAT_META['其他'].color;
-    let h = 0;
-    for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) | 0;
-    const palette = ['#0ea5e9', '#9333ea', '#ea580c', '#0d9488', '#be185d', '#4f46e5', '#65a30d'];
-    return palette[Math.abs(h) % palette.length];
-  }
-  function catIcon(cat) {
-    return (cat && CAT_META[cat]) ? CAT_META[cat].icon : '📌';
-  }
+  // v0.4.17: 改用全局共享元数据 cat-meta.js(消除 4 处重复定义)
+  const CAT_META = KB_CATEGORIES;   // 别名,保持模板内其余代码不需大改
+  const CAT_ORDER = KB_CAT_ORDER;
   // 前端兜底 resolveCategory:与后端 _resolve_category 对齐
   function resolveCategory(item) {
     if (item.category) return item.category;
