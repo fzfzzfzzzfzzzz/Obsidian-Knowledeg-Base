@@ -107,7 +107,7 @@
 
   /* 布局 */
   --topnav-h: 56px;
-  --container-max: 1200px;
+  --container-max: 1440px;
 }
 
 [data-theme="dark"] {
@@ -486,6 +486,15 @@ a { color: var(--c-primary); }
 [data-theme="dark"] .tag-tag { background: #4c1d95; color: #ddd6fe; }
 .tag-nosummary { background: #fee2e2; color: #991b1b; }
 [data-theme="dark"] .tag-nosummary { background: #7f1d1d; color: #fecaca; }
+/* v0.4.18: 来源标签深色覆盖。原浅色药丸(#dbeafe 等)在深色背景上刺眼。
+   深色下改为同色系深底 + 浅字,与 .tag-tag / .tag-nosummary 风格一致。 */
+[data-theme="dark"] .tag-github   { background: #1e3a8a; color: #bfdbfe; }
+[data-theme="dark"] .tag-wechat   { background: #14532d; color: #bbf7d0; }
+[data-theme="dark"] .tag-douyin   { background: #831843; color: #fbcfe8; }
+[data-theme="dark"] .tag-gpt_chat { background: #78350f; color: #fde68a; }
+[data-theme="dark"] .tag-web      { background: #312e81; color: #c7d2fe; }
+[data-theme="dark"] .tag-manual   { background: #374151; color: #e5e7eb; }
+/* .tag-x 原为 #111827 + #fff,深色下已 OK,不动 */
 
 /* 状态徽章:颜色 + 文字 + 图标(不靠颜色 alone) */
 .status-badge {
@@ -1464,15 +1473,17 @@ a { color: var(--c-primary); }
   font-size: 0.9em;
 }
 .markdown-body pre {
-  background: #0f172a;
-  color: #e2e8f0;
+  /* v0.4.18: 原 #0f172a 硬编码深底在浅色主题下也是黑框,且与 .td-body pre(用
+     var(--c-surface-2))不一致。统一用主题令牌,两种主题都自适应。 */
+  background: var(--c-surface-2);
+  color: var(--c-text);
   padding: var(--sp-4);
   border-radius: var(--r-sm);
   overflow-x: auto;
   margin: var(--sp-4) 0;
   font-size: var(--fs-sm);
   line-height: 1.6;
-  border: 1px solid #1e293b;
+  border: 1px solid var(--c-border);
 }
 .markdown-body pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
 .markdown-body blockquote {
@@ -2560,6 +2571,14 @@ section.card-soft { margin-bottom: var(--sp-6); }
 .kb-subnav a.active { opacity: 1; color: var(--c-primary); font-weight: 600; }
 
 /* ---------- 27. 任务页(/tasks + /task/{id}) ---------- */
+/* 工具栏排序控件:label + 下拉框 + 方向按钮 紧凑成一组 */
+.tk-sort-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+
 .task-card {
   background: var(--c-surface);
   border: 1px solid var(--c-border);
@@ -2579,6 +2598,24 @@ section.card-soft { margin-bottom: var(--sp-6); }
   display: inline-flex; align-items: center; gap: 4px;
   color: #fff; font-size: var(--fs-xs); font-weight: 600;
   padding: 2px 8px; border-radius: var(--r-pill); white-space: nowrap;
+}
+/* 置顶任务:左边框加粗变主色 + 浅底 + 轻阴影,从普通卡片中突出 */
+.task-card.task-pinned {
+  border-left-width: 6px;
+  border-left-color: var(--c-primary);
+  background: color-mix(in srgb, var(--c-primary) 6%, var(--c-surface));
+  box-shadow: var(--sh-sm);
+}
+.tk-pin-badge {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: var(--fs-xs); font-weight: 600; color: var(--c-primary);
+  background: color-mix(in srgb, var(--c-primary) 12%, transparent);
+  padding: 2px 8px; border-radius: var(--r-pill); white-space: nowrap;
+}
+/* 编辑模态框里的置顶勾选行 */
+.tk-pin-check {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-sm); color: var(--c-text); cursor: pointer;
 }
 .tk-date { font-size: var(--fs-xs); color: var(--c-text-muted); }
 .tk-dl-today { color: var(--c-warning, #d97706); font-weight: 600; }
@@ -2788,8 +2825,10 @@ section.card-soft { margin-bottom: var(--sp-6); }
 /* 深色主题:采用 Ardot 深紫黑 + 玻璃调色板(后定义者优先) */
 [data-theme="dark"] {
   --c-bg: #030014;
-  --c-surface: rgba(255,255,255,0.05);
-  --c-surface-2: rgba(255,255,255,0.035);
+  /* v0.4.18: 5%→8% / 3.5%→5.5%。原值太透,导致卡片/badge/表格单元格/markdown body
+     在 #030014 近黑底上几乎隐形(看起来像黑底)。微提亮保留玻璃质感但可见。 */
+  --c-surface: rgba(255,255,255,0.08);
+  --c-surface-2: rgba(255,255,255,0.055);
   --c-border: rgba(255,255,255,0.10);
   --c-border-strong: rgba(255,255,255,0.18);
   --c-text: #ececff;
@@ -3155,6 +3194,19 @@ body { position: relative; }
   transition: border-color var(--t-fast), transform var(--t-fast), box-shadow var(--t-fast);
 }
 .ws-tl-node:hover .ws-tl-body { border-color: var(--ev, var(--c-primary)); transform: translateY(-2px); box-shadow: var(--sh-md); }
+/* v0.4.18: 深色下时间轴轴线/圆点亮一点。原轴线用 var(--c-border)=10% 白,
+   在 #030014 近黑底上几乎看不见;圆点 #fff 虽可见但与暗轴反差太大、割裂。
+   深色下:轴线提到 28% 白 + 极光色微染;圆点加一圈极光渐变描边,与轴更协调。 */
+[data-theme="dark"] .ws-timeline-track::before {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--aurora-1) 30%, transparent),
+    rgba(255,255,255,0.28),
+    color-mix(in srgb, var(--aurora-2) 30%, transparent));
+}
+[data-theme="dark"] .ws-tl-dot {
+  background: #f0f3ff;
+  box-shadow: 0 0 0 3px var(--ev, var(--c-primary)), 0 0 6px color-mix(in srgb, var(--ev, var(--c-primary)) 50%, transparent);
+}
 .ws-tl-title { font-size: var(--fs-sm); font-weight: 600; line-height: 1.4; }
 .ws-tl-icon { font-size: 13px; }
 .ws-tl-cat {
@@ -3235,6 +3287,15 @@ body { position: relative; }
 }
 .ws-meta-pill.status { background: color-mix(in srgb, var(--st, var(--c-primary)) 16%, var(--c-surface)); color: var(--st, var(--c-primary)); }
 .ws-task-info { display: flex; flex-direction: column; gap: var(--sp-3); }
+/* 状态/截止/问题 子卡片:把这三项收拢成一个有边界的视觉单元(v0.4.18) */
+.ws-task-subcard {
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-lg);
+  background: var(--c-surface-2);
+  padding: var(--sp-3) var(--sp-4);
+}
+.ws-subcard-head { margin-bottom: var(--sp-3); }
+.ws-subcard-rows { display: flex; flex-direction: column; gap: var(--sp-3); }
 .ws-info-row { display: flex; flex-direction: column; gap: 2px; }
 .ws-info-label { font-size: 11px; color: var(--c-text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
 .ws-info-val { font-size: var(--fs-sm); color: var(--c-text); }
@@ -3668,3 +3729,104 @@ svg.lucide {
 #task-grid { align-items: start; }
 
 
+/* ============================================================
+   35. 深色模式交互控件不透明化(v0.4.18)
+   根因:Ardot 玻璃版 --c-surface 为半透明白,几乎所有交互控件
+   (.btn / .icon-btn / input / chip)用它当背景 → 在 #030014 近黑底上
+   几乎透明,只剩浅色文字漂浮,看起来像「黑底/看不见」。
+   典型症状:知识库卡片上的 删除/收藏/稍后阅读 按钮(.icon-btn)在深色下隐形。
+   修复:深色下给交互控件统一加不透明深紫黑底(#141226,与 select 修复一致)
+   + 浅色字;卡片(.card/.task-card/.summary-card 等)保留玻璃质感不在此列
+   (已由 §28 提亮 + backdrop-filter:blur 处理)。
+   仅作用于 [data-theme="dark"],浅色主题零影响。
+   ============================================================ */
+
+/* --- 按钮族 --- */
+[data-theme="dark"] .btn,
+[data-theme="dark"] .btn-secondary,
+[data-theme="dark"] .btn-danger,
+[data-theme="dark"] .btn-warn {
+  background: #141226;
+  color: var(--c-text);
+}
+[data-theme="dark"] .btn:hover,
+[data-theme="dark"] .btn-secondary:hover {
+  background: #1f1b3a;
+}
+[data-theme="dark"] .btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+/* disabled 保留原条纹纹理,只把底色做实 */
+[data-theme="dark"] .btn:disabled,
+[data-theme="dark"] .btn[disabled] {
+  background: #141226;
+}
+
+/* --- 图标按钮(知识库卡片上的 稍后阅读/收藏/删除 等) ---
+   半透明深紫黑,允许卡片玻璃感透过,但足够可见;hover 提亮。 */
+[data-theme="dark"] .icon-btn {
+  background: rgba(20, 18, 38, 0.85);
+  border-color: var(--c-border-strong);
+  color: var(--c-text);
+}
+[data-theme="dark"] .icon-btn:hover {
+  background: #1f1b3a;
+}
+
+/* --- 文本输入框 / 文本域(深色下统一不透明深底 + 浅字) --- */
+[data-theme="dark"] input[type="text"],
+[data-theme="dark"] input[type="search"],
+[data-theme="dark"] input[type="url"],
+[data-theme="dark"] input[type="email"],
+[data-theme="dark"] input[type="number"],
+[data-theme="dark"] input[type="date"],
+[data-theme="dark"] input[type="datetime-local"],
+[data-theme="dark"] textarea {
+  background-color: #141226;
+  color: var(--c-text);
+  border-color: var(--c-border-strong);
+}
+[data-theme="dark"] input::placeholder,
+[data-theme="dark"] textarea::placeholder {
+  color: var(--c-text-muted);
+}
+/* input/textarea 聚焦高亮边框,避免在深底上看不清焦点 */
+[data-theme="dark"] input:focus,
+[data-theme="dark"] textarea:focus,
+[data-theme="dark"] select:focus {
+  border-color: var(--c-focus);
+  outline: none;
+}
+
+/* --- 日历/事件交互 chip 与选择器 --- */
+[data-theme="dark"] .cal-chip,
+[data-theme="dark"] .cal-cat-opt,
+[data-theme="dark"] .cal-list-del {
+  background: #141226;
+  color: var(--c-text);
+}
+
+/* --- 工作台搜索框外壳 / 顶部按钮 --- */
+[data-theme="dark"] .ws-search,
+[data-theme="dark"] .ws-submit,
+[data-theme="dark"] .ws-notify {
+  background: #141226;
+  border-color: var(--c-border);
+}
+[data-theme="dark"] .ws-search-kbd {
+  background: rgba(255, 255, 255, 0.10);
+  color: var(--c-text-muted);
+}
+
+/* --- 主导航上的图标按钮(汉堡 / 主题切换 / 关闭服务) --- */
+[data-theme="dark"] .nav-toggle,
+[data-theme="dark"] .theme-toggle,
+[data-theme="dark"] .nav-shutdown {
+  background: #141226;
+  color: var(--c-text);
+}
+[data-theme="dark"] .nav-toggle:hover,
+[data-theme="dark"] .theme-toggle:hover,
+[data-theme="dark"] .nav-shutdown:hover {
+  background: #1f1b3a;
+}

@@ -309,6 +309,97 @@ def test_task_detail_404(client):
     assert client.get("/task/task_notexist").status_code == 404
 
 
+# ---- pinned(置顶)字段 ----
+
+def test_write_load_pinned_roundtrip(isolate_vault):
+    """pinned=True 写入 frontmatter,load 读回仍是 True。"""
+    tmp = isolate_vault
+    path = tmp / "07_Tasks" / "task_pinned01.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "id": "task_pinned01", "title": "置顶任务", "category": "开发",
+        "status": "active", "deadline": "", "blocker": "",
+        "checklist": [], "related_source": "", "synced_calendar_ids": "",
+        "created_at": "2026-07-26T10:00:00", "updated_at": "2026-07-26T10:00:00",
+        "pinned": True,
+    }
+    kb.write_task_file(path, meta, "", is_new=False)
+    # frontmatter 里写成了 true/false(YAML 友好),不是 Python 的 True/False
+    raw = path.read_text(encoding="utf-8")
+    assert "pinned: true" in raw
+    loaded = kb.load_task_file(path)
+    assert loaded["pinned"] is True
+
+
+def test_load_task_file_pinned_defaults_false(isolate_vault):
+    """旧任务文件无 pinned 字段,load 后默认 False(不报错)。"""
+    tmp = isolate_vault
+    path = tmp / "07_Tasks" / "task_legacy.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = (
+        "---\n"
+        "id: task_legacy\n"
+        "title: 老任务\n"
+        "category: 其他\n"
+        "status: active\n"
+        "deadline: ''\n"
+        "blocker: ''\n"
+        "checklist: []\n"
+        "related_source: ''\n"
+        "synced_calendar_ids: ''\n"
+        "created_at: ''\n"
+        "updated_at: ''\n"
+        "---\n\n正文\n"
+    )
+    path.write_text(content, encoding="utf-8")
+    loaded = kb.load_task_file(path)
+    assert loaded["pinned"] is False
+
+
+def test_api_pin_endpoint(client):
+    """专用 /pin 端点:置顶 → 读回 True → 取消 → 读回 False,持久化到文件。"""
+    import kb as kbmod
+    t = _create_task_via_api(client, title="要置顶")
+    tid = t["id"]
+    # 新建默认未置顶
+    assert t["pinned"] is False
+    # 置顶
+    r = client.post(f"/api/tasks/{tid}/pin", json={"pinned": True})
+    assert r.status_code == 200
+    assert r.json()["pinned"] is True
+    # GET 读回
+    assert client.get(f"/api/tasks/{tid}").json()["pinned"] is True
+    # 取消置顶
+    r2 = client.post(f"/api/tasks/{tid}/pin", json={"pinned": False})
+    assert r2.json()["pinned"] is False
+    assert client.get(f"/api/tasks/{tid}").json()["pinned"] is False
+    # 持久化:直接读文件验证 frontmatter
+    path = kbmod._find_task_file(tid)
+    assert path is not None
+    assert "pinned: false" in path.read_text(encoding="utf-8")
+
+
+def test_api_pin_404(client):
+    assert client.post("/api/tasks/task_none/pin", json={"pinned": True}).status_code == 404
+
+
+def test_api_create_task_with_pinned(client):
+    """创建时直接带 pinned=True。"""
+    t = _create_task_via_api(client, title="天生置顶", pinned=True)
+    assert t["pinned"] is True
+
+
+def test_api_patch_pinned(client):
+    """整体 PATCH 也支持改 pinned。"""
+    t = _create_task_via_api(client, title="改置顶")
+    tid = t["id"]
+    r = client.patch(f"/api/tasks/{tid}", json={"pinned": True})
+    assert r.status_code == 200
+    assert r.json()["task"]["pinned"] is True
+    # 其他字段不受影响
+    assert r.json()["task"]["title"] == "改置顶"
+
+
 def test_api_tasks_list(client):
     _create_task_via_api(client, title="T1")
     _create_task_via_api(client, title="T2")

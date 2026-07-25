@@ -100,7 +100,7 @@ class ChecklistItem(BaseModel):
 class TaskCreate(BaseModel):
     """创建任务."""
     title: str
-    category: str = "其他"  # 开发/科研/个人/金融/其他
+    category: str = "其他"  # 开发/科研/个人/金融/工作/其他
     project: str = ""  # 所属项目(业务上区别于任务标题)
     status: str = "active"  # active | done | blocked | archived
     deadline: str = ""  # YYYY-MM-DD,可空
@@ -108,6 +108,7 @@ class TaskCreate(BaseModel):
     body: str = ""  # 正文 Markdown
     checklist: list[ChecklistItem] = []  # 子任务清单
     related_source: str = ""  # 可选,关联文章 source_id
+    pinned: bool = False  # 置顶(在任务列表顶部显示)
 
 
 class TaskUpdate(BaseModel):
@@ -125,6 +126,12 @@ class TaskUpdate(BaseModel):
     body: str | None = None
     checklist: list[ChecklistItem] | None = None
     related_source: str | None = None
+    pinned: bool | None = None  # None=不改
+
+
+class TaskPinRequest(BaseModel):
+    """置顶/取消置顶单个任务(专用端点用)。"""
+    pinned: bool
 
 
 class ChecklistItemUpdate(BaseModel):

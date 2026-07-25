@@ -39,7 +39,7 @@ function renderForm(t) {
       + '<div class="te-row2">'
         + '<div class="te-field"><label>所属项目</label><input id="te-project" class="search-input" placeholder="例如 AAAI-27" value="' + escapeHtml(t.project || '') + '"></div>'
         + '<div class="te-field"><label>分类</label><select id="te-category" class="search-input">'
-          + ['开发', '科研', '个人', '金融', '其他'].map(c => '<option' + (c === t.category ? ' selected' : '') + '>' + c + '</option>').join('')
+          + ['开发', '科研', '个人', '金融', '工作', '其他'].map(c => '<option' + (c === t.category ? ' selected' : '') + '>' + c + '</option>').join('')
         + '</select></div>'
       + '</div>'
       + '<div class="te-row2">'

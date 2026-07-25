@@ -212,12 +212,12 @@
             + '<div class="ws-checklist">'+clHtml+'</div>'
           + '</div>'
           + '<div class="ws-task-side">'
-            + '<div class="ws-task-meta">'
-              + '<span class="ws-meta-pill status" style="--st:'+sm.color+'">'+sm.label+'</span>'
-            + '</div>'
-            + '<div class="ws-task-info">'
-              + '<div class="ws-info-row '+dlClass+'"><span class="ws-info-label">截止日期</span><span class="ws-info-val">'+esc(dlText)+'</span></div>'
-              + blockerHtml
+            + '<div class="ws-task-subcard">'
+              + '<div class="ws-subcard-head"><span class="ws-meta-pill status" style="--st:'+sm.color+'">'+sm.label+'</span></div>'
+              + '<div class="ws-subcard-rows">'
+                + '<div class="ws-info-row '+dlClass+'"><span class="ws-info-label">截止日期</span><span class="ws-info-val">'+esc(dlText)+'</span></div>'
+                + blockerHtml
+              + '</div>'
             + '</div>'
             + (relHtml ? '<div class="ws-task-rel">'+relHtml+'</div>' : '')
           + '</div>'

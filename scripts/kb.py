@@ -408,6 +408,26 @@ def content_hash(text: str) -> str:
     return hashlib.sha1(text.encode(ENC)).hexdigest()[:8]
 
 
+def _parse_bool(raw, default: bool = False) -> bool:
+    """容错解析布尔值。
+
+    接受 YAML 字面串("true"/"false",大小写不敏感)、原生 bool、
+    数字(1/0)以及空值。无法识别时返回 default。
+
+    用于 task frontmatter 的 pinned 字段(旧文件可能无此字段或写成字符串)。
+    """
+    if isinstance(raw, bool):
+        return raw
+    if raw is None:
+        return default
+    s = str(raw).strip().lower()
+    if s in ("true", "1", "yes", "y", "on"):
+        return True
+    if s in ("false", "0", "no", "n", "off", ""):
+        return False
+    return default
+
+
 def make_source_id(body: str) -> str:
     """生成稳定 source_id(幂等键):source_ff_<内容hash前8位>。
 
@@ -2811,7 +2831,8 @@ def sync_event_to_calendar(event_id: str) -> dict:
 
 TASK_DIR_NAME = "07_Tasks"
 # 任务分类(建议集,允许自定义,不强制白名单)
-TASK_CATEGORIES = ("开发", "调研", "写作", "阅读", "整理", "其他")
+# v0.4.18: 统一全站任务分类为 开发/科研/个人/金融/工作/其他(与 web 端一致)
+TASK_CATEGORIES = ("开发", "科研", "个人", "金融", "工作", "其他")
 
 
 def make_task_id(title: str) -> str:
@@ -2861,11 +2882,14 @@ def _format_task_file(meta: dict, body: str) -> str:
     for key in ("id", "title", "category", "project", "status",
                 "deadline", "blocker", "checklist",
                 "related_source", "synced_calendar_ids",
-                "created_at", "updated_at", "completed_at"):
+                "created_at", "updated_at", "completed_at", "pinned"):
         val = meta.get(key, "")
         # checklist 字段用 JSON 字符串,其余字段原样输出
         if key == "checklist":
             val = cl if cl else "[]"
+        elif key == "pinned":
+            # 布尔统一输出 true/false(避免 Python True 被写成 "True")
+            val = "true" if _parse_bool(val) else "false"
         lines.append(f"{key}: {val}")
     lines.append("---")
     lines.append("")
@@ -2912,6 +2936,7 @@ def load_task_file(path: Path) -> dict:
         "created_at": meta.get("created_at", "").strip(),
         "updated_at": meta.get("updated_at", "").strip(),
         "completed_at": meta.get("completed_at", "").strip(),
+        "pinned": _parse_bool(meta.get("pinned", "false")),  # 旧文件无此字段默认 false
         "body": body,
         "path": path.relative_to(VAULT_ROOT).as_posix() if _is_relative(path) else str(path),
     }

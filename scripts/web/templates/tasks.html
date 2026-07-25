@@ -11,6 +11,18 @@
     <button class="btn btn-sm btn-secondary" data-tkf="done" onclick="loadTasks('done')">已完成</button>
     <button class="btn btn-sm btn-secondary" data-tkf="all" onclick="loadTasks('all')">全部</button>
   </div>
+  <div class="tk-sort-bar">
+    <span class="muted" style="font-size:var(--fs-sm)">排序:</span>
+    <select id="tk-sort-key" class="filter-select" onchange="onTkSortChange()">
+      <option value="deadline">按截止日期</option>
+      <option value="status">按状态</option>
+      <option value="category">按分类</option>
+      <option value="created_at">按创建时间</option>
+    </select>
+    <button id="tk-sort-dir" class="icon-btn" title="切换升序/降序" onclick="toggleTkSortDir()">
+      <i data-lucide="arrow-up-narrow-wide"></i>
+    </button>
+  </div>
   <button class="btn btn-primary btn-sm" onclick="openTaskForm({mode:'create', onSaved: refreshTasks})"><i data-lucide="plus"></i> 新建任务</button>
 </div>
 
@@ -29,7 +41,7 @@ const TK_STATUS_META = {
 };
 const TK_CAT_COLORS = {
   '开发': '#2563eb', '科研': '#16a34a', '个人': '#d97706',
-  '金融': '#ca8a04', '其他': '#8b5cf6',
+  '金融': '#ca8a04', '工作': '#0891b2', '其他': '#8b5cf6',
 };
 function tkCatColor(cat) {
   return TK_CAT_COLORS[cat] || '#64748b';
@@ -38,6 +50,13 @@ function tkCatColor(cat) {
 let tkCurrentFilter = 'active';
 let tkAllItems = [];
 const tkTodayStr = new Date().toISOString().slice(0, 10);
+
+// 排序状态:默认 deadline 升序(与后端 scan_tasks 行为一致,改动后默认外观不变)
+let tkSortKey = 'deadline';   // deadline | status | category | created_at
+let tkSortAsc = true;         // true=升序
+// 状态/分类用固定语义顺序(与 tab/卡片配色逻辑一致),而非字母序
+const TK_STATUS_ORDER = { active:0, done:1, blocked:2, archived:3 };
+const TK_CAT_ORDER = { '开发':0, '科研':1, '个人':2, '金融':3, '工作':4, '其他':5 };
 
 async function loadTasks(filter) {
   tkCurrentFilter = filter || tkCurrentFilter;
@@ -62,6 +81,7 @@ async function loadTasks(filter) {
       grid.innerHTML = '<div class="muted" style="padding:2rem;text-align:center">暂无任务</div>';
       return;
     }
+    items = sortTkItems(items);  // 客户端排序(切换排序键/方向时无需重新 fetch)
     grid.innerHTML = items.map(renderTaskCard).join('');
     if (window.refreshIcons) window.refreshIcons();  // 动态渲染后重新扫描 Lucide 图标
   } catch (e) {
@@ -70,6 +90,53 @@ async function loadTasks(filter) {
 }
 
 function refreshTasks() { loadTasks(tkCurrentFilter); }
+
+// ---- 排序 ----
+function tkSortValue(t, key) {
+  if (key === 'status')   return TK_STATUS_ORDER[t.status] ?? 99;       // 未知状态排末尾
+  if (key === 'category') return TK_CAT_ORDER[t.category] ?? 99;        // 自定义分类排末尾
+  if (key === 'deadline' || key === 'created_at') return t[key] || '';  // ISO 字符串可直接比较
+  return '';
+}
+
+function sortTkItems(items) {
+  const arr = items.slice();  // 不 mutate 原数组(filter 链复用)
+  arr.sort((a, b) => {
+    // 置顶任务永远在前(不受排序键/方向影响),类似微信置顶会话
+    const ap = a.pinned ? 1 : 0;
+    const bp = b.pinned ? 1 : 0;
+    if (ap !== bp) return bp - ap;  // pinned 的(b=1)排前
+    const va = tkSortValue(a, tkSortKey);
+    const vb = tkSortValue(b, tkSortKey);
+    // 空值/未知值始终排末尾,不受升降序影响(避免切降序时空 deadline 涌到最前)
+    const aEmpty = (typeof va === 'string' && va === '') || va === 99;
+    const bEmpty = (typeof vb === 'string' && vb === '') || vb === 99;
+    if (aEmpty && !bEmpty) return 1;
+    if (!aEmpty && bEmpty) return -1;
+    if (aEmpty && bEmpty) return 0;
+    let cmp;
+    if (typeof va === 'number' && typeof vb === 'number') {
+      cmp = va - vb;
+    } else {
+      cmp = String(va).localeCompare(String(vb));
+    }
+    return tkSortAsc ? cmp : -cmp;
+  });
+  return arr;
+}
+
+function onTkSortChange() {
+  tkSortKey = document.getElementById('tk-sort-key').value;
+  refreshTasks();
+}
+
+function toggleTkSortDir() {
+  tkSortAsc = !tkSortAsc;
+  const btn = document.getElementById('tk-sort-dir');
+  btn.innerHTML = '<i data-lucide="' + (tkSortAsc ? 'arrow-up-narrow-wide' : 'arrow-down-narrow-wide') + '"></i>';
+  if (window.refreshIcons) window.refreshIcons();
+  refreshTasks();
+}
 
 function checklistProgress(cl) {
   if (!cl || !cl.length) return null;
@@ -86,9 +153,11 @@ function renderTaskCard(t) {
   const prog = checklistProgress(t.checklist);
   // v0.4.14: blocker(当前问题)不在列表卡片显示,只在详情页和编辑模态框可见
   // v0.4.15: desc 也不在列表卡片显示(消除高度差导致的 grid 列分布不均),描述进详情页看
-  return '<div class="task-card" style="--tk-cat:'+catColor+'">'
+  const pinned = !!t.pinned;
+  return '<div class="task-card'+(pinned ? ' task-pinned' : '')+'" style="--tk-cat:'+catColor+'">'
     + '<div class="tk-card-header">'
       + '<span class="tk-status-badge" style="background:'+sm.color+'"><i data-lucide="'+sm.icon+'"></i> '+sm.label+'</span>'
+      + (pinned ? '<span class="tk-pin-badge"><i data-lucide="pin"></i> 置顶</span>' : '')
       + '<span class="tk-date '+dlClass+'"><i data-lucide="calendar"></i> '+escapeHtml(dlText)+'</span>'
     + '</div>'
     + '<a class="tk-card-title" href="/task/'+encodeURIComponent(t.id)+'">'+escapeHtml(t.title)+'</a>'
@@ -97,6 +166,7 @@ function renderTaskCard(t) {
       + (prog ? '<span class="tk-prog"><i data-lucide="check"></i> '+prog+'</span>' : '')
     + '</div>'
     + '<div class="tk-card-actions">'
+      + '<button class="icon-btn'+(pinned ? ' active-rl' : '')+'" title="'+(pinned ? '取消置顶' : '置顶')+'" onclick="togglePin(\''+t.id+'\')"><i data-lucide="'+(pinned ? 'pin' : 'pin-off')+'"></i></button>'
       + '<a class="icon-btn" title="编辑" href="/task/'+encodeURIComponent(t.id)+'/edit"><i data-lucide="pencil"></i></a>'
       + (dl ? '<button class="icon-btn" title="同步到日历" onclick="syncTask(\''+t.id+'\')"><i data-lucide="calendar"></i></button>' : '')
       + '<button class="icon-btn icon-btn-danger" title="删除" onclick="deleteTask(\''+t.id+'\')"><i data-lucide="trash-2"></i></button>'
@@ -124,11 +194,26 @@ async function deleteTask(id) {
   } catch(e) { toast(e.message); }
 }
 
+async function togglePin(id) {
+  // 从本地缓存取当前状态取反,失败回滚由 refreshTasks 兜底
+  const t = tkAllItems.find(x => x.id === id);
+  const newPinned = t ? !t.pinned : true;
+  try {
+    const r = await fetch('/api/tasks/'+id+'/pin', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({pinned: newPinned})
+    });
+    if (!r.ok) throw new Error('置顶失败');
+    toast(newPinned ? '已置顶' : '已取消置顶');
+    refreshTasks();  // 复用现有 reload,sortTkItems 会把置顶项挪到顶部
+  } catch(e) { toast(e.message); }
+}
+
 // ---- 模态框:创建/编辑(直接操作 modalOverlay,照 events.html 模式)----
 async function openTaskForm(opts) {
   opts = opts || {};
   const isEdit = opts.mode === 'edit';
-  let task = { title:'', category:'开发', project:'', status:'active', deadline:'', blocker:'', body:'', checklist:[] };
+  let task = { title:'', category:'开发', project:'', status:'active', deadline:'', blocker:'', body:'', checklist:[], pinned:false };
   if (isEdit) {
     try {
       const r = await fetch('/api/tasks/'+opts.id);
@@ -137,7 +222,12 @@ async function openTaskForm(opts) {
     } catch(e) { toast(e.message); return; }
   }
   window._tkCl = (task.checklist||[]).map(x => Object.assign({}, x));
-  const clHtml = window._tkCl.map((it,i) => checklistRow(it, i)).join('')
+  // 兼容旧数据:checklist 项可能没有 id(老任务文件 setdefault 为空串),
+  // 这里给空 id 的项补一个稳定 id,后续增删改都基于 id,不会错位。
+  window._tkCl.forEach(it => {
+    if (!it.id) it.id = 'cli_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,8);
+  });
+  const clHtml = window._tkCl.map((it) => checklistRow(it)).join('')
     + '<div class="cl-empty muted" style="display:'+(window._tkCl.length?'none':'block')+'">暂无子任务</div>';
   const formHtml =
     '<div class="cal-form">'
@@ -146,13 +236,14 @@ async function openTaskForm(opts) {
     + '<div class="cal-form-row2">'
       + '<div class="cal-form-field"><label>所属项目</label><input id="tk-project" class="search-input" placeholder="例如 AAAI-27" value="'+escapeHtml(task.project||'')+'"></div>'
       + '<div class="cal-form-field"><label>分类</label><select id="tk-category" class="search-input">'
-        + ['开发','科研','个人','金融','其他'].map(c => '<option'+(c===task.category?' selected':'')+'>'+c+'</option>').join('')
+        + ['开发','科研','个人','金融','工作','其他'].map(c => '<option'+(c===task.category?' selected':'')+'>'+c+'</option>').join('')
       + '</select></div>'
     + '</div>'
     + '<div class="cal-form-row2">'
       + '<div class="cal-form-field"><label>状态</label><select id="tk-status" class="search-input">'
         + ['active','done','blocked','archived'].map(s => '<option value="'+s+'"'+(s===task.status?' selected':'')+'>'+(TK_STATUS_META[s]||{label:s}).label+'</option>').join('')
       + '</select></div>'
+      + '<div class="cal-form-field"><label>置顶</label><label class="tk-pin-check"><input type="checkbox" id="tk-pinned" '+(task.pinned?'checked':'')+'> 显示在列表顶部</label></div>'
     + '</div>'
     + '<div class="cal-form-row2">'
       + '<div class="cal-form-field"><label>截止日期</label><input id="tk-deadline" type="date" class="search-input" value="'+escapeHtml(task.deadline||'')+'"></div>'
@@ -185,18 +276,21 @@ async function openTaskForm(opts) {
   };
 }
 
-function checklistRow(it, i) {
-  return '<div class="cl-row" data-cli="'+i+'">'
-    + '<input type="checkbox" class="cl-done" '+(it.done?'checked':'')+' onchange="toggleClRow('+i+', this.checked)">'
-    + '<input type="text" class="cl-text search-input" value="'+escapeHtml(it.text||'')+'" oninput="updateClText('+i+', this.value)" placeholder="子任务内容">'
-    + '<button class="icon-btn icon-btn-danger" onclick="removeClRow('+i+')">✕</button>'
+function checklistRow(it) {
+  // 用稳定的 item.id 作标识(而非数组下标),删除任意项都不会错位。
+  // id 经 escapeHtml + 单引号包裹,防注入 + 防 id 含特殊字符破坏属性。
+  const iid = escapeHtml(it.id);
+  return '<div class="cl-row" data-cli="'+iid+'">'
+    + '<input type="checkbox" class="cl-done" '+(it.done?'checked':'')+' onchange="toggleClRow(\''+iid+'\', this.checked)">'
+    + '<input type="text" class="cl-text search-input" value="'+escapeHtml(it.text||'')+'" oninput="updateClText(\''+iid+'\', this.value)" placeholder="子任务内容">'
+    + '<button class="icon-btn icon-btn-danger" onclick="removeClRow(\''+iid+'\')">✕</button>'
   + '</div>';
 }
 function renderChecklistEditor() {
   const wrap = document.getElementById('tk-checklist');
   if (!wrap) return;
   const cl = window._tkCl || [];
-  wrap.innerHTML = cl.map((it,i) => checklistRow(it,i)).join('')
+  wrap.innerHTML = cl.map((it) => checklistRow(it)).join('')
     + '<div class="cl-empty muted" style="display:'+(cl.length?'none':'block')+'">暂无子任务</div>';
 }
 function addChecklistRow() {
@@ -205,10 +299,22 @@ function addChecklistRow() {
   window._tkCl.push({ id: 'cli_'+Date.now()+'_'+Math.random().toString(36).slice(2,6), text:'', done:false });
   renderChecklistEditor();
 }
-function toggleClRow(i, checked) { if (window._tkCl[i]) window._tkCl[i].done = checked; }
-function updateClText(i, val) { if (window._tkCl[i]) window._tkCl[i].text = val; }
-function removeClRow(i) {
-  if (window._tkCl) { window._tkCl.splice(i,1); renderChecklistEditor(); }
+function _findClIndex(itemId) {
+  // 按 id 在 window._tkCl 里定位;findIndex 找不到返回 -1
+  const cl = window._tkCl || [];
+  return cl.findIndex(x => x.id === itemId);
+}
+function toggleClRow(itemId, checked) {
+  const i = _findClIndex(itemId);
+  if (i >= 0) window._tkCl[i].done = checked;
+}
+function updateClText(itemId, val) {
+  const i = _findClIndex(itemId);
+  if (i >= 0) window._tkCl[i].text = val;
+}
+function removeClRow(itemId) {
+  const i = _findClIndex(itemId);
+  if (i >= 0) { window._tkCl.splice(i,1); renderChecklistEditor(); }
 }
 
 async function saveTask(opts, btn, isEdit) {
@@ -223,6 +329,7 @@ async function saveTask(opts, btn, isEdit) {
     blocker: document.getElementById('tk-blocker').value,
     body: document.getElementById('tk-body').value,
     checklist: (window._tkCl||[]).filter(x => x.text && x.text.trim()),
+    pinned: document.getElementById('tk-pinned').checked,
   };
   try {
     let r;

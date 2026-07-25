@@ -14,7 +14,8 @@ const TK_DETAIL_STATUS = {
   'blocked':  { color: '#dc2626', label: '阻塞', icon: 'ban' },
   'archived': { color: '#64748b', label: '已归档', icon: 'archive' },
 };
-const TK_DETAIL_CAT = { '开发':'#2563eb','调研':'#16a34a','写作':'#8b5cf6','阅读':'#0d9488','整理':'#d97706','其他':'#64748b' };
+// v0.4.18: 统一为 开发/科研/个人/金融/工作/其他(与 tasks.html / task_edit.html / kb.py 一致)
+const TK_DETAIL_CAT = { '开发':'#2563eb','科研':'#16a34a','个人':'#d97706','金融':'#ca8a04','工作':'#0891b2','其他':'#8b5cf6' };
 const TASK_ID = "{{ task_id }}";
 const tkTodayStr = new Date().toISOString().slice(0, 10);
 

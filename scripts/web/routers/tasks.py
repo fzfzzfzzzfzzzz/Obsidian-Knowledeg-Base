@@ -26,7 +26,7 @@ from web.utils import (
     sanitize_html,
     VALID_TASK_STATUS,
 )
-from web.models import TaskCreate, TaskUpdate, ChecklistItemUpdate
+from web.models import TaskCreate, TaskUpdate, TaskPinRequest, ChecklistItemUpdate
 
 import kb
 
@@ -130,6 +130,7 @@ async def api_tasks_create(payload: TaskCreate):
         "related_source": payload.related_source.strip(),
         "synced_calendar_ids": "",
         "completed_at": "",  # v0.4.11: 完成(status=done)时由 write_task_file 写入
+        "pinned": bool(payload.pinned),
     }
     kb.write_task_file(path, meta, payload.body, is_new=True)
     task = kb.load_task_file(path)
@@ -177,6 +178,8 @@ def _update_task_fields(task: dict, payload: TaskUpdate) -> dict:
         meta["checklist"] = [item.model_dump() for item in payload.checklist]
     if payload.related_source is not None:
         meta["related_source"] = payload.related_source.strip()
+    if payload.pinned is not None:
+        meta["pinned"] = bool(payload.pinned)
     meta["synced_calendar_ids"] = ",".join(task.get("synced_calendar_ids", []))
     return meta
 
@@ -249,3 +252,19 @@ async def api_tasks_sync_calendar(task_id: str):
     if result.get("reason") == "task_has_no_deadline":
         raise HTTPException(400, "任务没有截止日期,无法同步到日历")
     return JSONResponse(result)
+
+
+@router.post("/api/tasks/{task_id}/pin")
+async def api_tasks_pin(task_id: str, payload: TaskPinRequest):
+    """置顶/取消置顶任务(专用端点,只改 pinned 位,不影响其他字段)。
+
+    置顶任务在任务列表前端永远显示在顶部,不受排序键/方向影响。
+    """
+    path = kb._find_task_file(task_id)
+    if path is None:
+        raise HTTPException(404, f"找不到任务:{task_id}")
+    task = kb.load_task_file(path)
+    meta = {k: v for k, v in task.items() if k not in ("body", "path")}
+    meta["pinned"] = bool(payload.pinned)
+    kb.write_task_file(path, meta, task["body"], is_new=False)
+    return JSONResponse({"ok": True, "task_id": task_id, "pinned": meta["pinned"]})
