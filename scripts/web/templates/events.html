@@ -78,8 +78,7 @@
         + `<span>${evCatIcon(cat)} ${escapeHtml(cat)}</span>`
         + `</label>`;
     }).join('');
-    window.refreshIcons();
-    setTimeout(window.refreshIcons, 50); // 兜底:确保浏览器解析完 innerHTML 后再刷一次图标
+    window.refreshIcons();  // 动态渲染筛选条后刷新图标(MutationObserver 仅作兜底)
   }
 
   function onEvFilterChange() {
@@ -113,8 +112,7 @@
     }
     window.eventStore.clear();
     grid.innerHTML = items.map(ev => renderEventCard(ev)).join('');
-    window.refreshIcons();
-    setTimeout(window.refreshIcons, 50); // 兜底
+    window.refreshIcons();  // 动态渲染事件卡片后刷新图标(MutationObserver 仅作兜底)
     // hash 跳转高亮(从日历来源链接点过来时)
     if (location.hash.startsWith('#event_')) {
       const el = document.getElementById(location.hash.slice(1));
@@ -226,8 +224,7 @@
     document.getElementById('modalTitle').textContent = formTitle;
     document.getElementById('modalBody').innerHTML = formHtml;
     document.getElementById('modalActions').innerHTML = '';
-    window.refreshIcons();
-    setTimeout(window.refreshIcons, 50); // 兜底
+    window.refreshIcons();  // 渲染事件表单后刷新图标(MutationObserver 仅作兜底)
     overlay.hidden = false;
 
     let selectedCategory = category;
@@ -346,7 +343,5 @@
     openEventForm({ mode: 'create', onSaved: refreshEvents });
     history.replaceState(null, '', location.pathname + location.search);
   }
-  // 最终兜底:页面完全加载后再次刷新图标(覆盖所有时序/缓存场景)
-  window.addEventListener('load', function(){ setTimeout(window.refreshIcons, 100); });
 </script>
 {% endblock %}

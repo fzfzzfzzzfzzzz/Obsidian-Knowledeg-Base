@@ -2607,8 +2607,9 @@ def _ensure_monthly_file(path: Path, month_tag: str) -> None:
 # ---------------------------------------------------------------------------
 
 EVENT_DIR_NAME = "06_Events"
-# 事件 category 与日历共享(同步时直接透传给 calendar item)
-EVENT_CATEGORIES = ("会议", "财报", "截止日期", "发布", "比赛", "其他")
+# 事件/任务的合法 category 不在此声明:类别元数据(含合法值、icon、color、label)
+# 的单一数据源是 scripts/web/static/cat-meta.js(KB_CATEGORIES / KB_TASK_CATEGORIES)。
+# 路由器设计上允许自定义 category,不做白名单校验。
 
 
 def make_event_id(title: str) -> str:
@@ -2830,9 +2831,6 @@ def sync_event_to_calendar(event_id: str) -> dict:
 # ---------------------------------------------------------------------------
 
 TASK_DIR_NAME = "07_Tasks"
-# 任务分类(建议集,允许自定义,不强制白名单)
-# v0.4.18: 统一全站任务分类为 开发/科研/个人/金融/工作/其他(与 web 端一致)
-TASK_CATEGORIES = ("开发", "科研", "个人", "金融", "工作", "其他")
 
 
 def make_task_id(title: str) -> str:

@@ -14,8 +14,7 @@ const TK_DETAIL_STATUS = {
   'blocked':  { color: '#dc2626', label: '阻塞', icon: 'ban' },
   'archived': { color: '#64748b', label: '已归档', icon: 'archive' },
 };
-// v0.4.18: 统一为 开发/科研/个人/金融/工作/其他(与 tasks.html / task_edit.html / kb.py 一致)
-const TK_DETAIL_CAT = { '开发':'#2563eb','科研':'#16a34a','个人':'#d97706','金融':'#ca8a04','工作':'#0891b2','其他':'#8b5cf6' };
+// v0.4.19: 任务类别配色改读 cat-meta.js(taskCatColor),不再硬编码 TK_DETAIL_CAT
 const TASK_ID = "{{ task_id }}";
 const tkTodayStr = new Date().toISOString().slice(0, 10);
 
@@ -60,7 +59,7 @@ function renderDetail(t) {
   const clHtml = clItems.length
     ? clItems.map(it => checklistDetailRow(it)).join('')
     : '<div class="td-cl-empty muted">暂无子任务</div>';
-  const catColor = (TK_DETAIL_CAT[t.category] || '#64748b');
+  const catColor = taskCatColor(t.category);
 
   // 元数据条(只显示有值的)
   const meta = [];

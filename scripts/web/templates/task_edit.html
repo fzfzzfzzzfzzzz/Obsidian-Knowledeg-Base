@@ -39,7 +39,7 @@ function renderForm(t) {
       + '<div class="te-row2">'
         + '<div class="te-field"><label>所属项目</label><input id="te-project" class="search-input" placeholder="例如 AAAI-27" value="' + escapeHtml(t.project || '') + '"></div>'
         + '<div class="te-field"><label>分类</label><select id="te-category" class="search-input">'
-          + ['开发', '科研', '个人', '金融', '工作', '其他'].map(c => '<option' + (c === t.category ? ' selected' : '') + '>' + c + '</option>').join('')
+          + taskCatPresets().map(p => '<option' + (p.value === t.category ? ' selected' : '') + '>' + p.label + '</option>').join('')
         + '</select></div>'
       + '</div>'
       + '<div class="te-row2">'
@@ -129,12 +129,18 @@ function collectChecklist() {
   return out;
 }
 // 事件委托:删除按钮 / 新增按钮(在 renderForm 里绑定 te-add-cl)
+// 注意:删除用 mousedown 而非 click。原因:Lucide 图标(svg)在按钮内,
+// 全局 MutationObserver 触发的 refreshIcons() 会在 requestAnimationFrame 里
+// 重新替换 svg 元素。若用户按住鼠标时 svg 被替换,mouseup 落在新元素上,
+// 浏览器判定 mousedown/mouseup 不同源 → 不触发 click → 点了没反应。
+// mousedown 在元素被替换前就触发,避开这个时序坑。
 function bindChecklistEvents() {
   const wrap = document.getElementById('te-checklist');
   if (wrap) {
-    wrap.addEventListener('click', function(e) {
+    wrap.addEventListener('mousedown', function(e) {
       const del = e.target.closest('.te-cl-del');
       if (!del) return;
+      e.preventDefault();  // 阻止按钮抢焦点,避免 input 失焦等副作用
       const row = del.closest('.cl-row');
       if (row) { row.remove(); syncClEmpty(); }
     });

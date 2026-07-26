@@ -39,13 +39,9 @@ const TK_STATUS_META = {
   'blocked':  { color: '#dc2626', label: '阻塞',   icon: 'ban' },
   'archived': { color: '#64748b', label: '已归档', icon: 'archive' },
 };
-const TK_CAT_COLORS = {
-  '开发': '#2563eb', '科研': '#16a34a', '个人': '#d97706',
-  '金融': '#ca8a04', '工作': '#0891b2', '其他': '#8b5cf6',
-};
-function tkCatColor(cat) {
-  return TK_CAT_COLORS[cat] || '#64748b';
-}
+// v0.4.19: 任务类别配色/图标改读 cat-meta.js(KB_TASK_CATEGORIES),不再硬编码。
+// tkCatColor 作为别名保留,模板内其余调用点不变。
+const tkCatColor = taskCatColor;
 
 let tkCurrentFilter = 'active';
 let tkAllItems = [];
@@ -56,7 +52,8 @@ let tkSortKey = 'deadline';   // deadline | status | category | created_at
 let tkSortAsc = true;         // true=升序
 // 状态/分类用固定语义顺序(与 tab/卡片配色逻辑一致),而非字母序
 const TK_STATUS_ORDER = { active:0, done:1, blocked:2, archived:3 };
-const TK_CAT_ORDER = { '开发':0, '科研':1, '个人':2, '金融':3, '工作':4, '其他':5 };
+// v0.4.19: 排序顺序从 cat-meta.js 的 KB_TASK_CAT_ORDER 派生,加新类别自动跟上
+const TK_CAT_ORDER = Object.fromEntries(KB_TASK_CAT_ORDER.map((c, i) => [c, i]));
 
 async function loadTasks(filter) {
   tkCurrentFilter = filter || tkCurrentFilter;
@@ -236,7 +233,7 @@ async function openTaskForm(opts) {
     + '<div class="cal-form-row2">'
       + '<div class="cal-form-field"><label>所属项目</label><input id="tk-project" class="search-input" placeholder="例如 AAAI-27" value="'+escapeHtml(task.project||'')+'"></div>'
       + '<div class="cal-form-field"><label>分类</label><select id="tk-category" class="search-input">'
-        + ['开发','科研','个人','金融','工作','其他'].map(c => '<option'+(c===task.category?' selected':'')+'>'+c+'</option>').join('')
+        + taskCatPresets().map(p => '<option'+(p.value===task.category?' selected':'')+'>'+p.label+'</option>').join('')
       + '</select></div>'
     + '</div>'
     + '<div class="cal-form-row2">'
@@ -268,6 +265,7 @@ async function openTaskForm(opts) {
   overlay.hidden = false;
 
   document.getElementById('tk-add-cl').onclick = addChecklistRow;
+  bindTkChecklistEvents();  // checklist 删除事件委托(mousedown,避开 Lucide 时序坑)
   document.getElementById('tk-cancel').onclick = function() { overlay.hidden = true; };
   document.getElementById('tk-save').onclick = async function() {
     const btn = this;
@@ -278,12 +276,14 @@ async function openTaskForm(opts) {
 
 function checklistRow(it) {
   // 用稳定的 item.id 作标识(而非数组下标),删除任意项都不会错位。
-  // id 经 escapeHtml + 单引号包裹,防注入 + 防 id 含特殊字符破坏属性。
+  // 行内事件(onchange/oninput)只处理勾选和文本输入;删除走事件委托(见 bindTkChecklistEvents),
+  // 用 mousedown 而非 click,避免 Lucide 图标在 mousedown→mouseup 间被 refreshIcons 替换
+  // 导致 click 不触发(与 task_edit.html 同款修复)。
   const iid = escapeHtml(it.id);
   return '<div class="cl-row" data-cli="'+iid+'">'
     + '<input type="checkbox" class="cl-done" '+(it.done?'checked':'')+' onchange="toggleClRow(\''+iid+'\', this.checked)">'
     + '<input type="text" class="cl-text search-input" value="'+escapeHtml(it.text||'')+'" oninput="updateClText(\''+iid+'\', this.value)" placeholder="子任务内容">'
-    + '<button class="icon-btn icon-btn-danger" onclick="removeClRow(\''+iid+'\')">✕</button>'
+    + '<button class="icon-btn icon-btn-danger tk-cl-del" data-del="'+iid+'" title="删除">✕</button>'
   + '</div>';
 }
 function renderChecklistEditor() {
@@ -315,6 +315,19 @@ function updateClText(itemId, val) {
 function removeClRow(itemId) {
   const i = _findClIndex(itemId);
   if (i >= 0) { window._tkCl.splice(i,1); renderChecklistEditor(); }
+}
+// checklist 删除事件委托:用 mousedown 触发(见 checklistRow 注释说明原因)。
+// 在 openTaskForm 渲染表单后调用一次,绑定在稳定的 #tk-checklist 容器上。
+function bindTkChecklistEvents() {
+  const wrap = document.getElementById('tk-checklist');
+  if (!wrap) return;
+  wrap.addEventListener('mousedown', function(e) {
+    const del = e.target.closest('.tk-cl-del');
+    if (!del) return;
+    e.preventDefault();
+    const itemId = del.getAttribute('data-del');
+    if (itemId) removeClRow(itemId);
+  });
 }
 
 async function saveTask(opts, btn, isEdit) {
