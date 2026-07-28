@@ -7,7 +7,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-// 任务全页编辑器:加载已有任务 → 宽敞表单 → PATCH 保存 → 返回详情页
+// 任务全页编辑器:加载已有任务 → 宽敞表单 → PATCH 保存 → 保留在编辑界面(不跳转)
 const TASK_ID = "{{ task_id }}";
 
 async function loadTask() {
@@ -85,7 +85,7 @@ function teOnKeydown(e) {
 // ---- Checklist 子任务编辑器(事件委托,不依赖 inline handler)----
 // 数据源是 DOM 本身:保存时从输入框现读,避免外部状态与 DOM 不同步。
 function checklistRow(it) {
-  return '<div class="cl-row">'
+  return '<div class="cl-row"' + (it.id ? ' data-cli="' + escapeHtml(it.id) + '"' : '') + '>'
     + '<input type="checkbox" class="cl-done"' + (it.done ? ' checked' : '') + '>'
     + '<input type="text" class="cl-text search-input" value="' + escapeHtml(it.text || '') + '" placeholder="子任务内容">'
     + '<button class="icon-btn icon-btn-danger te-cl-del" type="button" title="删除"><i data-lucide="x"></i></button>'
@@ -104,6 +104,8 @@ function addChecklistRow() {
   const cl = collectChecklist();
   cl.push({ id: 'cli_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6), text: '', done: false });
   const wrap = document.getElementById('te-checklist');
+  // 用统一的 checklistRow 渲染,确保新行的临时 id 也写进 data-cli,
+  // 之后保存返回稳定 id 时由 rehydrateFromSaved 回写。
   wrap.innerHTML = cl.map(it => checklistRow(it)).join('')
     + '<div class="cl-empty muted" style="display:none">暂无子任务</div>';
   if (window.refreshIcons) window.refreshIcons();
@@ -176,12 +178,32 @@ async function saveTask() {
     const d = await r.json();
     if (!r.ok) throw new Error(d.detail || '保存失败');
     toast('✓ 已保存', 'success');
-    // 返回详情页
-    setTimeout(() => location.href = '/task/' + encodeURIComponent(TASK_ID), 400);
+    // v0.4.21: 保存后留在编辑界面,只刷新数据,不跳转。
+    // 用服务端返回的稳定 checklist id 回写 DOM,避免反复保存时
+    // 客户端临时 id(cli_*)漂移导致其他页面打勾 404。
+    rehydrateFromSaved(d.task || {});
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="save"></i> 保存';
+    if (window.refreshIcons) window.refreshIcons();
   } catch (e) {
     toast('保存失败:' + e.message, 'error');
-    btn.disabled = false; btn.textContent = '💾 保存';
+    btn.disabled = false;
+    btn.innerHTML = '<i data-lucide="save"></i> 保存';
+    if (window.refreshIcons) window.refreshIcons();
   }
+}
+
+// 保存成功后用服务端返回的数据刷新编辑器,但保留用户当前在编辑的状态:
+// 标题/正文/字段已随 payload 提交,这里只回写 checklist 的稳定 id。
+// checklist 内容以 DOM 现状为准(用户可能正在编辑文本),仅按位置同步 id。
+function rehydrateFromSaved(task) {
+  const saved = (task.checklist || []);
+  const wrap = document.getElementById('te-checklist');
+  if (!wrap) return;
+  const rows = wrap.querySelectorAll('.cl-row');
+  rows.forEach((row, i) => {
+    if (saved[i] && saved[i].id) row.dataset.cli = saved[i].id;
+  });
 }
 
 loadTask();

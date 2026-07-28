@@ -52,18 +52,7 @@
       </div>
     </section>
 
-    <!-- 最近继续过 -->
-    <section class="ws-section" aria-label="最近继续过">
-      <div class="ws-section-head">
-        <h2 class="ws-section-title">最近继续过</h2>
-        <a class="ws-section-more" href="/recent">查看全部 →</a>
-      </div>
-      <div class="ws-recent" id="ws-recent">
-        <div class="ws-placeholder">加载中...</div>
-      </div>
-    </section>
-
-    <!-- 底部三列辅助卡片 -->
+    <!-- 底部四列辅助卡片(本周概览 / 即将截止 / 知识库常用 / 市场常用) -->
     <div class="ws-bottom-grid">
       <section class="ws-card" aria-label="本周概览">
         <div class="ws-card-head">
@@ -85,16 +74,31 @@
         </div>
       </section>
 
-      <section class="ws-card" aria-label="常用入口">
+      <section class="ws-card" aria-label="知识库常用">
         <div class="ws-card-head">
-          <h3 class="ws-card-title">常用入口</h3>
+          <h3 class="ws-card-title">知识库常用</h3>
         </div>
         <div class="ws-card-body" id="ws-quick-access">
           <div class="ws-quick-grid">
-            <a class="ws-quick-item" href="/tasks#new"><span class="ws-quick-icon"><i data-lucide="check-square"></i></span><span>新建任务</span></a>
-            <a class="ws-quick-item" href="/recent"><span class="ws-quick-icon"><i data-lucide="history"></i></span><span>最近阅读</span></a>
-            <a class="ws-quick-item" href="/events#new"><span class="ws-quick-icon"><i data-lucide="flag"></i></span><span>新建事件</span></a>
-            <a class="ws-quick-item" href="/submit"><span class="ws-quick-icon"><i data-lucide="pen-tool"></i></span><span>投稿</span></a>
+            <a class="ws-quick-item" href="/tasks#new"><span class="ws-quick-icon"><i data-lucide="check-square"></i></span><span class="ws-quick-label">新建任务</span></a>
+            <a class="ws-quick-item" href="/recent"><span class="ws-quick-icon"><i data-lucide="history"></i></span><span class="ws-quick-label">最近阅读</span></a>
+            <a class="ws-quick-item" href="/events#new"><span class="ws-quick-icon"><i data-lucide="flag"></i></span><span class="ws-quick-label">新建事件</span></a>
+            <a class="ws-quick-item" href="/submit"><span class="ws-quick-icon"><i data-lucide="pen-tool"></i></span><span class="ws-quick-label">投稿</span></a>
+          </div>
+        </div>
+      </section>
+
+      <section class="ws-card" aria-label="市场常用">
+        <div class="ws-card-head">
+          <h3 class="ws-card-title">市场常用</h3>
+        </div>
+        <div class="ws-card-body" id="ws-market-access">
+          <!-- v0.4.20: 占位入口,结构与「知识库常用」一致;待填真实金融链接/图标 -->
+          <div class="ws-quick-grid">
+            <a class="ws-quick-item" href="#"><span class="ws-quick-icon"><i data-lucide="circle"></i></span><span class="ws-quick-label">入口 1</span></a>
+            <a class="ws-quick-item" href="#"><span class="ws-quick-icon"><i data-lucide="circle"></i></span><span class="ws-quick-label">入口 2</span></a>
+            <a class="ws-quick-item" href="#"><span class="ws-quick-icon"><i data-lucide="circle"></i></span><span class="ws-quick-label">入口 3</span></a>
+            <a class="ws-quick-item" href="#"><span class="ws-quick-icon"><i data-lucide="circle"></i></span><span class="ws-quick-label">入口 4</span></a>
           </div>
         </div>
       </section>
@@ -118,6 +122,17 @@
         <div class="ws-placeholder">加载中...</div>
       </div>
       <a class="ws-rail-more" href="/kb">查看更多 →</a>
+    </section>
+
+    <!-- 最近阅读(结构复制自推荐阅读,细节待调) -->
+    <section class="ws-rail-card" aria-label="最近阅读">
+      <div class="ws-rail-head">
+        <h2 class="ws-rail-title">最近阅读</h2>
+      </div>
+      <div class="ws-articles" id="ws-recent-body">
+        <div class="ws-placeholder">加载中...</div>
+      </div>
+      <a class="ws-rail-more" href="/recent">查看更多 →</a>
     </section>
   </aside>
 
@@ -194,7 +209,13 @@
       if (cl.length > 3) {
         clHtml += '<a class="ws-cl-more" href="/task/'+esc(t.id)+'">还有 '+(cl.length-3)+' 项,查看全部 →</a>';
       }
-      var blockerHtml = t.blocker ? ('<div class="ws-info-row"><span class="ws-info-label">当前问题</span><span class="ws-info-val ws-info-danger">'+esc(t.blocker)+'</span></div>') : '';
+      // 当前问题始终显示:非空时红色高亮(danger),空时显示「无」
+      var blocker = t.blocker || '';
+      var blockerHtml = '<div class="ws-sub-row'+(blocker?' danger':'')+'">'
+        + '<i class="ws-sub-ico" data-lucide="alert-circle"></i>'
+        + '<span class="ws-sub-label">当前问题</span>'
+        + '<span class="ws-sub-val">'+(blocker?esc(blocker):'无')+'</span>'
+        + '</div>';
       var relHtml = t.related_source || t.project
         ? ('<a class="ws-meta-link" href="'+(t.related_source ? ('/summary/'+esc(t.related_source)) : '/tasks')+'">查看关联项目 →</a>')
         : '';
@@ -213,11 +234,17 @@
           + '</div>'
           + '<div class="ws-task-side">'
             + '<div class="ws-task-subcard">'
-              + '<div class="ws-subcard-head"><span class="ws-meta-pill status" style="--st:'+sm.color+'">'+sm.label+'</span></div>'
-              + '<div class="ws-subcard-rows">'
-                + '<div class="ws-info-row '+dlClass+'"><span class="ws-info-label">截止日期</span><span class="ws-info-val">'+esc(dlText)+'</span></div>'
-                + blockerHtml
+              + '<div class="ws-sub-row">'
+                + '<i class="ws-sub-ico" data-lucide="circle-dot"></i>'
+                + '<span class="ws-sub-label">状态</span>'
+                + '<span class="ws-sub-val"><span class="ws-meta-pill status" style="--st:'+sm.color+'">'+sm.label+'</span></span>'
               + '</div>'
+              + '<div class="ws-sub-row '+dlClass+'">'
+                + '<i class="ws-sub-ico" data-lucide="calendar-clock"></i>'
+                + '<span class="ws-sub-label">截止日期</span>'
+                + '<span class="ws-sub-val">'+esc(dlText)+'</span>'
+              + '</div>'
+              + blockerHtml
             + '</div>'
             + (relHtml ? '<div class="ws-task-rel">'+relHtml+'</div>' : '')
           + '</div>'
@@ -318,25 +345,6 @@
     }).catch(function(){ setBody('ws-timeline', emptyHTML('加载失败')); });
   }
 
-  // ---- 最近继续过 ----
-  function loadRecent(){
-    fetch('/api/recent').then(function(r){return r.json();}).then(function(d){
-      var items = (d.items||[]).slice(0,3);
-      if(!items.length){ setBody('ws-recent', emptyHTML('还没有阅读记录')); return; }
-      var icons = ['📄','📝','📊','🧪','🎯'];
-      var html = '<div class="ws-recent-track">' + items.map(function(x, i){
-        return '<a class="ws-recent-card" href="/summary/'+esc(x.source_id)+'">'
-          + '<span class="ws-recent-icon">'+(icons[i%icons.length])+'</span>'
-          + '<div class="ws-recent-body">'
-            + '<div class="ws-recent-title">'+esc(x.title||x.source_id)+'</div>'
-            + '<div class="ws-recent-sub">'+(x.area ? esc(x.area)+' · ' : '')+fmtTimeAgo(x.last_read_at)+'</div>'
-          + '</div>'
-          + '</a>';
-      }).join('') + '</div>';
-      setBody('ws-recent', html);
-    }).catch(function(){ setBody('ws-recent', emptyHTML('加载失败')); });
-  }
-
   // ---- 底部辅助卡片 ----
   function loadBottomCards(){
     Promise.all([
@@ -345,17 +353,14 @@
     ]).then(function(res){
       var ov = res[0] || {};
       var r = ov.reading || {}, t = ov.tasks || {}, rm = ov.reminders || {};
-      var rp = r.progress_pct || 0;
+      // v0.4.20: 本周概览改用与「知识库常用/市场常用」同款的 2×2 网格,
+      // 用大加粗数字替代图标位置(删掉原阅读进度行 + 进度条)。
       var weekHtml =
-        '<div class="ws-stat-row"><span class="ws-stat-label">阅读进度</span><span class="ws-stat-num">'+rp+'%</span></div>'
-        + '<div class="ws-progress-wrap"><div class="ws-progress-bar" style="width:'+rp+'%"></div></div>'
-        + '<div class="ws-week-row">'
-          + '<div><span class="ws-week-num">'+(r.read_this_week||0)+'</span><span class="ws-week-label">本周已读</span></div>'
-          + '<div><span class="ws-week-num">'+(t.completed_this_week||0)+'</span><span class="ws-week-label">本周完成</span></div>'
-        + '</div>'
-        + '<div class="ws-week-row">'
-          + '<div><span class="ws-week-num">'+(t.active_total||0)+'</span><span class="ws-week-label">进行中任务</span></div>'
-          + '<div><span class="ws-week-num">'+(r.new_articles_this_week||0)+'</span><span class="ws-week-label">本周新增</span></div>'
+        '<div class="ws-quick-grid">'
+          + '<div class="ws-quick-item"><span class="ws-week-num">'+(r.read_this_week||0)+'</span><span class="ws-quick-label">本周已读</span></div>'
+          + '<div class="ws-quick-item"><span class="ws-week-num">'+(t.completed_this_week||0)+'</span><span class="ws-quick-label">本周完成</span></div>'
+          + '<div class="ws-quick-item"><span class="ws-week-num">'+(t.active_total||0)+'</span><span class="ws-quick-label">进行中任务</span></div>'
+          + '<div class="ws-quick-item"><span class="ws-week-num">'+(r.new_articles_this_week||0)+'</span><span class="ws-quick-label">本周新增</span></div>'
         + '</div>';
       setBody('ws-week-body', weekHtml);
 
@@ -387,14 +392,12 @@
       document.getElementById('rs-read').textContent = read.length;
       document.getElementById('rs-progress').textContent = progress + '%';
 
-      var items = unread.slice(0,5);
+      var items = unread.slice(0,3);
       if(!items.length){ setBody('ws-recommend-body', emptyHTML('没有未读文章,去 /kb 看全部')); return; }
       var thumbs = [
         'linear-gradient(135deg,#3b82f6,#8b5cf6)',
         'linear-gradient(135deg,#8b5cf6,#ec4899)',
-        'linear-gradient(135deg,#06b6d4,#3b82f6)',
-        'linear-gradient(135deg,#f59e0b,#ef4444)',
-        'linear-gradient(135deg,#10b981,#3b82f6)'
+        'linear-gradient(135deg,#06b6d4,#3b82f6)'
       ];
       var html = items.map(function(x, i){
         var tags = (x.tags && x.tags.length) ? x.tags.slice(0,2).map(esc).join(' ') : '';
@@ -409,6 +412,32 @@
       }).join('');
       setBody('ws-recommend-body', html);
     }).catch(function(){ setBody('ws-recommend-body', emptyHTML('加载失败')); });
+  }
+
+  // ---- 最近阅读(结构复制自推荐阅读,数据用 read 数组,按 last_read_at 倒序) ----
+  function loadRecent(){
+    fetch('/api/dashboard_full').then(function(r){return r.json();}).catch(function(){return {unread:[],read:[]};}).then(function(d){
+      var read = d.read || [];
+      var items = read.slice(0,3);
+      if(!items.length){ setBody('ws-recent-body', emptyHTML('还没有阅读记录')); return; }
+      var thumbs = [
+        'linear-gradient(135deg,#3b82f6,#8b5cf6)',
+        'linear-gradient(135deg,#8b5cf6,#ec4899)',
+        'linear-gradient(135deg,#06b6d4,#3b82f6)'
+      ];
+      var html = items.map(function(x, i){
+        var tags = (x.tags && x.tags.length) ? x.tags.slice(0,2).map(esc).join(' ') : '';
+        return '<a class="ws-article" href="/summary/'+esc(x.source_id)+'">'
+          + '<div class="ws-article-thumb" style="background:'+thumbs[i%thumbs.length]+'"></div>'
+          + '<div class="ws-article-body">'
+            + '<div class="ws-article-title">'+esc(x.title||x.source_id)+'</div>'
+            + '<div class="ws-article-meta">'+(x.area ? esc(x.area)+' · ' : '')+fmtTimeAgo(x.last_read_at)+'</div>'
+            + (tags ? '<div class="ws-article-tags">'+tags+'</div>' : '')
+          + '</div>'
+          + '</a>';
+      }).join('');
+      setBody('ws-recent-body', html);
+    }).catch(function(){ setBody('ws-recent-body', emptyHTML('加载失败')); });
   }
 
   // 搜索框 Enter 提交(⌘K 装饰已移除)

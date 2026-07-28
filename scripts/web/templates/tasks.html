@@ -163,10 +163,15 @@ function renderTaskCard(t) {
       + (prog ? '<span class="tk-prog"><i data-lucide="check"></i> '+prog+'</span>' : '')
     + '</div>'
     + '<div class="tk-card-actions">'
-      + '<button class="icon-btn'+(pinned ? ' active-rl' : '')+'" title="'+(pinned ? '取消置顶' : '置顶')+'" onclick="togglePin(\''+t.id+'\')"><i data-lucide="'+(pinned ? 'pin' : 'pin-off')+'"></i></button>'
+      // v0.4.20: 卡片操作按钮改用事件委托(data-action + data-tid)+ mousedown 触发,
+      // 不再用内联 onclick。原因:Lucide 图标(<i data-lucide>)在 mousedown→mouseup 之间
+      // 会被 refreshIcons 替换成 <svg>,若替换发生在按下期间,mouseup 落在新元素上,
+      // 浏览器判定 mousedown/mouseup 不同源 → click 不触发 → 按钮点了没反应。
+      // 与 checklist 删除(task_edit.html:140 / tasks.html:324)同款修复。
+      + '<button class="icon-btn'+(pinned ? ' active-rl' : '')+'" title="'+(pinned ? '取消置顶' : '置顶')+'" data-action="pin" data-tid="'+escapeHtml(t.id)+'"><i data-lucide="'+(pinned ? 'pin' : 'pin-off')+'"></i></button>'
       + '<a class="icon-btn" title="编辑" href="/task/'+encodeURIComponent(t.id)+'/edit"><i data-lucide="pencil"></i></a>'
-      + (dl ? '<button class="icon-btn" title="同步到日历" onclick="syncTask(\''+t.id+'\')"><i data-lucide="calendar"></i></button>' : '')
-      + '<button class="icon-btn icon-btn-danger" title="删除" onclick="deleteTask(\''+t.id+'\')"><i data-lucide="trash-2"></i></button>'
+      + (dl ? '<button class="icon-btn" title="同步到日历" data-action="sync" data-tid="'+escapeHtml(t.id)+'"><i data-lucide="calendar"></i></button>' : '')
+      + '<button class="icon-btn icon-btn-danger" title="删除" data-action="delete" data-tid="'+escapeHtml(t.id)+'"><i data-lucide="trash-2"></i></button>'
     + '</div>'
   + '</div>';
 }
@@ -185,10 +190,14 @@ async function deleteTask(id) {
   if (!confirm('确定删除此任务?此操作不可撤销。')) return;
   try {
     const r = await fetch('/api/tasks/'+id, {method:'DELETE'});
-    if (!r.ok) throw new Error('删除失败');
+    if (!r.ok) {
+      let detail = '删除失败';
+      try { const d = await r.json(); if (d && d.detail) detail = d.detail; } catch (_) {}
+      throw new Error(detail);
+    }
     toast('已删除');
     refreshTasks();
-  } catch(e) { toast(e.message); }
+  } catch(e) { toast('删除失败:' + e.message); }
 }
 
 async function togglePin(id) {
@@ -200,10 +209,15 @@ async function togglePin(id) {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({pinned: newPinned})
     });
-    if (!r.ok) throw new Error('置顶失败');
+    // 透传后端 detail(如「找不到任务:xxx」),不要笼统盖成「置顶失败」,否则看不到真因
+    if (!r.ok) {
+      let detail = '置顶失败';
+      try { const d = await r.json(); if (d && d.detail) detail = d.detail; } catch (_) {}
+      throw new Error(detail);
+    }
     toast(newPinned ? '已置顶' : '已取消置顶');
     refreshTasks();  // 复用现有 reload,sortTkItems 会把置顶项挪到顶部
-  } catch(e) { toast(e.message); }
+  } catch(e) { toast('置顶失败:' + e.message); }
 }
 
 // ---- 模态框:创建/编辑(直接操作 modalOverlay,照 events.html 模式)----
@@ -362,8 +376,28 @@ async function saveTask(opts, btn, isEdit) {
   }
 }
 
+// 卡片操作事件委托(pin / sync / delete):绑在稳定的 #task-grid 容器上,
+// 用 mousedown 而非 click —— Lucide 图标在按下期间被 refreshIcons 替换成 svg,
+// 会导致 click 不触发(见 renderTaskCard 注释)。与 checklist 删除同款修复。
+function bindTaskCardEvents() {
+  const grid = document.getElementById('task-grid');
+  if (!grid) return;
+  grid.addEventListener('mousedown', function(e) {
+    const btn = e.target.closest('[data-action]');
+    if (!btn) return;
+    const action = btn.getAttribute('data-action');
+    const tid = btn.getAttribute('data-tid');
+    if (!tid) return;
+    e.preventDefault();  // 阻止按钮抢焦点
+    if (action === 'pin') togglePin(tid);
+    else if (action === 'sync') syncTask(tid);
+    else if (action === 'delete') deleteTask(tid);
+  });
+}
+
 // 启动
 (function init() {
+  bindTaskCardEvents();
   loadTasks('active');
   // 支持 #new 直接打开新建表单(从工作台常用入口跳来)
   if (location.hash === '#new') {
