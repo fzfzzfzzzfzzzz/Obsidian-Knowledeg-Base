@@ -43,6 +43,38 @@
 - **日历 ↔ 任务/事件**:日历事项里可反向引用 `task_id` / `event_id`,任务/事件 frontmatter 里存 `synced_calendar_ids`;删除不级联,孤儿由 `cleanup_dead_calendar_items` 清理。
 - **集合成员关系**:在 `state.json` 里双向存储(`collections[].source_ids` 和 `sources[].collection_ids`),两处必须一起更新。
 
+## Module Ownership(模块归属,防止 kb.py 再次膨胀)
+
+> v0.4.22 起执行。历史教训:kb.py 曾因 event/market/task 三个业务域的"七件套"全堆进来,涨到 3500+ 行。本节规定代码归属,确保新功能不再默认落到 kb.py。
+
+### kb.py 只放这些(门面层 + 基础设施)
+
+- **CLI 入口**:`cmd_*` / `build_parser` / `main`。
+- **全局配置常量**:`VAULT_ROOT` / `KB_DIR` / `STATE_FILE` / `EVENT_DIR_NAME` / `TASK_DIR_NAME` / `MARKET_DIR_NAME` 等(集中定义,不散落)。
+- **基础设施**:`write_text` / `read_text` / 文件锁 / 时区(`now_ts`/`today_iso`)/ `parsefrontmatter` / `content_hash` / `load_state`·`save_state`·`load_calendar`·`save_calendar`(JSON store 读写门面)/ ingest 解析 / make-prompts 流水线。
+
+### 每个业务域必须有独立模块
+
+- **task / event / market**:实现都在 `kb_entities.py`(共享 find/scan/损坏备份骨架,保留各实体字段差异)。kb.py 只 re-export 供旧调用方(`kb._find_task_file` / `kb.load_task_file` 等)。
+- **未来新增的实体/业务域**(如 contacts、habits…):**先建对应模块**(`kb_<domain>.py` 或并入 `kb_entities.py`),实现写在新模块里,kb.py 只 re-export。**绝不直接往 kb.py 加业务逻辑。**
+
+### 新增功能前的自检
+
+写代码前先问自己:
+1. 这是哪个业务域?对应模块存在吗?
+2. 如果不存在,**先建模块,再写功能**。不要因为"顺手"就把函数塞进 kb.py。
+3. 如果是跨域的基础设施(锁、IO、解析),才允许进 kb.py。
+
+### 软性约束
+
+`wc -l scripts/kb.py` 超过 ~1800 行就该警惕(v0.4.22 重构后约 1500 行)。超了先看是不是又有业务域该拆出去。
+
+### kb_entities.py 的特殊约束
+
+- **绝不 import-time 拷贝 kb 的路径常量**(`from kb import VAULT_ROOT` 会拿到 import-time 副本,导致 `conftest.isolate_vault` 的 `monkeypatch.setattr(kb, "VAULT_ROOT")` 失效,测试污染真实 vault)。一律用模块内的 `_kb()` helper 运行时取 kb 模块对象。
+- 当 kb.py 作为 `__main__` 直接运行时,顶部 `import kb` 会触发循环重执行;`_kb()` 用 `sys.modules.get("kb") or sys.modules.get("__main__")` 同时覆盖两种场景。
+- `scan_*` 的 loader 参数走 `kb.load_*_file`(而非本模块直接引用),保证测试 `monkeypatch.setattr(kb, "load_task_file", ...)` 注入故障时能生效。
+
 ## Git Rules
 
 - 未经用户明确要求,不得执行 `git commit`、`git push`、创建分支或修改远程仓库。

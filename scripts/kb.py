@@ -73,6 +73,14 @@ ENC = "utf-8"
 # 注意:与 plan.md 第 4 节 inbox 格式一致,使用 gpt_chat(而非目录名 gpt)
 SOURCE_TYPES = ("github", "x", "wechat", "douyin", "gpt_chat", "web", "manual")
 
+# 业务实体目录名(集中定义,避免散落字面量;kb_entities.py 运行时读这些常量)。
+# 详见 AGENTS.md「Module Ownership」。
+EVENT_DIR_NAME = "06_Events"
+TASK_DIR_NAME = "07_Tasks"
+MARKET_DIR_NAME = "08_Market"
+MARKET_KINDS = ("watchlist", "alert")      # watchlist=自选股/赛道,alert=异动提醒
+MARKET_DIRECTIONS = ("up", "down", "flat")  # alert 异动方向(驱动红绿配色 + 箭头图标)
+
 # ---------------------------------------------------------------------------
 # 工具函数
 # ---------------------------------------------------------------------------
@@ -276,44 +284,18 @@ def load_state() -> dict:
     """读取 .kb/state.json,不存在则返回空骨架。
 
     v0.4.5: state.json 损坏(JSONDecodeError / OSError)时不再静默返回空骨架。
-    而是:
-      1. 把损坏文件备份到 .kb/logs/corrupt_state_<ts>.json
-      2. 记日志(append_log)
-      3. 返回空骨架 + 加 "_corrupt": True 标记,调用方可识别
+    而是:备份损坏文件 → 记日志 → 返回空骨架 + "_corrupt": True 标记(调用方可识别),
     防止 rebuild-index 等命令误以为"state 已是最新"而掩盖数据丢失。
+
+    v0.4.22: 损坏备份逻辑与 load_calendar/load_workspace_state 合并到
+    kb_entities._load_json_store(原本三份逐字拷贝)。本函数只剩"声明空骨架形状 + 转发"。
     """
-    if not STATE_FILE.exists():
-        return {
-            "version": 1,
-            "created_at": today_iso(),
-            "sources": {},  # source_id -> {path, source_type, source_title, created_at, ingested_at}
-        }
-    try:
-        return json.loads(read_text(STATE_FILE))
-    except (json.JSONDecodeError, OSError) as e:
-        # 备份损坏文件,便于事后分析
-        try:
-            backup_dir = LOGS_DIR
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            ts = time.strftime("%Y%m%d_%H%M%S")
-            corrupt_backup = backup_dir / f"corrupt_state_{ts}.json"
-            shutil.copy2(STATE_FILE, corrupt_backup)
-            backup_msg = f"(已备份到 {corrupt_backup.name})"
-        except Exception as be:
-            backup_msg = f"(备份失败: {be})"
-        # 记日志,避免静默吞错
-        try:
-            append_log(f"WARNING: state.json 损坏({type(e).__name__}: {e}) {backup_msg}")
-        except Exception:
-            pass  # 日志本身失败不能再影响主流程
-        # 返回空骨架 + 损坏标记
-        return {
-            "version": 1,
-            "created_at": today_iso(),
-            "sources": {},
-            "_corrupt": True,
-            "_corrupt_error": str(e),
-        }
+    import kb_entities
+    return kb_entities._load_json_store(
+        STATE_FILE,
+        {"version": 1, "created_at": today_iso(), "sources": {}},
+        "state",
+    )
 
 
 def save_state(state: dict) -> None:
@@ -323,27 +305,14 @@ def save_state(state: dict) -> None:
 def load_calendar() -> dict:
     """读取 .kb/calendar.json,不存在则返回空骨架。
 
-    v0.4.5: 损坏时备份 + 记日志 + 加 _corrupt 标记(与 load_state 同款)。
+    损坏时备份 + 记日志 + 加 _corrupt 标记(与 load_state 同款,实现在 kb_entities._load_json_store)。
     """
-    if not CALENDAR_FILE.exists():
-        return {"version": 1, "items": {}}
-    try:
-        return json.loads(read_text(CALENDAR_FILE))
-    except (json.JSONDecodeError, OSError) as e:
-        try:
-            backup_dir = LOGS_DIR
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            ts = time.strftime("%Y%m%d_%H%M%S")
-            corrupt_backup = backup_dir / f"corrupt_calendar_{ts}.json"
-            shutil.copy2(CALENDAR_FILE, corrupt_backup)
-            backup_msg = f"(已备份到 {corrupt_backup.name})"
-        except Exception as be:
-            backup_msg = f"(备份失败: {be})"
-        try:
-            append_log(f"WARNING: calendar.json 损坏({type(e).__name__}: {e}) {backup_msg}")
-        except Exception:
-            pass
-        return {"version": 1, "items": {}, "_corrupt": True, "_corrupt_error": str(e)}
+    import kb_entities
+    return kb_entities._load_json_store(
+        CALENDAR_FILE,
+        {"version": 1, "items": {}},
+        "calendar",
+    )
 
 
 def save_calendar(cal: dict) -> None:
@@ -353,32 +322,14 @@ def save_calendar(cal: dict) -> None:
 def load_workspace_state() -> dict:
     """读取 .kb/workspace_state.json,不存在则返回空骨架。
 
-    与 load_calendar 同款损坏备份逻辑。
+    与 load_calendar 同款损坏备份逻辑(实现在 kb_entities._load_json_store)。
     """
-    if not WORKSPACE_STATE_FILE.exists():
-        return {"version": 1, "current_task_id": ""}
-    try:
-        return json.loads(read_text(WORKSPACE_STATE_FILE))
-    except (json.JSONDecodeError, OSError) as e:
-        try:
-            backup_dir = LOGS_DIR
-            backup_dir.mkdir(parents=True, exist_ok=True)
-            ts = time.strftime("%Y%m%d_%H%M%S")
-            corrupt_backup = backup_dir / f"corrupt_workspace_state_{ts}.json"
-            shutil.copy2(WORKSPACE_STATE_FILE, corrupt_backup)
-            backup_msg = f"(已备份到 {corrupt_backup.name})"
-        except Exception as be:
-            backup_msg = f"(备份失败: {be})"
-        try:
-            append_log(f"WARNING: workspace_state.json 损坏({type(e).__name__}: {e}) {backup_msg}")
-        except Exception:
-            pass
-        return {
-            "version": 1,
-            "current_task_id": "",
-            "_corrupt": True,
-            "_corrupt_error": str(e),
-        }
+    import kb_entities
+    return kb_entities._load_json_store(
+        WORKSPACE_STATE_FILE,
+        {"version": 1, "current_task_id": ""},
+        "workspace_state",
+    )
 
 
 def save_workspace_state(state: dict) -> None:
@@ -1025,6 +976,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         "05_Projects",
         "06_Events",
         "07_Tasks",
+        "08_Market",
         "90_Templates",
         "99_System",
         ".kb/cache",
@@ -2601,527 +2553,35 @@ def _ensure_monthly_file(path: Path, month_tag: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Event(事件)管理 —— 用户主动创建并关注的事件(比赛/会议/财报发布等)
-# 单日期 + Markdown 文件存储(06_Events/event_*.md),支持单向同步到日历。
-# 不走 review 队列(纯手动创建),frontmatter 全用字符串字段(parsefrontmatter 兼容)。
+# 业务实体存储(task / event / market)—— 实现已抽到 kb_entities.py
 # ---------------------------------------------------------------------------
+# v0.4.22: event/market/task 三类实体的七件套(make_id/file_path/find/format/load/
+# scan/write/sync)+ market ticker 校验 + cleanup 系列 + 损坏备份逻辑,原本三份近乎
+# 照抄地堆在这里,导致 kb.py 涨到 3500+ 行。现已抽到 kb_entities.py(共享 find/scan/
+# 损坏备份骨架,保留各实体字段差异)。详见 AGENTS.md「Module Ownership」。
+#
+# 这里只做 re-export,保证 web 层和 tests 的 20+ 处旧调用(kb._find_task_file /
+# kb.load_task_file / kb._check_corrupt 等)零修改。带 _ 前缀的私有函数也一并
+# re-export(前缀清理留作后续独立任务)。
+
+from kb_entities import (  # noqa: E402
+    # 共享 helper(被 web/tests 调用)
+    _log_scan_error, _is_relative,
+    # event
+    make_event_id, _event_file_path, _find_event_file, _format_event_file,
+    load_event_file, scan_events, write_event_file, sync_event_to_calendar,
+    # market + ticker 校验域
+    make_market_id, _market_file_path, _find_market_file, _format_market_file,
+    load_market_file, scan_market, write_market_file,
+    validate_ticker, normalize_ticker, parse_ticker,
+    MARKET_CODES, MARKET_CODE_PREFIXES, MARKET_CODE_LABELS,
+    # task
+    make_task_id, _task_file_path, _find_task_file, _format_task_file,
+    load_task_file, scan_tasks, write_task_file, sync_task_to_calendar,
+    # cleanup 系列
+    cleanup_calendar_ref, cleanup_source_ref, cleanup_dead_calendar_items,
+)
 
-EVENT_DIR_NAME = "06_Events"
-# 事件/任务的合法 category 不在此声明:类别元数据(含合法值、icon、color、label)
-# 的单一数据源是 scripts/web/static/cat-meta.js(KB_CATEGORIES / KB_TASK_CATEGORIES)。
-# 路由器设计上允许自定义 category,不做白名单校验。
-
-
-def make_event_id(title: str) -> str:
-    """生成稳定事件 id:event_<8位hash>。基于标题+当前时刻,保证新建不冲突。"""
-    import time
-    raw = f"{title}|{time.time_ns()}"
-    return f"event_{content_hash(raw)}"
-
-
-def _event_file_path(event_id: str) -> Path:
-    """由 event_id 推导对应的 markdown 文件路径。"""
-    slug_part = event_id.removeprefix("event_")
-    return VAULT_ROOT / EVENT_DIR_NAME / f"event_{slug_part}.md"
-
-
-def _find_event_file(event_id: str) -> Path | None:
-    """扫描 06_Events/ 找到 frontmatter id == event_id 的文件。返回路径或 None。
-
-    文件名含 event_id 的 hash 段,但保险起见仍校验 frontmatter id(文件名可能被改)。
-    """
-    events_dir = VAULT_ROOT / EVENT_DIR_NAME
-    if not events_dir.exists():
-        return None
-    # 先试文件名直查(快路径)
-    direct = _event_file_path(event_id)
-    if direct.exists():
-        return direct
-    # 兜底:扫描所有 event_*.md 校验 frontmatter id
-    for path in events_dir.glob("event_*.md"):
-        try:
-            meta, _ = parsefrontmatter(read_text(path))
-            if meta.get("id", "").strip() == event_id:
-                return path
-        except Exception:
-            continue
-    return None
-
-
-def _format_event_file(meta: dict, body: str) -> str:
-    """把事件 meta dict + 正文格式化成完整 markdown 文件内容(frontmatter + body)。
-
-    所有字段用单行字符串;synced_calendar_ids 用逗号分隔(避免 YAML 列表解析复杂度)。
-    v0.4.12: 新增 completed_at 字段(与 task 对称,供事件完成时间统计)。
-    """
-    lines = ["---"]
-    for key in ("id", "title", "date", "category", "note", "status",
-                "related_source", "synced_calendar_ids", "created_at", "updated_at",
-                "completed_at"):
-        val = meta.get(key, "")
-        lines.append(f"{key}: {val}")
-    lines.append("---")
-    lines.append("")
-    lines.append(body.rstrip() if body else "（暂无描述）")
-    return "\n".join(lines) + "\n"
-
-
-def load_event_file(path: Path) -> dict:
-    """读事件 markdown 文件,返回完整字段 dict(含 body)。
-
-    synced_calendar_ids 解析成 list[str](逗号分隔),其余字段为字符串。
-    """
-    text = read_text(path)
-    meta, body = parsefrontmatter(text)
-    synced_raw = meta.get("synced_calendar_ids", "")
-    synced = [s.strip() for s in synced_raw.split(",") if s.strip()] if synced_raw else []
-    return {
-        "id": meta.get("id", "").strip(),
-        "title": meta.get("title", "").strip(),
-        "date": meta.get("date", "").strip(),
-        "category": meta.get("category", "其他").strip() or "其他",
-        "note": meta.get("note", "").strip(),
-        "status": meta.get("status", "active").strip() or "active",
-        "related_source": meta.get("related_source", "").strip(),
-        "synced_calendar_ids": synced,
-        "created_at": meta.get("created_at", "").strip(),
-        "updated_at": meta.get("updated_at", "").strip(),
-        "completed_at": meta.get("completed_at", "").strip(),
-        "body": body,
-        "path": path.relative_to(VAULT_ROOT).as_posix() if _is_relative(path) else str(path),
-    }
-
-
-def _is_relative(path: Path) -> bool:
-    """判断 path 是否在 VAULT_ROOT 下(用于决定是否输出相对路径)。"""
-    try:
-        path.relative_to(VAULT_ROOT)
-        return True
-    except ValueError:
-        return False
-
-
-def _log_scan_error(path: Path, err: Exception) -> None:
-    """scan_tasks/scan_events 遇到损坏文件时备份 + 记日志(v0.4.12 M3)。
-
-    与 load_state 损坏策略一致:备份到 .kb/logs/,记 WARNING 日志,不抛(调用方继续扫下一个)。
-    """
-    try:
-        backup_dir = LOGS_DIR
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        corrupt_backup = backup_dir / f"corrupt_{path.stem}_{ts}.md"
-        shutil.copy2(path, corrupt_backup)
-        backup_msg = f"(已备份到 {corrupt_backup.name})"
-    except Exception as be:
-        backup_msg = f"(备份失败: {be})"
-    try:
-        append_log(f"WARNING: {path.name} 解析失败({type(err).__name__}: {err}) {backup_msg}")
-    except Exception:
-        pass
-
-
-def scan_events() -> list[dict]:
-    """扫描 06_Events/event_*.md,返回按日期升序排列的事件列表。
-
-    每个元素是 load_event_file 的返回 dict。目录不存在或无文件返回 []。
-    v0.4.12: 损坏文件备份 + 记日志(不再静默 continue),与 load_state 同款策略。
-    """
-    events_dir = VAULT_ROOT / EVENT_DIR_NAME
-    if not events_dir.exists():
-        return []
-    results: list[dict] = []
-    for path in sorted(events_dir.glob("event_*.md")):
-        try:
-            results.append(load_event_file(path))
-        except Exception as e:
-            _log_scan_error(path, e)
-    results.sort(key=lambda e: e.get("date", "") or "9999")
-    return results
-
-
-def write_event_file(path: Path, meta: dict, body: str, *, is_new: bool = False) -> None:
-    """原子写事件文件。新建时补 created_at,更新时刷新 updated_at。
-
-    completed_at 生命周期(v0.4.12,与 task 对称):status==done 且无值时写入,
-    非 done 清空。旧文件缺该字段时首次标 done 补当天。
-    """
-    now = now_ts()
-    if is_new and not meta.get("created_at"):
-        meta["created_at"] = now
-    if meta.get("status") == "done":
-        if not meta.get("completed_at"):
-            meta["completed_at"] = now
-    else:
-        meta["completed_at"] = ""
-    meta["updated_at"] = now
-    write_text(path, _format_event_file(meta, body))
-
-
-def sync_event_to_calendar(event_id: str) -> dict:
-    """把单个事件单向推送到日历(创建一条 calendar item,回指 event_id)。
-
-    幂等:若该事件已有存活的 calendar item(synced_calendar_ids 里仍有在日历中的),
-    不重复创建。日历项被删后允许重新推送。
-
-    返回:
-        {synced: bool, event_id, calendar_id, reason}
-        synced=True 时 calendar_id 是新建/已有的日历项 id。
-    """
-    import uuid as _uuid
-
-    path = _find_event_file(event_id)
-    if path is None:
-        return {"synced": False, "event_id": event_id, "reason": "event_not_found"}
-
-    event = load_event_file(path)
-    if not event["date"]:
-        return {"synced": False, "event_id": event_id, "reason": "event_has_no_date"}
-
-    cal = load_calendar()
-    items = cal.get("items", {})
-
-    # 幂等:检查已有同步项是否仍存活
-    for existing_id in event["synced_calendar_ids"]:
-        if existing_id in items:
-            return {
-                "synced": False, "event_id": event_id,
-                "calendar_id": existing_id, "reason": "already_synced",
-            }
-
-    # 创建新日历项(回指 event,source_type=event 供前端识别来源)
-    item_id = f"cal_{_uuid.uuid4().hex[:12]}"
-    now = now_ts()
-    item = {
-        "id": item_id,
-        "title": event["title"],
-        "date": event["date"],
-        "note": event["note"],
-        "source_id": "",          # 不关联文章,关联的是事件
-        "source_type": "event",
-        "source_title": event["title"],
-        "event_id": event_id,     # 回指事件(日历项来源关联)
-        "category": event["category"],
-        "date_source": "manual",
-        "date_confidence": "",
-        "created_at": now,
-        "updated_at": now,
-    }
-    items[item_id] = item
-    cal["items"] = items
-    save_calendar(cal)
-
-    # 把新 item id 追加进 event 的 synced_calendar_ids 写回 frontmatter
-    new_synced = event["synced_calendar_ids"] + [item_id]
-    meta = {k: v for k, v in event.items() if k not in ("body", "path")}
-    meta["synced_calendar_ids"] = ",".join(new_synced)
-    write_event_file(path, meta, event["body"], is_new=False)
-
-    return {
-        "synced": True, "event_id": event_id,
-        "calendar_id": item_id, "reason": "created",
-    }
-
-
-# ---------------------------------------------------------------------------
-# Task(任务)管理 —— 用户主动创建的任务(带 checklist/截止日期/阻塞点)
-# 单文件存储(07_Tasks/task_*.md),YAML frontmatter + Markdown 正文。
-# 与 04_Plans/todo_suggestions.md(从文章抽取的待办建议)是完全不同的系统。
-# 模式照搬 06_Events(events_*),新增 checklist(JSON 结构化)+ deadline + blocker 字段。
-# ---------------------------------------------------------------------------
-
-TASK_DIR_NAME = "07_Tasks"
-
-
-def make_task_id(title: str) -> str:
-    """生成稳定任务 id:task_<8位hash>。基于标题+当前时刻,保证新建不冲突。"""
-    import time
-    raw = f"{title}|{time.time_ns()}"
-    return f"task_{content_hash(raw)}"
-
-
-def _task_file_path(task_id: str) -> Path:
-    """由 task_id 推导对应的 markdown 文件路径。"""
-    slug_part = task_id.removeprefix("task_")
-    return VAULT_ROOT / TASK_DIR_NAME / f"task_{slug_part}.md"
-
-
-def _find_task_file(task_id: str) -> Path | None:
-    """扫描 07_Tasks/ 找到 frontmatter id == task_id 的文件。返回路径或 None。
-
-    文件名含 task_id 的 hash 段,但保险起见仍校验 frontmatter id(文件名可能被改)。
-    """
-    tasks_dir = VAULT_ROOT / TASK_DIR_NAME
-    if not tasks_dir.exists():
-        return None
-    direct = _task_file_path(task_id)
-    if direct.exists():
-        return direct
-    for path in tasks_dir.glob("task_*.md"):
-        try:
-            meta, _ = parsefrontmatter(read_text(path))
-            if meta.get("id", "").strip() == task_id:
-                return path
-        except Exception:
-            continue
-    return None
-
-
-def _format_task_file(meta: dict, body: str) -> str:
-    """把任务 meta dict + 正文格式化成完整 markdown 文件内容(frontmatter + body)。
-
-    checklist 存为 JSON 字符串(单行),load 时 json.loads 还原成 list[dict]。
-    synced_calendar_ids 用逗号分隔(避免 YAML 列表解析复杂度)。
-    """
-    cl = meta.get("checklist", [])
-    if isinstance(cl, list):
-        cl = json.dumps(cl, ensure_ascii=False)
-    lines = ["---"]
-    for key in ("id", "title", "category", "project", "status",
-                "deadline", "blocker", "checklist",
-                "related_source", "synced_calendar_ids",
-                "created_at", "updated_at", "completed_at", "pinned"):
-        val = meta.get(key, "")
-        # checklist 字段用 JSON 字符串,其余字段原样输出
-        if key == "checklist":
-            val = cl if cl else "[]"
-        elif key == "pinned":
-            # 布尔统一输出 true/false(避免 Python True 被写成 "True")
-            val = "true" if _parse_bool(val) else "false"
-        lines.append(f"{key}: {val}")
-    lines.append("---")
-    lines.append("")
-    lines.append(body.rstrip() if body else "（暂无描述）")
-    return "\n".join(lines) + "\n"
-
-
-def load_task_file(path: Path) -> dict:
-    """读任务 markdown 文件,返回完整字段 dict(含 body)。
-
-    checklist 解析成 list[dict](JSON 反序列化),synced_calendar_ids 解析成 list[str]。
-    """
-    text = read_text(path)
-    meta, body = parsefrontmatter(text)
-    # checklist:JSON 字符串 → list[dict]
-    cl_raw = meta.get("checklist", "[]") or "[]"
-    if isinstance(cl_raw, list):
-        checklist = cl_raw
-    else:
-        try:
-            checklist = json.loads(cl_raw) if cl_raw else []
-        except (json.JSONDecodeError, TypeError):
-            checklist = []
-    # 兼容旧数据:确保每项有 id/text/done
-    for item in checklist:
-        if not isinstance(item, dict):
-            continue
-        item.setdefault("id", "")
-        item.setdefault("text", "")
-        item.setdefault("done", False)
-    synced_raw = meta.get("synced_calendar_ids", "")
-    synced = [s.strip() for s in synced_raw.split(",") if s.strip()] if synced_raw else []
-    return {
-        "id": meta.get("id", "").strip(),
-        "title": meta.get("title", "").strip(),
-        "category": meta.get("category", "其他").strip() or "其他",
-        "project": meta.get("project", "").strip(),
-        "status": meta.get("status", "active").strip() or "active",
-        "deadline": meta.get("deadline", "").strip(),
-        "blocker": meta.get("blocker", "").strip(),
-        "checklist": checklist,
-        "related_source": meta.get("related_source", "").strip(),
-        "synced_calendar_ids": synced,
-        "created_at": meta.get("created_at", "").strip(),
-        "updated_at": meta.get("updated_at", "").strip(),
-        "completed_at": meta.get("completed_at", "").strip(),
-        "pinned": _parse_bool(meta.get("pinned", "false")),  # 旧文件无此字段默认 false
-        "body": body,
-        "path": path.relative_to(VAULT_ROOT).as_posix() if _is_relative(path) else str(path),
-    }
-
-
-def scan_tasks() -> list[dict]:
-    """扫描 07_Tasks/task_*.md,返回按 deadline 升序排列的任务列表。
-
-    无 deadline 的排末尾(用 9999 sentinel)。每个元素是 load_task_file 的返回 dict。
-    v0.4.12: 损坏文件备份 + 记日志(不再静默 continue),与 load_state 同款策略。
-    """
-    tasks_dir = VAULT_ROOT / TASK_DIR_NAME
-    if not tasks_dir.exists():
-        return []
-    results: list[dict] = []
-    for path in sorted(tasks_dir.glob("task_*.md")):
-        try:
-            results.append(load_task_file(path))
-        except Exception as e:
-            _log_scan_error(path, e)
-    results.sort(key=lambda t: t.get("deadline", "") or "9999")
-    return results
-
-
-def write_task_file(path: Path, meta: dict, body: str, *, is_new: bool = False) -> None:
-    """原子写任务文件。新建时补 created_at,更新时刷新 updated_at。
-
-    completed_at 生命周期(v0.4.11 工作台本周概览需要):
-    - status==done 且无 completed_at → 写当前时间(首次完成)
-    - status==done 且已有 completed_at → 保留(重复打 done 不覆盖首次完成时间)
-    - status!=done → 清空(任务被重新激活)
-    旧任务文件无此字段时,首次标记 done 会补当天时间(历史完成时间已丢失,无法回溯)。
-    """
-    now = now_ts()
-    if is_new and not meta.get("created_at"):
-        meta["created_at"] = now
-    if meta.get("status") == "done":
-        if not meta.get("completed_at"):
-            meta["completed_at"] = now
-    else:
-        meta["completed_at"] = ""
-    meta["updated_at"] = now
-    write_text(path, _format_task_file(meta, body))
-
-
-def sync_task_to_calendar(task_id: str) -> dict:
-    """把单个任务单向推送到日历(创建一条 calendar item,回指 task_id)。
-
-    幂等:若该任务已有存活的 calendar item,不重复创建。日历项被删后允许重新推送。
-    """
-    import uuid as _uuid
-
-    path = _find_task_file(task_id)
-    if path is None:
-        return {"synced": False, "task_id": task_id, "reason": "task_not_found"}
-
-    task = load_task_file(path)
-    if not task["deadline"]:
-        return {"synced": False, "task_id": task_id, "reason": "task_has_no_deadline"}
-
-    cal = load_calendar()
-    items = cal.get("items", {})
-
-    for existing_id in task["synced_calendar_ids"]:
-        if existing_id in items:
-            return {
-                "synced": False, "task_id": task_id,
-                "calendar_id": existing_id, "reason": "already_synced",
-            }
-
-    item_id = f"cal_{_uuid.uuid4().hex[:12]}"
-    now = now_ts()
-    item = {
-        "id": item_id,
-        "title": task["title"],
-        "date": task["deadline"],
-        "note": task["blocker"] or "",
-        "source_id": "",
-        "source_type": "task",
-        "source_title": task["title"],
-        "task_id": task_id,
-        "category": "截止日期",
-        "date_source": "manual",
-        "date_confidence": "",
-        "created_at": now,
-        "updated_at": now,
-    }
-    items[item_id] = item
-    cal["items"] = items
-    save_calendar(cal)
-
-    new_synced = task["synced_calendar_ids"] + [item_id]
-    meta = {k: v for k, v in task.items() if k not in ("body", "path")}
-    meta["synced_calendar_ids"] = ",".join(new_synced)
-    write_task_file(path, meta, task["body"], is_new=False)
-
-    return {
-        "synced": True, "task_id": task_id,
-        "calendar_id": item_id, "reason": "created",
-    }
-
-
-# ---------------------------------------------------------------------------
-# 悬空引用清理(v0.4.12 修复 M5)
-# ---------------------------------------------------------------------------
-# 删除 calendar item / task / event / 文章后,frontmatter 里的回指字段
-# (synced_calendar_ids / related_source)不会自动清理,长期累积成悬空指针。
-# 以下函数扫 markdown 文件清理这些引用。失败静默(清理不应阻断主操作)。
-
-def cleanup_calendar_ref(cal_id: str) -> int:
-    """从所有 task/event 的 synced_calendar_ids 里移除指定 cal_id。
-
-    返回清理的文件数。失败静默返回 0。
-    """
-    n = 0
-    for loader, finder_all, writer in (
-        # (load单文件函数, 扫描全部函数, 写函数) —— task
-        (load_task_file, lambda: (VAULT_ROOT / TASK_DIR_NAME).glob("task_*.md"), write_task_file),
-        (load_event_file, lambda: (VAULT_ROOT / EVENT_DIR_NAME).glob("event_*.md"), write_event_file),
-    ):
-        try:
-            for path in finder_all():
-                try:
-                    rec = loader(path)
-                except Exception:
-                    continue
-                synced = rec.get("synced_calendar_ids", [])
-                if cal_id in synced:
-                    new_synced = [x for x in synced if x != cal_id]
-                    meta = {k: v for k, v in rec.items() if k not in ("body", "path")}
-                    meta["synced_calendar_ids"] = ",".join(new_synced)
-                    writer(path, meta, rec.get("body", ""), is_new=False)
-                    n += 1
-        except Exception:
-            continue
-    return n
-
-
-def cleanup_source_ref(source_id: str) -> int:
-    """从所有 task/event 的 related_source 字段清空(指向该 source 的)。
-
-    删除文章后调用,避免 related_source 悬空 404。返回清理的文件数。
-    """
-    n = 0
-    for loader, finder_all, writer in (
-        (load_task_file, lambda: (VAULT_ROOT / TASK_DIR_NAME).glob("task_*.md"), write_task_file),
-        (load_event_file, lambda: (VAULT_ROOT / EVENT_DIR_NAME).glob("event_*.md"), write_event_file),
-    ):
-        try:
-            for path in finder_all():
-                try:
-                    rec = loader(path)
-                except Exception:
-                    continue
-                if rec.get("related_source", "").strip() == source_id:
-                    meta = {k: v for k, v in rec.items() if k not in ("body", "path")}
-                    meta["related_source"] = ""
-                    writer(path, meta, rec.get("body", ""), is_new=False)
-                    n += 1
-        except Exception:
-            continue
-    return n
-
-
-def cleanup_dead_calendar_items() -> int:
-    """删除回指已不存在的 task/event 的孤儿日历项(M6)。
-
-    供 CLI reconcile 命令调用。返回删除的孤儿项数。
-    """
-    cal = load_calendar()
-    items = cal.get("items", {})
-    dead = []
-    for cal_id, item in list(items.items()):
-        src_type = item.get("source_type", "")
-        ref_id = item.get("task_id", "") or item.get("event_id", "")
-        if src_type == "task" and ref_id:
-            if _find_task_file(ref_id) is None:
-                dead.append(cal_id)
-        elif src_type == "event" and ref_id:
-            if _find_event_file(ref_id) is None:
-                dead.append(cal_id)
-    for cal_id in dead:
-        del items[cal_id]
-    if dead:
-        cal["items"] = items
-        save_calendar(cal)
-    return len(dead)
 
 
 def cmd_clean_x(args: argparse.Namespace) -> int:
