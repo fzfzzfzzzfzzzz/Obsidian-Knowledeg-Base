@@ -2,13 +2,13 @@
 
 > 本文件汇总所有版本 PRD 中提到的后续迭代方向 + 已知限制的改进计划。
 > 按优先级分层,供评审和规划参考。
-> 最后更新:2026-07-22(v0.4.8 后)
+> 最后更新:2026-07-28(v0.4.16+ 后)
 
 ---
 
-## 当前版本:v0.4.8
+## 当前版本:v0.4.16+
 
-已实现:事件(Events)管理功能 —— 用户主动创建并关注的外部事项(比赛/会议/财报/截止日期/发布等),`06_Events/` Markdown 存储 + 完整 CRUD API + 单向同步到日历。325 passed。
+已实现:全站 Lucide 图标本地化 + 类别元数据单一数据源(cat-meta.js)+ AGENTS.md 规范重写 + 深色对比度修复。416 passed。
 - v0.4.0:详情页「生成 Idea/Todo 列表」按钮 + 引导弹窗(见 `docs/v0.4.0/`)
 - v0.4.1:投稿页批量投稿(URL 提取)、/ideas /todos 拆「待定/已确定」tab、已确认 todo 放入日历(见 `docs/v0.4.1/`)
 - v0.4.2:日历「时间轴」视图(垂直+水平)、category 字段(6 预设+自定义)、标签筛选条影响三个视图(见 `docs/v0.4.2/`)
@@ -18,6 +18,10 @@
 - v0.4.6:第二轮审查 P1+P3(XSS/SSRF/Auth/时区/测试网),+65 测试(见 `docs/v0.4.6/`)
 - v0.4.7:shutdown host 白名单 + extract-suggestions estimated_time/可观测性修复,+11 测试(见 `docs/v0.4.7/`)
 - v0.4.8:事件(Events)管理 + 日历事件链接,+25 测试(见 `docs/v0.4.8/`)
+- v0.4.9:首页拆分(工作台 / 知识库)+ 桌面启动图标 + 导航精简(见 `docs/v0.4.9/`)
+- v0.4.10:任务(Tasks)管理系统 —— checklist/deadline/blocker/项目/置顶/客户端排序,+21 测试(见 `docs/v0.4.10/`)
+- v0.4.13:Idea/Todo 卡片与抽取简化(只留标题)+ Web 新建 idea + completed_at,+8 测试(见 `docs/v0.4.13/`)
+- v0.4.16:全站 Lucide 图标 + cat-meta.js 类别元数据单一数据源 + AGENTS.md 规范重写 + 深色对比度(覆盖 v0.4.16~v0.4.20,见 `docs/v0.4.16/`)
 完整功能清单见 `PRODUCT.md`。
 
 ---
@@ -42,11 +46,11 @@
 - **来源**:v0.3 PRD 6.2.4 / 6.2.6
 - **价值**:提高日期识别精度,避免跨年误判
 
-### 5. idea/todo 抽取的 prompt 量化标准(v0.4.0 批注后续项 A)
-- **现状**:`priority`/`feasibility`/`novelty`/`difficulty` 只给枚举可选值,无判定门槛,同份 summary 不同时间跑结果不稳定
-- **要做**:prompt 里补量化判定标准(P0/P1/P2/P3 各代表什么、novelty high 的门槛等)
-- **来源**:v0.4.0 PRD §1.2 批注 + §12 后续项 A
-- **价值**:抽取结果可复现、可排序,review 队列不再全是兜底默认值
+### 5. ❌ idea/todo 抽取的 prompt 量化标准(v0.4.0 批注后续项 A)— v0.4.13 主动放弃
+- **原计划**:`priority`/`feasibility`/`novelty`/`difficulty` 补量化判定标准,让抽取结果可复现、可排序
+- **实际决策(v0.4.13)**:评估后认为即便有量化标准,LLM 对「新颖性」「可行性」的判断质量仍不足以支撑排序,投入产出比低。**主动放弃该方向,改为只保留 title**(卡片/抽取/格式三层同步简化,见 `docs/v0.4.13/`)。
+- **现状**:`estimated_time`/`priority`/`difficulty`/`recommended_area`/`feasibility`/`novelty` 等字段已全部删除,idea/todo 只留标题 + id + status + source。旧数据带这些字段时精简格式忽略(向后兼容)。
+- **来源**:v0.4.0 PRD §1.2 批注 + §12 后续项 A;放弃决策见 `docs/v0.4.13/`
 
 ### 6. ~~修 todo estimated_time 硬兜底~~ ✅ v0.4.7 完成(v0.4.0 批注后续项 B)
 - **结果**:`kb_llm.py:1346` 和 `kb.py:2285` 两处 `or "2-4h"` / `'2-4h'` 兜底都去掉,空值留空(对照 idea 侧 `estimated_investment` 的正确写法)。下游 `_format_weekly_task` 本就容忍空值,不破解析。
@@ -61,6 +65,12 @@
 ### 8. ~~Web 端 accept 自动搬运~~ ✅ v0.4.3 完成(原 P1-15)
 - **结果**:Web 端点接受按钮直接触发搬运,不再需要手动跑 CLI accept-ideas/accept-todos。
 - **文档**:`docs/v0.4.3/changelog.md` 第 2 节
+
+### 9. 任务状态元数据统一(TK_STATUS_META)
+- **现状**:任务**状态**元数据(active/done/blocked/archived 的徽章配色)目前在 `tasks.html:36-41` 与 `task_detail.html` 各自定义,未统一。
+- **注意**:这与任务**类别**元数据(v0.4.16 已统一到 cat-meta.js)是两个不同维度。类别 = 开发/科研/个人等业务分类,状态 = 生命周期阶段。
+- **要做**:若要统一,可在 cat-meta.js 新增 `KB_TASK_STATUS` 表 + `taskStatusColor/taskStatusLabel` 辅助函数,各页面改读。价值较小(状态只有 4 个、配色稳定),优先级低。
+- **来源**:v0.4.16 调研发现(`docs/v0.4.16/changelog.md`「不在本次范围」)
 
 ---
 

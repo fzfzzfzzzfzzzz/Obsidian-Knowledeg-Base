@@ -27,6 +27,9 @@ __pycache__/
 .venv/
 venv/
 
+# —— 本地设计参考截图(体积大,不入库)——
+concept/
+
 # —— 系统 ——
 .DS_Store
 Thumbs.db
