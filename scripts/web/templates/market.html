@@ -1,0 +1,634 @@
+{% extends "base.html" %}
+{% block title %}市场 · 知识库{% endblock %}
+{% block content %}
+
+<!-- 顶部 Hero:标题 + 副标题 + 刷新/加自选 -->
+<section class="mk-hero">
+  <div class="mk-hero-main">
+    <h1 class="mk-title"><i data-lucide="candlestick-chart"></i> 市场中心</h1>
+    <p class="mk-subtitle">跟踪市场变化、重要事件与研究资料</p>
+  </div>
+  <div class="mk-hero-actions">
+    <button class="btn btn-ghost btn-sm" id="mk-refresh" type="button" title="刷新"><i data-lucide="refresh-cw"></i> 刷新</button>
+    <button class="btn btn-primary btn-sm" id="mk-add-watchlist" type="button"><i data-lucide="plus"></i> 加自选股</button>
+  </div>
+</section>
+
+<!-- 三栏布局:主内容 + 右侧边栏(复用 ws-layout 范式) -->
+<div class="mk-layout">
+
+  <!-- 主内容列 -->
+  <div class="mk-main">
+
+    <!-- 占位:市场指数卡片(行情数据待接入) -->
+    <section class="mk-section" aria-label="市场指数">
+      <div class="mk-section-head">
+        <h2 class="mk-section-title"><i data-lucide="activity"></i> 市场指数</h2>
+      </div>
+      <div class="mk-index-grid">
+        <div class="mk-index-card"><div class="mk-index-name">上证指数</div><div class="mk-index-val">—</div><div class="mk-index-chg muted">行情待接入</div></div>
+        <div class="mk-index-card"><div class="mk-index-name">深证成指</div><div class="mk-index-val">—</div><div class="mk-index-chg muted">行情待接入</div></div>
+        <div class="mk-index-card"><div class="mk-index-name">创业板指</div><div class="mk-index-val">—</div><div class="mk-index-chg muted">行情待接入</div></div>
+        <div class="mk-index-card"><div class="mk-index-name">自选股表现</div><div class="mk-index-val">—</div><div class="mk-index-chg muted">行情待接入</div></div>
+      </div>
+    </section>
+
+    <!-- 占位:市场视图(走势图待接入) -->
+    <section class="mk-section" aria-label="市场视图">
+      <div class="mk-section-head">
+        <h2 class="mk-section-title"><i data-lucide="bar-chart-3"></i> 市场视图</h2>
+      </div>
+      <div class="mk-chart-panel">
+        <i data-lucide="bar-chart-3" class="mk-chart-icon"></i>
+        <div class="mk-chart-hint">行情走势图待接入</div>
+        <div class="muted">大盘 / 板块 / 概念 / 自选股 视图</div>
+      </div>
+    </section>
+
+    <!-- 自选股与关注赛道 -->
+    <section class="mk-section" aria-label="自选股">
+      <div class="mk-section-head">
+        <h2 class="mk-section-title"><i data-lucide="star"></i> 自选股与关注赛道</h2>
+      </div>
+      <div id="mk-watchlist-grid" class="card-grid"><div class="loading">加载中...</div></div>
+    </section>
+
+    <!-- 近期异动提醒 -->
+    <section class="mk-section" aria-label="异动提醒">
+      <div class="mk-section-head">
+        <h2 class="mk-section-title"><i data-lucide="zap"></i> 近期异动提醒</h2>
+        <button class="btn btn-ghost btn-sm" id="mk-add-alert" type="button"><i data-lucide="plus"></i> 记录异动</button>
+      </div>
+      <div id="mk-alert-list" class="mk-timeline"><div class="loading">加载中...</div></div>
+    </section>
+
+    <!-- 近期事件与财报(横向时间轴) -->
+    <section class="mk-section" aria-label="财报日历">
+      <div class="mk-section-head">
+        <h2 class="mk-section-title"><i data-lucide="calendar-clock"></i> 近期事件与财报</h2>
+        <a class="mk-section-more" href="/calendar">完整日历 →</a>
+      </div>
+      <div id="mk-earnings-list" class="ws-timeline"><div class="loading">加载中...</div></div>
+    </section>
+
+    <!-- 市场研究关联的任务(表格) -->
+    <section class="mk-section" aria-label="关联任务">
+      <div class="mk-section-head">
+        <h2 class="mk-section-title"><i data-lucide="check-square"></i> 市场研究关联的任务</h2>
+        <a class="mk-section-more" href="/tasks">全部任务 →</a>
+      </div>
+      <div id="mk-tasks-grid"><div class="loading">加载中...</div></div>
+    </section>
+
+  </div>
+
+  <!-- 右侧边栏(复用 ws-rail 范式) -->
+  <aside class="mk-rail" aria-label="今日阅读与事件">
+
+    <!-- 今日阅读(复用收藏资料数据) -->
+    <section class="mk-rail-card" aria-label="今日阅读">
+      <div class="mk-rail-head">
+        <h2 class="mk-rail-title"><i data-lucide="book-open"></i> 今日阅读</h2>
+        <a class="mk-section-more" href="/favorites">全部 →</a>
+      </div>
+      <div id="mk-materials-grid"><div class="loading">加载中...</div></div>
+    </section>
+
+    <!-- 今日事件(复用 events 数据,前端筛今日/近 3 天) -->
+    <section class="mk-rail-card" aria-label="今日事件">
+      <div class="mk-rail-head">
+        <h2 class="mk-rail-title"><i data-lucide="calendar"></i> 今日事件</h2>
+        <a class="mk-section-more" href="/events">全部 →</a>
+      </div>
+      <div class="mk-rail-stat" id="mk-event-stat"></div>
+      <div id="mk-events-list"><div class="loading">加载中...</div></div>
+    </section>
+
+  </aside>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 市场页交互。复用 cat-meta.js 的 taskCatColor/taskCatIcon(金融类配色)。
+(function(){
+  'use strict';
+
+  window.marketStore = window.marketStore || new Map();  // 缓存 watchlist/alert 条目供编辑用
+
+  function emptyHTML(msg){ return '<div class="empty">' + escapeHtml(msg) + '</div>'; }
+  function setHTML(id, html){ var el = document.getElementById(id); if(el) el.innerHTML = html; }
+
+  function fmtDate(d){
+    if(!d) return '';
+    var today = new Date(); today.setHours(0,0,0,0);
+    var dt = new Date(d+'T00:00:00');
+    var diff = Math.round((dt - today)/86400000);
+    if(diff===0) return '今天';
+    if(diff===1) return '明天';
+    if(diff===-1) return '昨天';
+    return d;
+  }
+
+  // ---- 板块1:自选股 ----
+  async function loadWatchlist(){
+    try{
+      var r = await fetch('/api/market?kind=watchlist');
+      var d = await r.json();
+      var items = d.items || [];
+      if(!items.length){ setHTML('mk-watchlist-grid', emptyHTML('还没有自选股。点「加自选股」记录一只。')); return; }
+      marketStore.clear();
+      items.forEach(function(it){ marketStore.set(it.id, it); });
+      setHTML('mk-watchlist-grid', items.map(renderWatchlistCard).join(''));
+      window.refreshIcons();
+    }catch(e){ setHTML('mk-watchlist-grid', emptyHTML('加载失败')); }
+  }
+
+  // 市场→中文标签 + 配色(与后端 MARKET_CODE_LABELS 对应,前端展示用)
+  var MK_MARKET_LABELS = {SH:'沪', SZ:'深', BJ:'京', HK:'港', US:'美'};
+  var MK_MARKET_COLORS = {SH:'#dc2626', SZ:'#f43f5e', BJ:'#ea580c', HK:'#0d9488', US:'#2563eb'};
+  // A 股各交易所合法前缀(与后端 kb.MARKET_CODE_PREFIXES 镜像,前端实时校验用)
+  var MK_PREFIXES = {
+    SH: ['600','601','603','605','688','690','70','11','13','50','51','52','56','58'],
+    SZ: ['000','001','002','003','300','301','159','184','128','123'],
+    BJ: ['43','83','87','88','92','82']
+  };
+  function mkValidateTickerClient(market, code){
+    // 前端即时校验,返回 null=合法,字符串=错误(与后端 validate_ticker 同语义,省略一些细节)
+    if(!code) return null;
+    var m = (market||'').toUpperCase();
+    if(['SH','SZ','BJ','HK','US'].indexOf(m)<0) return '未知市场:'+market;
+    if(m==='US'){
+      if(!/^[A-Za-z]{1,5}(\.[A-Za-z]{1,2})?$/.test(code)) return '美股代码应为 1-5 位字母,可含一个点';
+      return null;
+    }
+    if(!/^\d+$/.test(code)) return MK_MARKET_LABELS[m]+'股代码必须为数字';
+    if(m==='HK') return (code.length>=1 && code.length<=5) ? null : '港股代码应为 1-5 位数字';
+    if(code.length!==6) return 'A股代码应为 6 位数字';
+    var pfx = MK_PREFIXES[m]||[];
+    for(var i=0;i<pfx.length;i++){ if(code.indexOf(pfx[i])===0) return null; }
+    return MK_MARKET_LABELS[m]+'股代码前缀不合法('+m+' 常见:'+pfx.slice(0,4).join('/')+'…)';
+  }
+  function parseStoredTicker(stored){
+    // 'SH:600519' → {market:'SH', code:'600519', label:'沪', color:'#dc2626'};旧裸数据无市场
+    if(!stored) return {market:'', code:'', label:'', color:''};
+    if(stored.indexOf(':')>0){
+      var parts = stored.split(':',2);
+      var m = parts[0].toUpperCase();
+      return {market:m, code:parts[1], label:MK_MARKET_LABELS[m]||m, color:MK_MARKET_COLORS[m]||'#64748b'};
+    }
+    return {market:'', code:stored, label:'', color:''};
+  }
+
+  // 持仓位置行:成本/股数/目标价/止损价。任一非空才渲染;全空返回 ''。
+  // 价格字段是 str(避免浮点精度),原样显示;如需算盈亏,前端 parseFloat 即可。
+  function renderPositionRow(it){
+    var cost = (it.cost_price||'').trim();
+    var sh = (it.shares||'').trim();
+    var tgt = (it.target_price||'').trim();
+    var stop = (it.stop_price||'').trim();
+    if(!cost && !sh && !tgt && !stop) return '';
+    var cells = [];
+    if(cost) cells.push('<span class="mk-pos-tag"><b>成本</b> '+escapeHtml(cost)+'</span>');
+    if(sh) cells.push('<span class="mk-pos-tag"><b>股数</b> '+escapeHtml(sh)+'</span>');
+    if(tgt) cells.push('<span class="mk-pos-tag up"><b>目标</b> '+escapeHtml(tgt)+'</span>');
+    if(stop) cells.push('<span class="mk-pos-tag down"><b>止损</b> '+escapeHtml(stop)+'</span>');
+    return '<div class="mk-pos-row">'+cells.join('')+'</div>';
+  }
+
+  function renderWatchlistCard(it){
+    var c = taskCatColor(it.sector || '金融');
+    var ico = taskCatIcon(it.sector || '金融');
+    var tk = parseStoredTicker(it.ticker);
+    var tickerTag = tk.code ? '<span class="ev-cat-tag mk-ticker-tag" style="--ev:'+(tk.color||c)+'">'
+      + (tk.label ? '<b>'+escapeHtml(tk.label)+'</b> · ' : '') + escapeHtml(tk.code) + '</span>' : '';
+    return '<div class="event-card mk-watch-card" id="mk_'+escapeHtml(it.id)+'" style="--ev:'+c+'">'
+      + '<div class="ev-card-header">'
+        + '<span class="ev-cat-icon">'+ico+'</span>'
+        + '<div class="ev-card-titles">'
+          + '<div class="ev-card-title">'+escapeHtml(it.title)+'</div>'
+          + '<div class="ev-card-meta">'
+            + tickerTag
+            + (it.sector ? '<span class="ev-cat-tag" style="--ev:'+c+'">'+escapeHtml(it.sector)+'</span>' : '')
+          + '</div>'
+        + '</div>'
+      + '</div>'
+      + (it.note ? '<div class="ev-note muted">'+escapeHtml(it.note)+'</div>' : '')
+      // 持仓位置行:任一价格字段非空才显示;成本价配股数算持仓成本
+      + renderPositionRow(it)
+      + '<div class="ev-card-actions">'
+        + '<button class="btn btn-sm btn-ghost" data-mk-action="edit" data-mk-id="'+escapeHtml(it.id)+'">编辑</button>'
+        + '<button class="btn btn-sm btn-danger" data-mk-action="delete" data-mk-id="'+escapeHtml(it.id)+'">删除</button>'
+      + '</div>'
+    + '</div>';
+  }
+
+  // ---- 板块3:异动提醒 ----
+  async function loadAlerts(){
+    try{
+      var r = await fetch('/api/market?kind=alert');
+      var d = await r.json();
+      var items = d.items || [];
+      if(!items.length){ setHTML('mk-alert-list', emptyHTML('还没有异动记录。点「记录异动」手动添加。')); return; }
+      items.forEach(function(it){ marketStore.set(it.id, it); });
+      setHTML('mk-alert-list', items.map(renderAlertRow).join(''));
+      window.refreshIcons();
+    }catch(e){ setHTML('mk-alert-list', emptyHTML('加载失败')); }
+  }
+
+  function renderAlertRow(it){
+    var todayStr = new Date().toISOString().slice(0,10);
+    var isOverdue = it.date && it.date < todayStr;
+    // 方向色块:up=红涨 / down=绿跌 / flat=灰(空则不显示)。配箭头图标 + 幅度。
+    var dir = (it.direction||'').toLowerCase();
+    var DIR_META = { up:{cls:'up', arrow:'trending-up', label:'↑'}, down:{cls:'down', arrow:'trending-down', label:'↓'}, flat:{cls:'flat', arrow:'minus', label:'→'} };
+    var dirBlock = '';
+    if(DIR_META[dir]){
+      var dm = DIR_META[dir];
+      dirBlock = '<span class="mk-alert-dir '+dm.cls+'"><i data-lucide="'+dm.arrow+'"></i>'+escapeHtml(it.magnitude||'')+'</span>';
+    }
+    return '<div class="mk-alert-row" id="mk_'+escapeHtml(it.id)+'">'
+      + '<span class="mk-alert-date '+(isOverdue?'overdue':'')+'">'+escapeHtml(fmtDate(it.date))+'</span>'
+      + '<div class="mk-alert-body">'
+        + '<div class="mk-alert-trigger">'+dirBlock+escapeHtml(it.trigger || it.title)+'</div>'
+        + (it.note ? '<div class="mk-alert-note muted">'+escapeHtml(it.note)+'</div>' : '')
+      + '</div>'
+      + '<div class="mk-alert-actions">'
+        + '<button class="btn btn-sm btn-ghost" data-mk-action="edit" data-mk-id="'+escapeHtml(it.id)+'">编辑</button>'
+        + '<button class="btn btn-sm btn-danger" data-mk-action="delete" data-mk-id="'+escapeHtml(it.id)+'">删除</button>'
+      + '</div>'
+    + '</div>';
+  }
+
+  // ---- 板块2:财报日历(复用) ----
+  async function loadEarnings(){
+    try{
+      var r = await fetch('/api/market/earnings');
+      var d = await r.json();
+      var todayStr = d.today;
+      // 合并去重:同 event_id 的 calendar 项与 event 项只保留一个(优先 event)
+      var seenEventIds = {};
+      var events = (d.events||[]).map(function(e){ if(e.id) seenEventIds[e.id]=1; return e; });
+      var cal = (d.calendar||[]).filter(function(c){ return !c.event_id || !seenEventIds[c.event_id]; });
+      var all = events.concat(cal);
+      // 即将到来(>=今天)优先,过去次之
+      var upcoming = all.filter(function(x){ return (x.date||'') >= todayStr; }).sort(function(a,b){return (a.date||'').localeCompare(b.date||'');});
+      var past = all.filter(function(x){ return (x.date||'') < todayStr; }).sort(function(a,b){return (b.date||'').localeCompare(a.date||'');});
+      var ordered = upcoming.concat(past).slice(0, 12);
+      if(!ordered.length){ setHTML('mk-earnings-list', emptyHTML('暂无「财报」类别的事件或日历项。去 /events 或 /calendar 创建。')); return; }
+      // 横向时间轴:复用主页 ws-tl-node 结构(日期 + 轴线圆点 + 标题),节点 <a> 可点击进详情
+      var earnColor = catColor('财报');  // 财报类统一配色(绿)
+      var html = '<div class="ws-timeline-track">' + ordered.map(function(x){
+        var isPast = (x.date||'') < todayStr;
+        var href = x.event_id ? ('/events#event_'+escapeHtml(x.event_id)) : (x.source_id ? ('/summary/'+escapeHtml(x.source_id)) : '/calendar');
+        var urgency = '';
+        if(x.date === todayStr) urgency = '<span class="ws-tl-urgent">今天</span>';
+        else if(isPast) urgency = '<span class="ws-tl-urgent overdue">已过去</span>';
+        return '<a class="ws-tl-node'+(isPast?' ws-tl-past':'')+'" href="'+href+'" style="--ev:'+earnColor+'">'
+          + '<div class="ws-tl-head">'
+            + '<span class="ws-tl-date">'+escapeHtml(fmtDate(x.date))+'</span>'
+            + urgency
+          + '</div>'
+          + '<div class="ws-tl-axis"><span class="ws-tl-dot"></span></div>'
+          + '<div class="ws-tl-body">'
+            + '<div class="ws-tl-title">'+escapeHtml(x.title)+'</div>'
+            + (x.note ? '<div class="ws-tl-cat"><span class="ws-tl-icon">'+catIcon('财报')+'</span>'+escapeHtml(x.note)+'</div>'
+                      : '<div class="ws-tl-cat"><span class="ws-tl-icon">'+catIcon('财报')+'</span>财报</div>')
+          + '</div>'
+        + '</a>';
+      }).join('') + '</div>';
+      setHTML('mk-earnings-list', html);
+      window.refreshIcons();
+    }catch(e){ setHTML('mk-earnings-list', emptyHTML('加载失败')); }
+  }
+
+  // ---- 板块4:收藏资料(复用) ----
+  async function loadMaterials(){
+    try{
+      var r = await fetch('/api/market/materials');
+      var d = await r.json();
+      var items = d.items || [];
+      if(!items.length){
+        var hint = d.collection_id ? '「金融」收藏夹是空的。' : '还没有「金融」收藏夹。去 /favorites 创建并放入文章。';
+        setHTML('mk-materials-grid', emptyHTML(hint));
+        return;
+      }
+      // 复用 app.js 的 renderArticleCard(已处理 tags/链接/高亮)
+      setHTML('mk-materials-grid', items.map(renderArticleCard).join(''));
+      window.refreshIcons();
+    }catch(e){ setHTML('mk-materials-grid', emptyHTML('加载失败')); }
+  }
+
+  // ---- 右侧栏:今日事件(复用 /api/events,前端筛今日 + 近 3 天) ----
+  async function loadTodayEvents(){
+    try{
+      var r = await fetch('/api/events');
+      var d = await r.json();
+      var todayStr = new Date().toISOString().slice(0,10);
+      var all = (d.items||[]).filter(function(e){return e.status==='active';});
+      // 今日 + 未来 3 天
+      var near = all.filter(function(e){
+        var dt = e.date||'';
+        return dt >= todayStr;
+      }).sort(function(a,b){return (a.date||'').localeCompare(b.date||'');}).slice(0, 5);
+      var todayCount = all.filter(function(e){return (e.date||'') === todayStr;}).length;
+      var statEl = document.getElementById('mk-event-stat');
+      if(statEl) statEl.textContent = '今日 ' + todayCount + ' 项 · 即将到来 ' + near.length + ' 项';
+      if(!near.length){ setHTML('mk-events-list', emptyHTML('近期无事件。去 /events 创建。')); return; }
+      setHTML('mk-events-list', near.map(function(e){
+        var cat = e.category || '其他';
+        var c = catColor(cat);
+        var isToday = (e.date||'') === todayStr;
+        return '<a class="mk-event-item'+(isToday?' is-today':'')+'" href="/events">'
+          + '<span class="mk-event-dot" style="--ev:'+c+'"></span>'
+          + '<div class="mk-event-body">'
+            + '<div class="mk-event-title">'+escapeHtml(e.title)+'</div>'
+            + '<div class="mk-event-meta muted">'+escapeHtml(fmtDate(e.date))+' · '+escapeHtml(cat)+'</div>'
+          + '</div>'
+        + '</a>';
+      }).join(''));
+    }catch(e){ setHTML('mk-events-list', emptyHTML('加载失败')); }
+  }
+
+  // ---- 板块5:关联任务(表格布局,复用) ----
+  // 任务状态徽章配色(与 tasks 页 TK_STATUS_META 一致,本地只读展示,勾选走任务系统)
+  var MK_STATUS_META = { active:{c:'#2563eb',l:'进行中'}, done:{c:'#16a34a',l:'已完成'}, blocked:{c:'#dc2626',l:'阻塞'}, archived:{c:'#64748b',l:'已归档'} };
+  async function loadLinkedTasks(){
+    try{
+      var r = await fetch('/api/market/linked-tasks');
+      var d = await r.json();
+      var items = d.items || [];
+      if(!items.length){ setHTML('mk-tasks-grid', emptyHTML('暂无 category=金融 的任务。去 /tasks 创建。')); return; }
+      var rows = items.map(function(t){
+        var sm = MK_STATUS_META[t.status] || MK_STATUS_META['active'];
+        var clDone = (t.checklist||[]).filter(function(x){return x.done;}).length;
+        var clTotal = (t.checklist||[]).length;
+        var clText = clTotal ? (clDone+'/'+clTotal) : '—';
+        var cat = t.category || '金融';
+        return '<a class="mk-task-row" href="/task/'+escapeHtml(t.id)+'">'
+          + '<span class="mk-task-check"><i data-lucide="'+(t.status==='done'?'check-circle':'circle')+'"></i></span>'
+          + '<span class="mk-task-title">'+escapeHtml(t.title)+'</span>'
+          + '<span class="mk-task-type"><span class="mk-task-catdot" style="--ev:'+taskCatColor(cat)+'"></span>'+taskCatIcon(cat)+' '+escapeHtml(cat)+'</span>'
+          + '<span class="mk-task-dl">'+(t.deadline?escapeHtml(t.deadline):'—')+'</span>'
+          + '<span class="mk-task-status"><span class="mk-task-badge" style="--st:'+sm.c+'">'+sm.l+'</span></span>'
+          + '<span class="mk-task-prog muted">'+clText+'</span>'
+        + '</a>';
+      }).join('');
+      setHTML('mk-tasks-grid',
+        '<div class="mk-task-table">'
+        + '<div class="mk-task-head">'
+          + '<span class="mk-task-check"></span>'
+          + '<span class="mk-task-title">任务</span>'
+          + '<span class="mk-task-type">类型</span>'
+          + '<span class="mk-task-dl">截止</span>'
+          + '<span class="mk-task-status">状态</span>'
+          + '<span class="mk-task-prog">进度</span>'
+        + '</div>'
+        + rows
+        + '</div>');
+      window.refreshIcons();
+    }catch(e){ setHTML('mk-tasks-grid', emptyHTML('加载失败')); }
+  }
+
+  // ---- 表单(自选股 / 异动 共用,按 kind 切换字段) ----
+  function openMarketForm(opts){
+    opts = opts || {};
+    var isEdit = opts.mode === 'edit';
+    var kind = opts.kind || 'watchlist';
+    var title='', market='', ticker='', sector='', alertDate='', trigger='', note='', id='';
+    var costPrice='', shares='', targetPrice='', stopPrice='', direction='', magnitude='';
+    if(isEdit && opts.item){
+      kind = opts.item.kind || kind;
+      title = opts.item.title||'';
+      market = opts.item.market||'';
+      sector = opts.item.sector||'';
+      alertDate = opts.item.date||'';
+      trigger = opts.item.trigger||'';
+      note = opts.item.note||'';
+      id = opts.item.id||'';
+      // 持仓位置字段(watchlist)
+      costPrice = opts.item.cost_price||'';
+      shares = opts.item.shares||'';
+      targetPrice = opts.item.target_price||'';
+      stopPrice = opts.item.stop_price||'';
+      // 方向 + 幅度(alert)
+      direction = opts.item.direction||'';
+      magnitude = opts.item.magnitude||'';
+      // ticker 从 'SH:600519' 拆出纯代码回填(编辑时代码框只显示 code)
+      var tk = parseStoredTicker(opts.item.ticker||'');
+      ticker = tk.code;
+      if(!market && tk.market) market = tk.market;  // 旧数据 market 字段空时,用 ticker 里识别出的
+    }
+    var today = new Date().toISOString().slice(0,10);
+    // 赛道预设(复用 KB_TASK_CATEGORIES 的顺序,但排除"其他")
+    var SECTOR_PRESETS = (window.KB_TASK_CAT_ORDER||[]).filter(function(c){return c!=='其他';});
+    var sectorPicker = SECTOR_PRESETS.map(function(c){
+      var m = window.KB_TASK_CATEGORIES[c];
+      return '<button type="button" class="cal-cat-opt'+(sector===c?' is-selected':'')+'" data-mk-sector="'+escapeHtml(c)+'" style="--ev:'+m.color+'"><span><i data-lucide="'+m.icon+'"></i> '+escapeHtml(m.label)+'</span></button>';
+    }).join('') + '<input type="text" id="mk-form-sector-custom" class="cal-cat-custom" value="'+escapeHtml(SECTOR_PRESETS.indexOf(sector)>=0?'':sector)+'" maxlength="20" placeholder="或自定义赛道…">';
+
+    // 市场下拉选项(SH 沪 / SZ 深 / BJ 京 / HK 港 / US 美)
+    var MKT_OPTIONS = [
+      {v:'SH', label:'沪 · A股(沪市主板/科创板)'},
+      {v:'SZ', label:'深 · A股(主板/创业板)'},
+      {v:'BJ', label:'京 · 北交所'},
+      {v:'HK', label:'港 · 港股'},
+      {v:'US', label:'美 · 美股'},
+    ];
+    var mktOptionsHtml = MKT_OPTIONS.map(function(o){
+      return '<option value="'+o.v+'"'+(market===o.v?' selected':'')+'>'+escapeHtml(o.label)+'</option>';
+    }).join('');
+
+    // 按 kind 渲染不同字段
+    var watchFields = kind==='watchlist' ?
+      ('<div class="cal-form-field"><label>市场 / 交易所</label>'
+      + '<select id="mk-form-market">' + mktOptionsHtml + '</select></div>'
+      + '<div class="cal-form-field"><label>股票代码(可选,填了就校验)</label>'
+      + '<input type="text" id="mk-form-ticker" value="'+escapeHtml(ticker)+'" maxlength="12" placeholder="如 600519 / AAPL / 00700">'
+      + '<div class="mk-ticker-hint muted" id="mk-ticker-hint"></div></div>'
+      + '<div class="cal-form-field"><label>所属赛道</label>'
+      + '<div class="cal-cat-picker" id="mk-sector-picker">'+sectorPicker+'</div></div>'
+      // 持仓位置(全选填;留空则不显示)。两列布局节省纵向空间。
+      + '<div class="cal-form-field"><label>持仓位置(选填)</label>'
+      + '<div class="mk-pos-grid">'
+        + '<div class="mk-pos-cell"><span class="mk-pos-lbl">成本价</span><input type="text" id="mk-form-cost" value="'+escapeHtml(costPrice)+'" inputmode="decimal" placeholder="1680.5"></div>'
+        + '<div class="mk-pos-cell"><span class="mk-pos-lbl">股数</span><input type="text" id="mk-form-shares" value="'+escapeHtml(shares)+'" inputmode="numeric" placeholder="100"></div>'
+        + '<div class="mk-pos-cell"><span class="mk-pos-lbl">目标价</span><input type="text" id="mk-form-target" value="'+escapeHtml(targetPrice)+'" inputmode="decimal" placeholder="1900"></div>'
+        + '<div class="mk-pos-cell"><span class="mk-pos-lbl">止损价</span><input type="text" id="mk-form-stop" value="'+escapeHtml(stopPrice)+'" inputmode="decimal" placeholder="1550"></div>'
+      + '</div></div>') : '';
+
+    var alertFields = kind==='alert' ?
+      ('<div class="cal-form-field"><label>异动日期 <span class="required">*</span></label>'
+      + '<input type="date" id="mk-form-date" value="'+escapeHtml(alertDate||today)+'"></div>'
+      + '<div class="cal-form-field"><label>异动描述 <span class="required">*</span></label>'
+      + '<input type="text" id="mk-form-trigger" value="'+escapeHtml(trigger)+'" maxlength="120" placeholder="如:放量上涨 / 财报不及预期 / 高管变动"></div>'
+      // 方向(驱动红绿配色)+ 幅度(选填,原样存如 +3.2%)
+      + '<div class="cal-form-field"><label>方向 / 幅度(选填)</label>'
+      + '<div class="mk-dir-row">'
+        + '<select id="mk-form-direction">'
+          + '<option value=""'+(direction===''?' selected':'')+'>未指定</option>'
+          + '<option value="up"'+(direction==='up'?' selected':'')+'>↑ 上涨</option>'
+          + '<option value="down"'+(direction==='down'?' selected':'')+'>↓ 下跌</option>'
+          + '<option value="flat"'+(direction==='flat'?' selected':'')+'>→ 持平</option>'
+        + '</select>'
+        + '<input type="text" id="mk-form-magnitude" value="'+escapeHtml(magnitude)+'" maxlength="20" placeholder="如 +3.2% / -5">'
+      + '</div></div>') : '';
+
+    var kindLabel = kind==='watchlist' ? '自选股' : '异动';
+    var formHtml =
+      '<div class="cal-form">'
+      + '<div class="cal-form-field"><label>标题 / 名称 <span class="required">*</span></label>'
+      + '<input type="text" id="mk-form-title" value="'+escapeHtml(title)+'" maxlength="120" placeholder="'+(kind==='watchlist'?'如:苹果 / 贵州茅台':'如:某股突发利空')+'"></div>'
+      + watchFields + alertFields
+      + '<div class="cal-form-field"><label>备注</label>'
+      + '<textarea id="mk-form-note" rows="3" maxlength="1000" placeholder="关注理由 / 关键数据 / 链接…">'+escapeHtml(note)+'</textarea></div>'
+      + '<div class="cal-form-actions">'
+      + (isEdit ? '<button class="btn btn-danger" id="mk-form-delete">删除</button>' : '')
+      + '<button class="btn btn-ghost" id="mk-form-cancel">取消</button>'
+      + '<button class="btn btn-primary" id="mk-form-save">'+(isEdit?'保存':'创建')+'</button></div>'
+      + '</div>';
+
+    var overlay = document.getElementById('modalOverlay');
+    if(!overlay){ alert('modal 不可用'); return; }
+    document.getElementById('modalTitle').textContent = (isEdit?'编辑':'新建')+kindLabel;
+    document.getElementById('modalBody').innerHTML = formHtml;
+    document.getElementById('modalActions').innerHTML = '';
+    window.refreshIcons();
+    overlay.hidden = false;
+
+    var selectedSector = sector;
+    var sectorBtns = document.querySelectorAll('#mk-sector-picker .cal-cat-opt');
+    var sectorCustom = document.getElementById('mk-form-sector-custom');
+    sectorBtns.forEach(function(btn){
+      btn.onclick = function(){ selectedSector = this.dataset.mkSector; if(sectorCustom) sectorCustom.value=''; sectorBtns.forEach(function(b){b.classList.toggle('is-selected', b===this);}, this); };
+    });
+    if(sectorCustom){
+      sectorCustom.oninput = function(){ selectedSector = this.value.trim(); sectorBtns.forEach(function(b){b.classList.remove('is-selected');}); };
+    }
+
+    // —— watchlist:市场 + 代码 实时校验(前端即时反馈,后端校验是权威兜底)——
+    if(kind==='watchlist'){
+      var mktSel = document.getElementById('mk-form-market');
+      var tickerInput = document.getElementById('mk-form-ticker');
+      var hintEl = document.getElementById('mk-ticker-hint');
+      function checkTicker(){
+        if(!hintEl) return;
+        var m = mktSel.value;
+        var code = tickerInput.value.trim();
+        if(!code){ hintEl.textContent=''; hintEl.className='mk-ticker-hint muted'; return; }
+        var err = mkValidateTickerClient(m, code);
+        if(err){ hintEl.textContent='✗ '+err; hintEl.className='mk-ticker-hint mk-ticker-err'; }
+        else { hintEl.textContent='✓ 格式正确'; hintEl.className='mk-ticker-hint mk-ticker-ok'; }
+      }
+      if(mktSel) mktSel.onchange = checkTicker;
+      if(tickerInput) tickerInput.oninput = checkTicker;
+      checkTicker();  // 初始(编辑时回填后立即校验一次)
+    }
+
+    document.getElementById('mk-form-cancel').onclick = function(){ overlay.hidden = true; };
+
+    document.getElementById('mk-form-save').onclick = async function(){
+      var btn = this;
+      var t = document.getElementById('mk-form-title').value.trim();
+      if(!t){ alert('标题不能为空'); return; }
+      var body = { kind: kind, title: t, note: document.getElementById('mk-form-note').value.trim() };
+      if(kind==='watchlist'){
+        body.market = document.getElementById('mk-form-market').value;
+        body.ticker = document.getElementById('mk-form-ticker').value.trim();
+        body.sector = (sectorCustom && sectorCustom.value.trim()) ? sectorCustom.value.trim() : selectedSector;
+        // 持仓位置(原样发送,后端纯 str 存储)
+        body.cost_price = (document.getElementById('mk-form-cost').value||'').trim();
+        body.shares = (document.getElementById('mk-form-shares').value||'').trim();
+        body.target_price = (document.getElementById('mk-form-target').value||'').trim();
+        body.stop_price = (document.getElementById('mk-form-stop').value||'').trim();
+        // 前端预拦截非法代码(后端会再校验一遍)
+        if(body.ticker){
+          var clientErr = mkValidateTickerClient(body.market, body.ticker);
+          if(clientErr){ alert('代码格式错误:\n'+clientErr+'\n\n请检查市场和代码是否匹配。'); return; }
+        }
+      } else {
+        body.date = document.getElementById('mk-form-date').value;
+        body.trigger = document.getElementById('mk-form-trigger').value.trim();
+        body.direction = document.getElementById('mk-form-direction').value;
+        body.magnitude = (document.getElementById('mk-form-magnitude').value||'').trim();
+        if(!body.date || !body.date.match(/^\d{4}-\d{2}-\d{2}$/)){ alert('异动日期格式错误'); return; }
+        if(!body.trigger){ alert('异动描述不能为空'); return; }
+      }
+      btn.disabled = true; btn.textContent = '保存中...';
+      try{
+        var res;
+        if(isEdit){
+          res = await fetch('/api/market/'+encodeURIComponent(id), {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+        } else {
+          res = await fetch('/api/market', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
+        }
+        var data = await res.json();
+        if(!res.ok){ alert('保存失败:'+(data.detail||'')); btn.disabled=false; btn.textContent=isEdit?'保存':'创建'; return; }
+        overlay.hidden = true;
+        toast(isEdit?'✓ 已保存':'✓ 已创建'+kindLabel, 'success');
+        if(kind==='watchlist') loadWatchlist(); else loadAlerts();
+      }catch(e){ alert('网络错误:'+e.message); btn.disabled=false; btn.textContent=isEdit?'保存':'创建'; }
+    };
+
+    if(isEdit){
+      var delBtn = document.getElementById('mk-form-delete');
+      if(delBtn){
+        delBtn.onclick = async function(){
+          if(!await confirmModal('确定删除「'+escapeHtml(title)+'」吗?此操作不可撤销。', {title:'删除'+kindLabel, confirmText:'删除', danger:true})) return;
+          delBtn.disabled = true;
+          try{
+            var res = await fetch('/api/market/'+encodeURIComponent(id), {method:'DELETE'});
+            if(res.ok){ overlay.hidden=true; toast('✓ 已删除','success'); if(kind==='watchlist') loadWatchlist(); else loadAlerts(); }
+            else { var dd = await res.json().catch(function(){return {};}); alert('删除失败:'+(dd.detail||'')); delBtn.disabled=false; }
+          }catch(e){ alert('网络错误:'+e.message); delBtn.disabled=false; }
+        };
+      }
+    }
+    setTimeout(function(){ var tEl = document.getElementById('mk-form-title'); if(tEl) tEl.focus(); }, 50);
+  }
+
+  // ---- 卡片操作(事件委托:编辑/删除) ----
+  document.addEventListener('click', async function(e){
+    var btn = e.target.closest('[data-mk-action]');
+    if(!btn) return;
+    var id = btn.dataset.mkId;
+    var action = btn.dataset.mkAction;
+    var item = marketStore.get(id);
+    if(!item){ toast('数据已过期,正在刷新','warning'); loadWatchlist(); loadAlerts(); return; }
+    if(action === 'edit'){
+      openMarketForm({ mode:'edit', item:item });
+    } else if(action === 'delete'){
+      if(!await confirmModal('确定删除「'+escapeHtml(item.title)+'」吗?', {title:'删除', confirmText:'删除', danger:true})) return;
+      try{
+        var res = await fetch('/api/market/'+encodeURIComponent(id), {method:'DELETE'});
+        if(res.ok){ toast('✓ 已删除','success'); if(item.kind==='watchlist') loadWatchlist(); else loadAlerts(); }
+        else { var d = await res.json().catch(function(){return {};}); toast('删除失败:'+(d.detail||''),'error'); }
+      }catch(err){ toast('网络错误:'+err.message,'error'); }
+    }
+  });
+
+  document.getElementById('mk-add-watchlist').onclick = function(){ openMarketForm({mode:'create', kind:'watchlist'}); };
+  document.getElementById('mk-add-alert').onclick = function(){ openMarketForm({mode:'create', kind:'alert'}); };
+  // 刷新按钮:重新拉取所有板块数据
+  var refreshBtn = document.getElementById('mk-refresh');
+  if(refreshBtn){
+    refreshBtn.onclick = function(){
+      loadWatchlist(); loadAlerts(); loadEarnings(); loadMaterials(); loadLinkedTasks(); loadTodayEvents();
+      toast('✓ 已刷新', 'success');
+    };
+  }
+
+  // 初始化
+  loadWatchlist();
+  loadAlerts();
+  loadEarnings();
+  loadMaterials();
+  loadLinkedTasks();
+  loadTodayEvents();
+  // 支持 #watchlist / #alert 直接打开对应新建表单
+  if(location.hash === '#new-watch'){ openMarketForm({mode:'create', kind:'watchlist'}); history.replaceState(null,'',location.pathname); }
+  if(location.hash === '#new-alert'){ openMarketForm({mode:'create', kind:'alert'}); history.replaceState(null,'',location.pathname); }
+})();
+</script>
+{% endblock %}

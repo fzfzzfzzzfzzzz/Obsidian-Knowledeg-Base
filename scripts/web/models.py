@@ -138,3 +138,42 @@ class ChecklistItemUpdate(BaseModel):
     """单项打勾(只改 done 或 text)。"""
     done: bool | None = None
     text: str | None = None
+
+
+class MarketCreate(BaseModel):
+    """创建市场条目(自选股 watchlist / 异动 alert,kind 区分)。"""
+    kind: str            # watchlist | alert
+    title: str
+    market: str = ""     # watchlist 专属:SH/SZ/BJ/HK/US(alert 忽略)
+    ticker: str = ""     # watchlist 专属:股票代码(规范化为 MARKET:CODE)
+    sector: str = ""     # watchlist 专属:所属赛道/行业
+    date: str = ""       # alert 专属:异动日期 YYYY-MM-DD
+    trigger: str = ""    # alert 专属:异动触发描述(如"放量上涨")
+    note: str = ""
+    status: str = "active"
+    # watchlist 专属:持仓位置(全 str,避免浮点精度 + 支持空串,前端 parseFloat 算盈亏)
+    cost_price: str = ""    # 成本价/买入价
+    shares: str = ""        # 持仓股数
+    target_price: str = ""  # 目标价/止盈位
+    stop_price: str = ""    # 止损价
+    # alert 专属:异动方向 + 幅度(驱动红绿配色 + 箭头图标)
+    direction: str = ""     # up | down | flat(空=未指定)
+    magnitude: str = ""     # 变动幅度(如 "+3.2%" / "-5",原样存)
+
+
+class MarketUpdate(BaseModel):
+    """更新市场条目(None=不改,提供值含空串=更新为该值)。"""
+    title: str | None = None
+    market: str | None = None     # None=不改,提供值含空串=清空
+    ticker: str | None = None
+    sector: str | None = None
+    date: str | None = None
+    trigger: str | None = None
+    note: str | None = None
+    status: str | None = None
+    cost_price: str | None = None
+    shares: str | None = None
+    target_price: str | None = None
+    stop_price: str | None = None
+    direction: str | None = None
+    magnitude: str | None = None

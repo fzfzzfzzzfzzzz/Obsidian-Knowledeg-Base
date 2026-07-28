@@ -3296,12 +3296,19 @@ body { position: relative; }
 }
 .ws-subcard-head { margin-bottom: var(--sp-3); }
 .ws-subcard-rows { display: flex; flex-direction: column; gap: var(--sp-3); }
-.ws-info-row { display: flex; flex-direction: column; gap: 2px; }
-.ws-info-label { font-size: 11px; color: var(--c-text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.ws-info-val { font-size: var(--fs-sm); color: var(--c-text); }
-.ws-info-row.today .ws-info-val { color: var(--c-warning); font-weight: 600; }
-.ws-info-row.overdue .ws-info-val { color: var(--c-danger); font-weight: 600; }
-.ws-info-danger { color: var(--c-danger); }
+/* v0.4.19: 右栏子卡改为参考图风格的横向属性行(图标+标签+值),行间细横线 */
+.ws-task-subcard .ws-sub-row {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: 10px 0;
+}
+.ws-task-subcard .ws-sub-row + .ws-sub-row { border-top: 1px solid var(--c-border); }
+.ws-sub-ico { width: 18px; height: 18px; color: var(--c-text-muted); flex-shrink: 0; }
+.ws-sub-label { font-size: var(--fs-xs); color: var(--c-text-muted); flex-shrink: 0; }
+.ws-sub-val { flex: 1; color: var(--c-text); font-size: var(--fs-sm); }
+.ws-sub-row.today .ws-sub-val { color: var(--c-warning); font-weight: 600; }
+.ws-sub-row.overdue .ws-sub-val,
+.ws-sub-row.danger .ws-sub-val,
+.ws-sub-row.danger .ws-sub-ico { color: var(--c-danger); }
 .ws-task-rel { margin-top: auto; }
 .ws-meta-link { font-size: var(--fs-sm); color: var(--c-primary); text-decoration: none; }
 .ws-meta-link:hover { text-decoration: underline; }
@@ -3342,24 +3349,28 @@ body { position: relative; }
 
 /* 底部三列辅助卡片 */
 .ws-bottom-grid {
+  /* v0.4.20: 底部辅助卡片。
+     4 栏(本周概览 / 即将截止 / 知识库常用 / 市场常用);
+     卡片等宽等高(grid 默认 stretch),铺满主内容区宽度。
+     v0.4.21: 去掉 1080px 上限 + auto 居中,跟随主列 1fr 铺满。 */
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--sp-4);
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-4);          /* 16px,卡间距 */
 }
 .ws-card {
   display: flex; flex-direction: column;
   background: var(--c-surface);
   border: 1px solid var(--c-border);
-  border-radius: var(--r-lg);
-  padding: var(--sp-5);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);        /* v0.4.20: sp-5→sp-4,更紧凑,降低视觉权重 */
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
 }
 .ws-card-head {
   display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2);
-  margin-bottom: var(--sp-4);
+  margin-bottom: var(--sp-3);  /* v0.4.20: sp-4→sp-3,头与正文间距收紧 */
 }
-.ws-card-title { margin: 0; font-size: var(--fs-base); font-weight: 700; }
+.ws-card-title { margin: 0; font-size: var(--fs-sm); font-weight: 700; }  /* v0.4.20: fs-base→fs-sm */
 .ws-card-body { flex: 1; min-height: 0; }
 
 .ws-stat-row { display: flex; align-items: center; justify-content: space-between; font-size: var(--fs-sm); margin-bottom: var(--sp-2); }
@@ -3387,19 +3398,47 @@ body { position: relative; }
 .ws-reminder-item.today .ws-reminder-meta { color: var(--c-warning); }
 .ws-reminder-item.overdue .ws-reminder-meta { color: var(--c-danger); }
 
-.ws-quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-3); }
+.ws-quick-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--sp-4); }
+/* v0.4.20: 常用入口改为「方形图标按钮 + 下方文字」网格布局。
+   每个格子是可点的 <a>,内含:方形图标区(ws-quick-icon)+ 文字标签(ws-quick-label)。 */
 .ws-quick-item {
-  display: flex; align-items: center; justify-content: center; gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
+  display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
+  text-decoration: none; color: var(--c-text);
+  transition: transform var(--t-fast);
+}
+.ws-quick-item:hover { transform: translateY(-2px); }
+.ws-quick-icon {
+  display: flex; align-items: center; justify-content: center;
+  width: 56px; height: 56px;               /* v0.4.20: 80→56,更紧凑 */
   border-radius: var(--r-md);
   background: var(--c-surface-2);
   border: 1px solid var(--c-border);
-  text-decoration: none; color: var(--c-text); font-size: var(--fs-xs);
-  white-space: nowrap;
+  font-size: 24px;                          /* 图标尺寸 32→24(配合 svg.lucide 的 1em) */
   transition: border-color var(--t-fast), background var(--t-fast);
 }
-.ws-quick-item:hover { border-color: var(--c-border-strong); background: color-mix(in srgb, var(--c-primary) 6%, var(--c-surface-2)); }
-.ws-quick-icon { font-size: 16px; }
+.ws-quick-item:hover .ws-quick-icon {
+  border-color: var(--c-border-strong);
+  background: color-mix(in srgb, var(--c-primary) 8%, var(--c-surface-2));
+}
+.ws-quick-label {
+  font-size: var(--fs-sm); color: var(--c-text-soft, var(--c-text));
+  white-space: nowrap;
+}
+/* v0.4.20: 本周概览的数字格 —— 复用 .ws-quick-item / .ws-quick-label 排版,
+   只是把图标位换成大加粗数字。尺寸/边框/背景与 .ws-quick-icon 一致(56px 方块),
+   保证和「知识库常用/市场常用」的按钮网格视觉对齐。 */
+.ws-quick-item .ws-week-num {
+  display: flex; align-items: center; justify-content: center;
+  width: 56px; height: 56px;
+  margin: 0;                       /* 覆盖全局 .ws-week-num 的行内默认 */
+  border-radius: var(--r-md);
+  background: var(--c-surface-2);
+  border: 1px solid var(--c-border);
+  font-size: var(--fs-xl);         /* 20px,大加粗数字;不沿用全局 primary 色,保持中性 */
+  font-weight: 700;
+  color: var(--c-text);
+  line-height: 1;
+}
 .ws-quick-more {
   display: block; margin-top: var(--sp-3); text-align: center;
   padding: var(--sp-2); border-radius: var(--r-md);
@@ -3593,6 +3632,19 @@ svg.lucide {
   height: 1em;
   vertical-align: -0.125em;
   flex-shrink: 0;
+}
+/* v0.4.20: 按钮里的图标设 pointer-events:none,根治「点图标按钮没反应」。
+ * 根因:Lucide 的 <i data-lucide> 在 mousedown→mouseup 之间会被 refreshIcons
+ * 替换成 <svg>。浏览器判定 mousedown 目标(<i>)与 mouseup 目标(<svg>)不同源 →
+ * 不触发 click → 按钮(尤其 <a href> 链接型,如任务编辑按钮)点了没反应。
+ * 让图标不接收指针事件,鼠标按下/抬起都「穿透」到父级按钮/链接上,两者同源,
+ * click 正常触发。保留原生行为(中键新标签页、Ctrl+点击等)。
+ * 之前的 mousedown 委托(tasks.html checklist / 卡片 pin·delete)是同问题的另一解法;
+ * 此 CSS 规则是更通用的根治,两者并存不冲突。 */
+.icon-btn > svg, .icon-btn > i,
+.btn > svg, .btn > i,
+a.icon-btn > svg, a.icon-btn > i {
+  pointer-events: none;
 }
 /* 搜索框图标稍大 */
 .search-icon-wrap svg { width: 16px; height: 16px; }
@@ -3830,3 +3882,247 @@ svg.lucide {
 [data-theme="dark"] .nav-shutdown:hover {
   background: #1f1b3a;
 }
+
+/* ====================== 市场页(v0.4.20)====================== */
+/* 分区:每板块一个 mk-section,纵向堆叠;标题 + 右侧操作/更多链接 */
+.mk-section { margin-bottom: var(--sp-8); }
+.mk-section-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--sp-3); margin-bottom: var(--sp-4);
+}
+.mk-section-title {
+  display: flex; align-items: center; gap: var(--sp-2);
+  margin: 0; font-size: var(--fs-xl); font-weight: 700; color: var(--c-text);
+}
+.mk-section-title i, .mk-section-title svg { width: 22px; height: 22px; color: var(--c-primary); }
+.mk-section-more { font-size: var(--fs-sm); color: var(--c-primary); text-decoration: none; }
+.mk-section-more:hover { text-decoration: underline; }
+
+/* 异动时间线:每条一行(日期 | 内容 | 操作) */
+.mk-timeline { display: flex; flex-direction: column; gap: var(--sp-2); }
+.mk-alert-row {
+  display: flex; align-items: center; gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--c-warning, #f59e0b);
+  border-radius: var(--r-md);
+}
+.mk-alert-date {
+  font-weight: 600; font-variant-numeric: tabular-nums; color: var(--c-text);
+  white-space: nowrap; min-width: 64px;
+}
+.mk-alert-date.overdue { color: var(--c-danger); }
+.mk-alert-body { flex: 1; min-width: 0; }
+.mk-alert-trigger { font-weight: 600; color: var(--c-text); word-break: break-word; }
+.mk-alert-note { font-size: var(--fs-sm); margin-top: 2px; }
+.mk-alert-actions { display: flex; gap: var(--sp-2); flex-shrink: 0; }
+
+/* 财报日历:复用主页 ws-tl-node 时间轴,补一个过去态淡化 */
+.ws-tl-node.ws-tl-past { opacity: 0.55; }
+
+/* 自选股卡片:复用 .event-card,标题行紧凑 */
+.mk-watch-card .ev-card-actions,
+.mk-task-card .ev-card-actions { display: flex; gap: var(--sp-2); margin-top: var(--sp-2); }
+
+/* 代码校验提示(表单内,✓绿/✗红)+ 卡片市场标签加粗 */
+.mk-ticker-hint { font-size: var(--fs-xs); margin-top: 4px; min-height: 16px; }
+.mk-ticker-ok { color: var(--c-success, #16a34a); }
+.mk-ticker-err { color: var(--c-danger, #dc2626); }
+.mk-ticker-tag b { font-weight: 700; }
+
+/* ---- v0.4.22:持仓位置(表单 + 卡片)+ 异动方向色块 ---- */
+
+/* 表单:持仓位置 2×2 网格 + 方向行 */
+.mk-pos-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-2) var(--sp-3);
+}
+.mk-pos-cell { display: flex; flex-direction: column; gap: 2px; }
+.mk-pos-lbl { font-size: var(--fs-xs); color: var(--c-text-muted); }
+.mk-pos-cell input { padding: 6px 8px; font-size: var(--fs-sm); }
+.mk-dir-row { display: flex; gap: var(--sp-2); }
+.mk-dir-row select { flex: 0 0 auto; }
+.mk-dir-row input { flex: 1; min-width: 0; }
+
+/* 卡片:持仓位置行(成本/股数/目标/止损) */
+.mk-pos-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+.mk-pos-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-sm);
+  background: var(--c-surface-2);
+  color: var(--c-text-muted);
+}
+.mk-pos-tag b { font-weight: 600; color: var(--c-text); }
+.mk-pos-tag.up { color: var(--c-success, #16a34a); }    /* 目标价:涨色 */
+.mk-pos-tag.down { color: var(--c-danger, #dc2626); }   /* 止损价:跌色 */
+
+/* 异动条目:方向色块(红涨/绿跌/灰平,A 股配色) */
+.mk-alert-dir {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  margin-right: 6px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  vertical-align: middle;
+}
+.mk-alert-dir svg { width: 14px; height: 14px; }
+.mk-alert-dir.up { color: #fff; background: var(--c-danger, #dc2626); }    /* A股:红涨 */
+.mk-alert-dir.down { color: #fff; background: var(--c-success, #16a34a); } /* A股:绿跌 */
+.mk-alert-dir.flat { color: var(--c-text-muted); background: var(--c-surface-2); }
+
+/* ---- v0.4.23:市场页三栏布局(对齐 concept/market.png)---- */
+
+/* 顶部 Hero(复用 ws-hero 范式) */
+.mk-hero {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--sp-6);
+}
+.mk-hero-main { min-width: 0; }
+.mk-title { margin: 0; font-size: var(--fs-2xl); font-weight: 700; display: flex; align-items: center; gap: var(--sp-2); }
+.mk-title svg { width: 28px; height: 28px; color: var(--c-primary); }
+.mk-subtitle { margin: var(--sp-1) 0 0; color: var(--c-text-muted); font-size: var(--fs-sm); }
+.mk-hero-actions { display: flex; gap: var(--sp-2); flex-shrink: 0; }
+
+/* 三栏布局:主列 + 右侧边栏(复用 ws-layout grid 范式) */
+.mk-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--sp-6);
+  align-items: start;
+}
+.mk-main { min-width: 0; display: flex; flex-direction: column; gap: var(--sp-6); }
+
+/* 占位:市场指数卡片(4列) */
+.mk-index-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-3);
+}
+.mk-index-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--sp-3) var(--sp-4);
+}
+.mk-index-name { font-size: var(--fs-sm); color: var(--c-text-muted); }
+.mk-index-val { font-size: var(--fs-xl); font-weight: 700; margin: var(--sp-1) 0; color: var(--c-text); }
+.mk-index-chg { font-size: var(--fs-xs); }
+
+/* 占位:市场视图(走势图占位区) */
+.mk-chart-panel {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-8) var(--sp-4);
+  background: var(--c-surface);
+  border: 1px dashed var(--c-border-strong, var(--c-border));
+  border-radius: var(--r-md);
+  color: var(--c-text-muted);
+  text-align: center;
+}
+.mk-chart-icon { width: 48px; height: 48px; opacity: 0.4; }
+.mk-chart-hint { font-size: var(--fs-base); color: var(--c-text); }
+
+/* 任务表格(替代卡片网格) */
+.mk-task-table {
+  display: flex; flex-direction: column;
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.mk-task-head, .mk-task-row {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 120px 110px 90px 60px;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+}
+.mk-task-head {
+  background: var(--c-surface-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--c-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.mk-task-row {
+  border-top: 1px solid var(--c-border);
+  text-decoration: none;
+  color: var(--c-text);
+  font-size: var(--fs-sm);
+  transition: background 0.12s;
+}
+.mk-task-row:hover { background: var(--c-surface-2); }
+.mk-task-check svg { width: 16px; height: 16px; color: var(--c-text-muted); }
+.mk-task-title { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-task-type { display: flex; align-items: center; gap: 4px; font-size: var(--fs-xs); color: var(--c-text-muted); }
+.mk-task-type svg { width: 14px; height: 14px; }
+.mk-task-catdot { width: 8px; height: 8px; border-radius: 50%; background: var(--ev, var(--c-primary)); flex-shrink: 0; }
+.mk-task-dl { font-size: var(--fs-xs); color: var(--c-text-muted); }
+.mk-task-prog { font-size: var(--fs-xs); text-align: right; }
+.mk-task-badge {
+  display: inline-block; padding: 1px 8px; border-radius: var(--r-sm);
+  font-size: var(--fs-xs); font-weight: 600;
+  color: #fff; background: var(--st, var(--c-primary));
+}
+
+/* 右侧边栏(复用 ws-rail 范式) */
+.mk-rail {
+  position: sticky; top: var(--sp-6); align-self: start;
+  display: flex; flex-direction: column; gap: var(--sp-5);
+  min-width: 0;
+}
+.mk-rail-card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-border);
+  border-radius: var(--r-md);
+  padding: var(--sp-4);
+}
+.mk-rail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-3); }
+.mk-rail-title { margin: 0; font-size: var(--fs-base); font-weight: 700; display: flex; align-items: center; gap: var(--sp-2); }
+.mk-rail-title svg { width: 18px; height: 18px; color: var(--c-primary); }
+.mk-rail-stat { font-size: var(--fs-xs); color: var(--c-text-muted); margin-bottom: var(--sp-2); }
+
+/* 今日事件列表项 */
+.mk-event-item {
+  display: flex; align-items: flex-start; gap: var(--sp-2);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--c-border);
+  text-decoration: none; color: var(--c-text);
+}
+.mk-event-item:last-child { border-bottom: none; }
+.mk-event-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ev, var(--c-primary)); margin-top: 6px; flex-shrink: 0; }
+.mk-event-body { min-width: 0; flex: 1; }
+.mk-event-title { font-size: var(--fs-sm); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-event-meta { font-size: var(--fs-xs); margin-top: 2px; }
+.mk-event-item.is-today .mk-event-title { color: var(--c-primary); font-weight: 600; }
+
+/* 响应式:窄屏三栏 → 单栏,右侧栏折到主列下方 */
+@media (max-width: 980px) {
+  .mk-layout { grid-template-columns: 1fr; }
+  .mk-rail { position: static; }
+  .mk-index-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .mk-task-head, .mk-task-row {
+    /* 任务表窄屏:隐藏类型/进度列,保留 标题/截止/状态 */
+    grid-template-columns: 28px minmax(0, 1fr) 90px 80px;
+  }
+  .mk-task-type, .mk-task-prog { display: none; }
+  .mk-index-grid { grid-template-columns: 1fr; }
+}
+
