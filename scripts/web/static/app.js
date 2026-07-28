@@ -1444,12 +1444,7 @@ if (document.readyState === 'loading') {
 (function(){
   'use strict';
 
-  const TK_STATUS_META = {
-    'active':   { color: '#2563eb', label: '进行中' },
-    'done':     { color: '#16a34a', label: '已完成' },
-    'blocked':  { color: '#dc2626', label: '阻塞' },
-    'archived': { color: '#64748b', label: '已归档' },
-  };
+  // v0.4.22: 任务状态配色改读全局 cat-meta.js(taskStatusColor/Label),删本地 TK_STATUS_META。
 
   let _drawerResolve = null;
 
@@ -1491,7 +1486,7 @@ if (document.readyState === 'loading') {
       const r = await fetch('/api/tasks/' + encodeURIComponent(taskId));
       if (!r.ok) throw new Error('加载失败');
       const t = await r.json();
-      const sm = TK_STATUS_META[t.status] || TK_STATUS_META['active'];
+      const sm = { color: taskStatusColor(t.status), label: taskStatusLabel(t.status) };
       const dl = t.deadline;
       const todayStr = new Date().toISOString().slice(0, 10);
       const dlClass = dl && dl < todayStr ? 'overdue' : (dl && dl === todayStr ? 'today' : '');

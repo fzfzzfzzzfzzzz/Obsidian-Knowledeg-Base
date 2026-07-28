@@ -352,8 +352,8 @@
   }
 
   // ---- 板块5:关联任务(表格布局,复用) ----
-  // 任务状态徽章配色(与 tasks 页 TK_STATUS_META 一致,本地只读展示,勾选走任务系统)
-  var MK_STATUS_META = { active:{c:'#2563eb',l:'进行中'}, done:{c:'#16a34a',l:'已完成'}, blocked:{c:'#dc2626',l:'阻塞'}, archived:{c:'#64748b',l:'已归档'} };
+  // v0.4.22: 任务状态配色改读 cat-meta.js(taskStatusColor/Label),删本地 MK_STATUS_META。
+  // 本地只读展示,勾选走任务系统。
   async function loadLinkedTasks(){
     try{
       var r = await fetch('/api/market/linked-tasks');
@@ -361,7 +361,7 @@
       var items = d.items || [];
       if(!items.length){ setHTML('mk-tasks-grid', emptyHTML('暂无 category=金融 的任务。去 /tasks 创建。')); return; }
       var rows = items.map(function(t){
-        var sm = MK_STATUS_META[t.status] || MK_STATUS_META['active'];
+        var sm = { c: taskStatusColor(t.status), l: taskStatusLabel(t.status) };
         var clDone = (t.checklist||[]).filter(function(x){return x.done;}).length;
         var clTotal = (t.checklist||[]).length;
         var clText = clTotal ? (clDone+'/'+clTotal) : '—';

@@ -178,12 +178,7 @@
 
   // 类别配色 / 图标:v0.4.17 改用全局共享元数据 cat-meta.js(消除重复 + 修"会议"色值不一致)
   // 原 CAT_COLOR(#3b82f6 错值)/ CAT_ICON 已删,改用 catColor(cat) / catIcon(cat)
-  var TK_STATUS_META = {
-    'active':   { color: '#2563eb', label: '进行中' },
-    'done':     { color: '#16a34a', label: '已完成' },
-    'blocked':  { color: '#dc2626', label: '阻塞' },
-    'archived': { color: '#64748b', label: '已归档' },
-  };
+  // v0.4.22: 任务状态配色也改读 cat-meta.js(KB_TASK_STATUS),删本地 TK_STATUS_META。
 
   // ---- 当前任务 ----
   function loadCurrentTask(){
@@ -191,7 +186,7 @@
       var t = d.task;
       if(!t || !t.id){ setBody('ws-current-task', emptyHTML('暂无当前任务,去 /tasks 创建一个')); return; }
       window._currentTask = t;
-      var sm = TK_STATUS_META[t.status] || TK_STATUS_META['active'];
+      var sm = { color: taskStatusColor(t.status), label: taskStatusLabel(t.status) };
       var dl = t.deadline;
       var dlClass = dl && dl < new Date().toISOString().slice(0,10) ? 'overdue' : (dl && dl === new Date().toISOString().slice(0,10) ? 'today' : '');
       var dlText = dl ? ('截止日期：' + fmtDate(dl)) : '无截止日期';

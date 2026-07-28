@@ -8,13 +8,8 @@
 {% block scripts %}
 <script>
 // 任务详情页:加载 + 渲染 + checklist 单项打勾
-const TK_DETAIL_STATUS = {
-  'active':   { color: '#2563eb', label: '进行中', icon: 'play' },
-  'done':     { color: '#16a34a', label: '已完成', icon: 'check' },
-  'blocked':  { color: '#dc2626', label: '阻塞', icon: 'ban' },
-  'archived': { color: '#64748b', label: '已归档', icon: 'archive' },
-};
 // v0.4.19: 任务类别配色改读 cat-meta.js(taskCatColor),不再硬编码 TK_DETAIL_CAT
+// v0.4.22: 任务状态配色也改读 cat-meta.js(KB_TASK_STATUS),删本地 TK_DETAIL_STATUS。
 const TASK_ID = "{{ task_id }}";
 const tkTodayStr = new Date().toISOString().slice(0, 10);
 
@@ -48,7 +43,7 @@ function fmtDateLabel(d) {
 }
 
 function renderDetail(t) {
-  const sm = TK_DETAIL_STATUS[t.status] || { color: '#64748b', label: t.status, icon: '•' };
+  const sm = { color: taskStatusColor(t.status), label: taskStatusLabel(t.status), icon: taskStatusIcon(t.status) };
   const dl = t.deadline;
   const dlOverdue = dl && dl < tkTodayStr;
   const dlToday = dl && dl === tkTodayStr;

@@ -22,7 +22,7 @@ async function loadTask() {
   }
 }
 
-const TK_STATUS_LABEL = { active: '进行中', done: '已完成', blocked: '阻塞', archived: '已归档' };
+// v0.4.22: 任务状态选项改读 cat-meta.js(taskStatusOptions),删本地 TK_STATUS_LABEL。
 
 function renderForm(t) {
   const clInit = (t.checklist || []).map(x => Object.assign({}, x));
@@ -44,7 +44,7 @@ function renderForm(t) {
       + '</div>'
       + '<div class="te-row2">'
         + '<div class="te-field"><label>状态</label><select id="te-status" class="search-input">'
-          + ['active', 'done', 'blocked', 'archived'].map(s => '<option value="' + s + '"' + (s === t.status ? ' selected' : '') + '>' + (TK_STATUS_LABEL[s] || s) + '</option>').join('')
+          + taskStatusOptions(t.status)
         + '</select></div>'
         + '<div class="te-field"><label>当前问题/阻塞</label><input id="te-blocker" class="search-input" placeholder="卡在哪里?" value="' + escapeHtml(t.blocker || '') + '"></div>'
       + '</div>'

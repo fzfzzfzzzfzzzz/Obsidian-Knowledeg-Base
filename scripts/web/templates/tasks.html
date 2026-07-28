@@ -33,13 +33,12 @@
 {% block scripts %}
 <script>
 // 任务页交互。状态徽章配色 + checklist 进度。
-const TK_STATUS_META = {
-  'active':   { color: '#2563eb', label: '进行中', icon: 'play' },
-  'done':     { color: '#16a34a', label: '已完成', icon: 'check' },
-  'blocked':  { color: '#dc2626', label: '阻塞',   icon: 'ban' },
-  'archived': { color: '#64748b', label: '已归档', icon: 'archive' },
-};
 // v0.4.19: 任务类别配色/图标改读 cat-meta.js(KB_TASK_CATEGORIES),不再硬编码。
+// v0.4.22: 任务状态配色/图标也改读 cat-meta.js(KB_TASK_STATUS),删本地 TK_STATUS_META。
+//          本地保留 tkStatusMeta 别名供卡片渲染用(taskStatusColor/Icon 的快捷引用)。
+const tkStatusColor = taskStatusColor;
+const tkStatusIcon = taskStatusIcon;
+function tkStatusMeta(s) { return { color: taskStatusColor(s), icon: taskStatusIcon(s), label: taskStatusLabel(s) }; }
 // tkCatColor 作为别名保留,模板内其余调用点不变。
 const tkCatColor = taskCatColor;
 
@@ -142,7 +141,7 @@ function checklistProgress(cl) {
 }
 
 function renderTaskCard(t) {
-  const sm = TK_STATUS_META[t.status] || TK_STATUS_META['active'];
+  const sm = tkStatusMeta(t.status);
   const catColor = tkCatColor(t.category);
   const dl = t.deadline;
   const dlClass = dl && dl < tkTodayStr ? 'tk-dl-overdue' : (dl && dl <= tkTodayStr ? 'tk-dl-today' : '');
@@ -252,7 +251,7 @@ async function openTaskForm(opts) {
     + '</div>'
     + '<div class="cal-form-row2">'
       + '<div class="cal-form-field"><label>状态</label><select id="tk-status" class="search-input">'
-        + ['active','done','blocked','archived'].map(s => '<option value="'+s+'"'+(s===task.status?' selected':'')+'>'+(TK_STATUS_META[s]||{label:s}).label+'</option>').join('')
+        + taskStatusOptions(task.status)
       + '</select></div>'
       + '<div class="cal-form-field"><label>置顶</label><label class="tk-pin-check"><input type="checkbox" id="tk-pinned" '+(task.pinned?'checked':'')+'> 显示在列表顶部</label></div>'
     + '</div>'

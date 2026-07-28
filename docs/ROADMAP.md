@@ -66,10 +66,9 @@
 - **结果**:Web 端点接受按钮直接触发搬运,不再需要手动跑 CLI accept-ideas/accept-todos。
 - **文档**:`docs/v0.4.3/changelog.md` 第 2 节
 
-### 9. 任务状态元数据统一(TK_STATUS_META)
-- **现状**:任务**状态**元数据(active/done/blocked/archived 的徽章配色)目前在 `tasks.html:36-41` 与 `task_detail.html` 各自定义,未统一。
-- **注意**:这与任务**类别**元数据(v0.4.16 已统一到 cat-meta.js)是两个不同维度。类别 = 开发/科研/个人等业务分类,状态 = 生命周期阶段。
-- **要做**:若要统一,可在 cat-meta.js 新增 `KB_TASK_STATUS` 表 + `taskStatusColor/taskStatusLabel` 辅助函数,各页面改读。价值较小(状态只有 4 个、配色稳定),优先级低。
+### 9. ~~任务状态元数据统一(TK_STATUS_META)~~ ✅ v0.4.22 完成
+- **结果**:任务**状态**元数据(active/done/blocked/archived 的徽章配色/标签/图标)统一到 cat-meta.js 的 `KB_TASK_STATUS` 表 + `taskStatusColor/taskStatusLabel/taskStatusIcon/taskStatusOptions` 辅助函数。原散落在 tasks.html / task_detail.html / task_edit.html / workspace.html / market.html / app.js 的 6 份本地副本全部删除,改读单一数据源。
+- **注意**:这与任务**类别**元数据(v0.4.16 已统一)是两个不同维度。类别 = 开发/科研/个人等业务分类,状态 = active/done/blocked/archived 生命周期阶段。两者并列维护。
 - **来源**:v0.4.16 调研发现(`docs/v0.4.16/changelog.md`「不在本次范围」)
 
 ---

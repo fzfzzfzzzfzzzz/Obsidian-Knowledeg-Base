@@ -125,6 +125,54 @@
     });
   }
 
+  /* ============================================================
+   * 任务状态元数据(active / done / blocked / archived)
+   *
+   * 与上面的「任务类别」是两个不同维度,别混淆:
+   *   - 类别 = 开发/科研/个人 等**业务分类**(KB_TASK_CATEGORIES)
+   *   - 状态 = active/done/blocked/archived **生命周期阶段**(本表)
+   *
+   * 历史:状态徽章配色曾在 tasks.html(TK_STATUS_META)、task_detail.html
+   * (TK_DETAIL_STATUS)、task_edit.html(TK_STATUS_LABEL)、workspace.html
+   * (TK_STATUS_META)、market.html(MK_STATUS_META)、app.js(TK_STATUS_META)
+   * 各自重复定义 6 份,色值一致但维护时要 grep 6 个文件。现统一到这里。
+   * 单一数据源:所有页面/脚本引用同一份。
+   *
+   * 设计:与类别元数据同构,每个状态含 icon(Lucide 名)/ color / label。
+   * ============================================================ */
+  var KB_TASK_STATUS = {
+    'active':   { icon: 'play',    color: '#2563eb', label: '进行中' },
+    'done':     { icon: 'check',   color: '#16a34a', label: '已完成' },
+    'blocked':  { icon: 'ban',     color: '#dc2626', label: '阻塞' },
+    'archived': { icon: 'archive', color: '#64748b', label: '已归档' }
+  };
+  var KB_TASK_STATUS_ORDER = ['active', 'done', 'blocked', 'archived'];
+  var DEFAULT_TASK_STATUS = 'active';
+
+  function taskStatusMeta(status) {
+    return KB_TASK_STATUS[status] || KB_TASK_STATUS[DEFAULT_TASK_STATUS];
+  }
+
+  function taskStatusColor(status) {
+    return taskStatusMeta(status).color;
+  }
+
+  function taskStatusLabel(status) {
+    return taskStatusMeta(status).label;
+  }
+
+  function taskStatusIcon(status) {
+    return '<i data-lucide="' + taskStatusMeta(status).icon + '"></i>';
+  }
+
+  // 状态选择器选项(供 task 表单的 <select> 用),按固定语义顺序
+  function taskStatusOptions(selected) {
+    return KB_TASK_STATUS_ORDER.map(function (s) {
+      return '<option value="' + s + '"' + (s === selected ? ' selected' : '') + '>'
+        + KB_TASK_STATUS[s].label + '</option>';
+    }).join('');
+  }
+
   global.KB_CATEGORIES = KB_CATEGORIES;
   global.KB_CAT_ORDER = KB_CAT_ORDER;
   global.catColor = catColor;
@@ -137,4 +185,10 @@
   global.taskCatLabel = taskCatLabel;
   global.taskCatIcon = taskCatIcon;
   global.taskCatPresets = taskCatPresets;
+  global.KB_TASK_STATUS = KB_TASK_STATUS;
+  global.KB_TASK_STATUS_ORDER = KB_TASK_STATUS_ORDER;
+  global.taskStatusColor = taskStatusColor;
+  global.taskStatusLabel = taskStatusLabel;
+  global.taskStatusIcon = taskStatusIcon;
+  global.taskStatusOptions = taskStatusOptions;
 })(window);
