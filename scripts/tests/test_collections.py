@@ -148,6 +148,55 @@ def test_article_collections_source_not_found_404(client):
                   json={"collection_ids": [cid]}).status_code == 404
 
 
+def test_toggle_favorite_syncs_to_default_collection(client):
+    """点★星标 is_favorite=true → 文章进入默认收藏夹(收藏夹页可见,星亮黄)。"""
+    c, tmp = client
+    # source_b 初始 is_favorite=False
+    # 点★ 收藏
+    r = c.post("/api/article/source_b/favorite")
+    assert r.json()["is_favorite"] is True
+
+    # 默认夹成员应含 source_b
+    items = c.get("/api/collections").json()["items"]
+    default = next(i for i in items if i["name"] == "默认收藏夹")
+    assert "source_b" in default["source_ids"]
+
+    # 默认夹的文章列表里能看到 source_b,且其卡片 is_favorite=True(星会亮黄)
+    arts = c.get(f"/api/collections/{default['id']}/articles").json()["items"]
+    sb = next(a for a in arts if a["source_id"] == "source_b")
+    assert sb["is_favorite"] is True
+
+
+def test_add_to_collection_sets_favorite(client):
+    """加入任意文件夹 → is_favorite=true(星标与文件夹同步)。"""
+    c, tmp = client
+    cid = c.post("/api/collections", json={"name": "金融"}).json()["item"]["id"]
+    # source_b is_favorite=False,加入文件夹
+    c.post("/api/article/source_b/collections", json={"collection_ids": [cid]})
+
+    state = kb.load_state()
+    assert state["sources"]["source_b"]["is_favorite"] is True
+    # 默认夹也应含 source_b(同步派生)
+    default = state["collections"]["col_default_favorites"]
+    assert "source_b" in default["source_ids"]
+
+
+def test_remove_from_all_collections_clears_favorite(client):
+    """从所有文件夹移除 → is_favorite=false。"""
+    c, tmp = client
+    cid = c.post("/api/collections", json={"name": "金融"}).json()["item"]["id"]
+    # 先加入 → is_favorite=true
+    c.post("/api/article/source_b/collections", json={"collection_ids": [cid]})
+    # 再全部移除
+    c.post("/api/article/source_b/collections", json={"collection_ids": []})
+
+    state = kb.load_state()
+    assert state["sources"]["source_b"]["is_favorite"] is False
+    # 默认夹不再含 source_b
+    default = state["collections"]["col_default_favorites"]
+    assert "source_b" not in default["source_ids"]
+
+
 def test_migration_runs_once(client):
     """迁移只跑一次:第二次 GET 不再改 collections。"""
     c, tmp = client
@@ -158,3 +207,71 @@ def test_migration_runs_once(client):
     state2 = kb.load_state()
     names2 = sorted(col["name"] for col in state2["collections"].values())
     assert names1 == names2  # 不重复建默认夹
+
+
+# ---- 批量追加端点 POST /api/collections/{col_id}/articles(拖拽 + 批量归入共用)----
+
+def test_batch_add_articles_appends_and_syncs(client):
+    """批量追加:source_ids 写入夹,反向回写 collection_ids(双向同步)。"""
+    c, tmp = client
+    cid = c.post("/api/collections", json={"name": "金融"}).json()["item"]["id"]
+    r = c.post("/api/collections/" + cid + "/articles", json={"source_ids": ["source_a", "source_b"]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["added"] == 2
+    assert body["count"] == 2
+    # 正向:夹的 source_ids
+    items = {i["id"]: i for i in c.get("/api/collections").json()["items"]}
+    assert set(items[cid]["source_ids"]) == {"source_a", "source_b"}
+    # 反向:文章的 collection_ids
+    state = kb.load_state()
+    assert cid in state["sources"]["source_a"]["collection_ids"]
+    assert cid in state["sources"]["source_b"]["collection_ids"]
+
+
+def test_batch_add_articles_idempotent(client):
+    """幂等:重复追加同一篇不会在夹里产生重复条目。"""
+    c, tmp = client
+    cid = c.post("/api/collections", json={"name": "金融"}).json()["item"]["id"]
+    c.post("/api/collections/" + cid + "/articles", json={"source_ids": ["source_a"]})
+    r = c.post("/api/collections/" + cid + "/articles", json={"source_ids": ["source_a"]})
+    assert r.status_code == 200
+    assert r.json()["added"] == 0  # 第二次没有新增
+    items = {i["id"]: i for i in c.get("/api/collections").json()["items"]}
+    assert items[cid]["source_ids"].count("source_a") == 1
+
+
+def test_batch_add_articles_does_not_mutually_exclude(client):
+    """多归属:追加到新夹不移出旧夹(不互斥)。"""
+    c, tmp = client
+    cid1 = c.post("/api/collections", json={"name": "金融"}).json()["item"]["id"]
+    cid2 = c.post("/api/collections", json={"name": "科研"}).json()["item"]["id"]
+    # source_a 先进 cid1
+    c.post("/api/collections/" + cid1 + "/articles", json={"source_ids": ["source_a"]})
+    # 再追加到 cid2
+    c.post("/api/collections/" + cid2 + "/articles", json={"source_ids": ["source_a"]})
+    state = kb.load_state()
+    # source_a 应同时属于两个夹
+    assert set(state["sources"]["source_a"]["collection_ids"]) == {cid1, cid2}
+    assert "source_a" in state["collections"][cid1]["source_ids"]
+    assert "source_a" in state["collections"][cid2]["source_ids"]
+
+
+def test_batch_add_articles_empty_ids_400(client):
+    c, tmp = client
+    cid = c.post("/api/collections", json={"name": "金融"}).json()["item"]["id"]
+    r = c.post("/api/collections/" + cid + "/articles", json={"source_ids": []})
+    assert r.status_code == 400
+
+
+def test_batch_add_articles_unknown_col_404(client):
+    c, tmp = client
+    r = c.post("/api/collections/col_nope/articles", json={"source_ids": ["source_a"]})
+    assert r.status_code == 404
+
+
+def test_batch_add_articles_all_virtual_rejected(client):
+    """「全部收藏」是虚拟视图,不能作为归入目标。"""
+    c, tmp = client
+    r = c.post("/api/collections/all/articles", json={"source_ids": ["source_a"]})
+    assert r.status_code == 400

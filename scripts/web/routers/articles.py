@@ -50,6 +50,8 @@ from web.services.cards import (
     _get_collections,
     _scan_summaries,
     _read_summary_detail,
+    _sync_default_collection,
+    DEFAULT_FAVORITES_COL_ID,
 )
 from web.services.state_io import (
     _ensure_reading_fields,
@@ -172,7 +174,11 @@ async def api_delete_summary(source_id: str):
 
 @router.post("/api/article/{source_id}/collections")
 async def api_article_set_collections(source_id: str, payload: ArticleCollectionsRequest):
-    """设置某文章的文件夹归属(全量替换 collection_ids)。同步更新各夹的 source_ids。"""
+    """设置某文章的文件夹归属(全量替换 collection_ids)。同步更新各夹的 source_ids。
+
+    若文章加入了任意文件夹(用户分类),视为已收藏 → is_favorite=true 并进默认夹;
+    若从所有文件夹移除,则取消星标 is_favorite=false。实现星标与文件夹双向同步。
+    """
     try:
         with kb.state_lock():
             state = kb.load_state()
@@ -197,6 +203,9 @@ async def api_article_set_collections(source_id: str, payload: ArticleCollection
                         s for s in cols[cid].get("source_ids", []) if s != source_id
                     ]
             rec["collection_ids"] = new_ids
+            # 星标↔文件夹同步:加入了任意夹 = 收藏;从所有夹移除 = 取消收藏
+            rec["is_favorite"] = bool(new_ids)
+            _sync_default_collection(state, source_id, bool(new_ids))
             kb.save_state(state)
     except kb.CorruptStoreError:
         raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
@@ -230,7 +239,11 @@ async def api_toggle_read_later(source_id: str):
 
 @router.post("/api/article/{source_id}/favorite")
 async def api_toggle_favorite(source_id: str):
-    """切换收藏标记。读+取反+写全程在同一把 state 锁内。"""
+    """切换收藏标记,并与「默认收藏夹」双向同步。读+取反+写全程在同一把 state 锁内。
+
+    is_favorite 是星标的单一真实状态源:点★ = 进默认夹,取消★ = 出默认夹。
+    用户自定义文件夹不受影响。
+    """
     try:
         with kb.state_lock():
             state = kb.load_state()
@@ -241,6 +254,7 @@ async def api_toggle_favorite(source_id: str):
             rec = _ensure_reading_fields(sources[source_id])
             new_val = not rec["is_favorite"]
             sources[source_id]["is_favorite"] = new_val  # 写回原 dict
+            _sync_default_collection(state, source_id, new_val)
             backup_file(kb.STATE_FILE, "state")
             kb.save_state(state)
     except kb.CorruptStoreError:

@@ -100,31 +100,75 @@ def _get_collections(state: dict) -> dict[str, dict]:
     return cols
 
 def _migrate_default_collection(state: dict) -> bool:
-    """一次性迁移:若 state 无 collections,且存在 is_favorite=true 的文章,
-    自动建一个「默认收藏夹」把它们放进去。返回是否有改动。
+    """确保默认收藏夹存在,且其成员 = 所有 is_favorite=true 的文章(自愈)。
+
+    每次调用都重新对齐默认夹成员与 is_favorite(修复历史孤立数据)。
+    返回是否有改动。默认夹用固定 id(DEFAULT_FAVORITES_COL_ID)。
     """
-    if state.get("collections") is not None:
-        return False  # 已初始化过(哪怕为空)
+    changed = False
+    cols = state.setdefault("collections", {})
+    # 历史遗留:旧迁移可能建过随机 id 的"默认收藏夹",合并到固定 id
+    for cid in list(cols):
+        if cols[cid].get("name") == "默认收藏夹" and cid != DEFAULT_FAVORITES_COL_ID:
+            old = cols.pop(cid)
+            changed = True
+    col = cols.get(DEFAULT_FAVORITES_COL_ID)
+    if not col:
+        col = {
+            "id": DEFAULT_FAVORITES_COL_ID,
+            "name": "默认收藏夹",
+            "created_at": kb.today_iso(),
+            "source_ids": [],
+        }
+        cols[DEFAULT_FAVORITES_COL_ID] = col
+        changed = True
+    # 对齐:默认夹成员 = 所有 is_favorite=true 且仍存在的 source
     fav_ids = [
         sid for sid, rec in state.get("sources", {}).items()
         if rec.get("is_favorite")
     ]
-    state["collections"] = {}
-    if fav_ids:
-        import uuid
-        col_id = "col_" + uuid.uuid4().hex[:10]
-        state["collections"][col_id] = {
-            "id": col_id,
+    if set(col.get("source_ids", [])) != set(fav_ids):
+        col["source_ids"] = fav_ids
+        changed = True
+    return changed
+
+
+# 星标收藏与「默认收藏夹」双向绑定的固定 id(不用随机 uuid,确保可追踪)。
+# 语义:is_favorite 是单一真实状态源,默认夹成员关系是它的派生 ——
+# 点★ = 进默认夹;取消★ = 出默认夹。用户自定义文件夹不受影响。
+DEFAULT_FAVORITES_COL_ID = "col_default_favorites"
+
+
+def _ensure_default_collection(state: dict) -> dict:
+    """确保默认收藏夹存在(懒创建),返回该夹 dict。不写盘(调用方负责 save)。"""
+    cols = state.setdefault("collections", {})
+    col = cols.get(DEFAULT_FAVORITES_COL_ID)
+    if not col:
+        col = {
+            "id": DEFAULT_FAVORITES_COL_ID,
             "name": "默认收藏夹",
             "created_at": kb.today_iso(),
-            "source_ids": fav_ids,
+            "source_ids": [],
         }
-        # 反向写回 source.collection_ids
-        for sid in fav_ids:
-            state["sources"][sid].setdefault("collection_ids", [])
-            if col_id not in state["sources"][sid]["collection_ids"]:
-                state["sources"][sid]["collection_ids"].append(col_id)
-    return True
+        cols[DEFAULT_FAVORITES_COL_ID] = col
+    col.setdefault("source_ids", [])
+    return col
+
+
+def _sync_default_collection(state: dict, source_id: str, is_favorite: bool) -> None:
+    """按 is_favorite 的值,把文章加进/移出默认收藏夹的 source_ids。
+
+    默认夹是 is_favorite 的镜像(派生数据),其成员关系只维护在 col.source_ids,
+    不写入 source.collection_ids(后者保持纯净,只含用户自定义夹)。
+    不写盘(调用方在 state_lock 内 save)。用户自定义文件夹不受影响。"""
+    col = _ensure_default_collection(state)
+    sids = col["source_ids"]
+    if is_favorite:
+        if source_id not in sids:
+            sids.append(source_id)
+    else:
+        col["source_ids"] = [s for s in sids if s != source_id]
+
 
 def _build_collections_list() -> list[dict[str, Any]]:
     """所有收藏夹文件夹 + 每个的文章数。含一次性迁移。"""
