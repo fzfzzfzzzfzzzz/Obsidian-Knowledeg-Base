@@ -86,14 +86,6 @@
       <div id="mk-earnings-list" class="ws-timeline"><div class="loading">加载中...</div></div>
     </section>
 
-    <!-- 市场研究关联的任务(表格) -->
-    <section class="mk-section" aria-label="关联任务">
-      <div class="mk-section-head">
-        <h2 class="mk-section-title"><i data-lucide="check-square"></i> 市场研究关联的任务</h2>
-        <a class="mk-section-more" href="/tasks">全部任务 →</a>
-      </div>
-      <div id="mk-tasks-grid"><div class="loading">加载中...</div></div>
-    </section>
 
   </div>
 
@@ -109,14 +101,13 @@
       <div id="mk-materials-grid"><div class="loading">加载中...</div></div>
     </section>
 
-    <!-- 今日事件(复用 events 数据,前端筛今日/近 3 天) -->
-    <section class="mk-rail-card" aria-label="今日事件">
+    <!-- 市场研究关联的任务(原主栏,移到右栏) -->
+    <section class="mk-rail-card" aria-label="关联任务">
       <div class="mk-rail-head">
-        <h2 class="mk-rail-title"><i data-lucide="calendar"></i> 今日事件</h2>
-        <a class="mk-section-more" href="/events">全部 →</a>
+        <h2 class="mk-rail-title"><i data-lucide="check-square"></i> 市场研究关联的任务</h2>
+        <a class="mk-section-more" href="/tasks">全部 →</a>
       </div>
-      <div class="mk-rail-stat" id="mk-event-stat"></div>
-      <div id="mk-events-list"><div class="loading">加载中...</div></div>
+      <div id="mk-tasks-grid"><div class="loading">加载中...</div></div>
     </section>
 
   </aside>
@@ -286,37 +277,6 @@
     }catch(e){ setHTML('mk-materials-grid', emptyHTML('加载失败')); }
   }
 
-  // ---- 右侧栏:今日事件(复用 /api/events,前端筛今日 + 近 3 天) ----
-  async function loadTodayEvents(){
-    try{
-      var r = await fetch('/api/events');
-      var d = await r.json();
-      var todayStr = new Date().toISOString().slice(0,10);
-      var all = (d.items||[]).filter(function(e){return e.status==='active';});
-      // 今日 + 未来 3 天
-      var near = all.filter(function(e){
-        var dt = e.date||'';
-        return dt >= todayStr;
-      }).sort(function(a,b){return (a.date||'').localeCompare(b.date||'');}).slice(0, 5);
-      var todayCount = all.filter(function(e){return (e.date||'') === todayStr;}).length;
-      var statEl = document.getElementById('mk-event-stat');
-      if(statEl) statEl.textContent = '今日 ' + todayCount + ' 项 · 即将到来 ' + near.length + ' 项';
-      if(!near.length){ setHTML('mk-events-list', emptyHTML('近期无事件。去 /events 创建。')); return; }
-      setHTML('mk-events-list', near.map(function(e){
-        var cat = e.category || '其他';
-        var c = catColor(cat);
-        var isToday = (e.date||'') === todayStr;
-        return '<a class="mk-event-item'+(isToday?' is-today':'')+'" href="/events">'
-          + '<span class="mk-event-dot" style="--ev:'+c+'"></span>'
-          + '<div class="mk-event-body">'
-            + '<div class="mk-event-title">'+escapeHtml(e.title)+'</div>'
-            + '<div class="mk-event-meta muted">'+escapeHtml(fmtDate(e.date))+' · '+escapeHtml(cat)+'</div>'
-          + '</div>'
-        + '</a>';
-      }).join(''));
-    }catch(e){ setHTML('mk-events-list', emptyHTML('加载失败')); }
-  }
-
   // ---- 板块5:关联任务(表格布局,复用) ----
   // v0.4.22: 任务状态配色改读 cat-meta.js(taskStatusColor/Label),删本地 MK_STATUS_META。
   // 本地只读展示,勾选走任务系统。
@@ -362,7 +322,8 @@
   // (mousedown 落 svg、mouseup 落 button,click 不触发)。委托用 closest 捕获整按钮区域。
   document.addEventListener('click', function(e){
     if(e.target.closest('#mk-refresh')){
-      loadEarnings(); loadMaterials(); loadLinkedTasks(); loadTodayEvents();
+      loadEarnings(); loadMaterials(); loadLinkedTasks();
+      if(marketTrends) marketTrends.reload();
       toast('✓ 已刷新', 'success');
       return;
     }
@@ -749,7 +710,6 @@
   loadEarnings();
   loadMaterials();
   loadLinkedTasks();
-  loadTodayEvents();
 
   function tabFromHash(){
     var h = (location.hash || '').replace(/^#/, '');
