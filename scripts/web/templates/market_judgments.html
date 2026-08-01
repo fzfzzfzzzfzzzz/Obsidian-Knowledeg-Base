@@ -8,10 +8,15 @@
     <p class="mk-subtitle">记录当下判断，之后用实际走势复盘自己的判断质量</p>
   </div>
   <div class="mk-hero-actions">
-    <a class="btn btn-ghost btn-sm" href="/market"><i data-lucide="arrow-left"></i> 返回市场</a>
     <button class="btn btn-primary btn-sm" id="mj-add" type="button"><i data-lucide="plus"></i> 新建判断</button>
   </div>
 </section>
+
+<nav class="kb-subnav mk-subnav" aria-label="市场子页面">
+  <a href="/market"{% if active_mktab == 'overview' %} class="active"{% endif %}><i data-lucide="layout-grid"></i> 市场概览</a>
+  <a href="/market/watchlist"{% if active_mktab == 'watchlist' %} class="active"{% endif %}><i data-lucide="star"></i> 自选股</a>
+  <a href="/market/judgments"{% if active_mktab == 'judgments' %} class="active"{% endif %}><i data-lucide="clipboard-check"></i> 市场判断</a>
+</nav>
 
 <section class="mk-section" aria-label="判断记录">
   <div class="mj-stats" id="mj-stats"></div>

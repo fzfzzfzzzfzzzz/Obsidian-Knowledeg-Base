@@ -128,7 +128,8 @@ def test_market_simulation_api_rejects_invalid_input(client):
     assert r.status_code == 400
 
 
-def test_market_page_has_personal_tab_and_no_visible_judgment_entry(client):
+def test_market_page_has_personal_tab_and_subnav(client):
+    """概览页有 personal tab;mk-subnav 提供 market 系列子页面导航(含判断入口)。"""
     r = client.get("/market")
     assert r.status_code == 200
     html = r.text
@@ -136,5 +137,8 @@ def test_market_page_has_personal_tab_and_no_visible_judgment_entry(client):
     assert "我的当前持仓盘" in html
     assert "我的模拟盘" in html
     assert "个人判断" in html
-    assert 'href="/market/judgments"' not in html
+    # 旧的"判断入口卡片"(mk-judgments-entry)已删,改由 mk-subnav 统一导航
     assert "mk-judgments-entry" not in html
+    # mk-subnav 含三个子页面入口
+    assert 'class="kb-subnav mk-subnav"' in html
+    assert 'href="/market/judgments"' in html

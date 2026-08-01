@@ -14,6 +14,12 @@
   </div>
 </section>
 
+<nav class="kb-subnav mk-subnav" aria-label="市场子页面">
+  <a href="/market"{% if active_mktab == 'overview' %} class="active"{% endif %}><i data-lucide="layout-grid"></i> 市场概览</a>
+  <a href="/market/watchlist"{% if active_mktab == 'watchlist' %} class="active"{% endif %}><i data-lucide="star"></i> 自选股</a>
+  <a href="/market/judgments"{% if active_mktab == 'judgments' %} class="active"{% endif %}><i data-lucide="clipboard-check"></i> 市场判断</a>
+</nav>
+
 <!-- 自选股卡片网格 -->
 <section class="mk-section" id="mk-watchlist" aria-label="自选股">
   <div id="mk-watchlist-grid" class="card-grid"><div class="loading">加载中...</div></div>

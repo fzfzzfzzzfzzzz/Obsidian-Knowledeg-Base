@@ -214,7 +214,7 @@ async def page_market(request: Request):
     if templates is None:
         return HTMLResponse("templates 目录不存在", 500)
     return templates.TemplateResponse(
-        request, "market.html", {"active_nav": "market"}
+        request, "market.html", {"active_nav": "market", "active_mktab": "overview"}
     )
 
 
@@ -225,7 +225,7 @@ async def page_watchlist(request: Request):
     if templates is None:
         return HTMLResponse("templates 目录不存在", 500)
     return templates.TemplateResponse(
-        request, "watchlist.html", {"active_nav": "market"}
+        request, "watchlist.html", {"active_nav": "market", "active_mktab": "watchlist"}
     )
 
 
@@ -235,13 +235,13 @@ async def page_market_judgments(request: Request):
     if templates is None:
         return HTMLResponse("templates 目录不存在", 500)
     return templates.TemplateResponse(
-        request, "market_judgments.html", {"active_nav": "market"}
+        request, "market_judgments.html", {"active_nav": "market", "active_mktab": "judgments"}
     )
 
 
 @router.get("/market/{market_id}", response_class=HTMLResponse)
 async def page_market_detail(market_id: str, request: Request):
-    """自选股详情页:K线图+资金流+财务+盘口(akshare,按市场能力显示)。"""
+    """自选股详情页:K线图+资金流+财务+盘口(按市场能力显示)。"""
     if templates is None:
         return HTMLResponse("templates 目录不存在", 500)
     path = kb._find_market_file(market_id)

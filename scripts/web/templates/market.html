@@ -14,6 +14,12 @@
   </div>
 </section>
 
+<nav class="kb-subnav mk-subnav" aria-label="市场子页面">
+  <a href="/market"{% if active_mktab == 'overview' %} class="active"{% endif %}><i data-lucide="layout-grid"></i> 市场概览</a>
+  <a href="/market/watchlist"{% if active_mktab == 'watchlist' %} class="active"{% endif %}><i data-lucide="star"></i> 自选股</a>
+  <a href="/market/judgments"{% if active_mktab == 'judgments' %} class="active"{% endif %}><i data-lucide="clipboard-check"></i> 市场判断</a>
+</nav>
+
 <!-- Tab:市场概览 / 个人 / 资金气泡 / 资金流向 -->
 <div class="tab-bar mk-tabs">
   <button class="tab active" data-mktab="overview" type="button"><i data-lucide="layout-grid"></i> 市场概览</button>
