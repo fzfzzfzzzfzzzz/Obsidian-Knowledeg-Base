@@ -14,7 +14,7 @@
   01_Sources/         source note(ingest 生成)
   02_Summaries/       summary(make-prompts 生成)
   03_Ideas/           idea 管理
-  04_Plans/           todo / 计划管理
+  04_Plans/           plan / 计划管理
   05_Projects/        项目自身记录
   90_Templates/       模板(init 生成,代码里硬编码)
   99_System/          系统配置 / schema / prompt 沉淀
@@ -68,7 +68,7 @@ source_id: source_ff_<hash>     # 关联的 source
 kind: summary
 source_type: ...
 status: summarized
-action_status: undecided|idea_extracted|todo_suggested
+action_status: undecided|idea_extracted|plan_suggested
 ```
 
 **正文**:按 source_type 选模板章节(一句话结论 / 主要内容 / 核心观点 / 方法框架...)。
@@ -81,14 +81,13 @@ action_status: undecided|idea_extracted|todo_suggested
 | `productivity_ideas.md` | 正式效率 idea list |
 | `archived_ideas.md` | 归档的 idea |
 
-### 04_Plans/ —— todo / 计划
-| 文件/目录 | 用途 |
-|----------|------|
-| `todo_suggestions.md` | AI 抽取的 todo 候选(review 队列) |
-| `Weekly/YYYY-Www.md` | 周计划(accept-todos accepted_weekly 进入) |
-| `Monthly/YYYY-MM.md` | 月计划(accepted_monthly 进入) |
-| `someday.md` | 暂存(accepted_someday 进入) |
-| `completed_todos.md` | 已完成 todo |
+### 04_Plans/ —— plan / 计划
+| 文件 | 用途 |
+|------|------|
+| `plan_suggestions.md` | AI 抽取的 plan 候选(review 队列) |
+| `plan_<hash>.md` | 独立 plan 文件(accept 后生成,frontmatter 含 deadline,与 task 同模式) |
+
+> v0.4.23 重构:不再按 weekly/monthly/someday 分桶。每条 plan 是独立文件,要么有 deadline 要么没有。
 
 ### 05_Projects/ —— 项目记录
 `obsidian_kb_project.md`:本项目自身的进度记录。
@@ -105,12 +104,10 @@ action_status: undecided|idea_extracted|todo_suggested
 | `summary_gpt_chat.md` | GPT 对话总结模板 |
 | `summary_manual.md` | 手动内容总结模板 |
 | `idea_template.md` | 正式 idea 条目模板 |
-| `idea_suggestion_template.md` | idea 候选模板 |
-| `todo_suggestion_template.md` | todo 候选模板 |
-| `weekly_template.md` | 周计划模板 |
-| `monthly_template.md` | 月计划模板 |
+| `plan_suggestion_template.md` | plan 候选模板 |
 
 > init 用 `if not exists` 保护,**不会覆盖用户已修改的模板**。
+> v0.4.23:weekly/monthly 模板已从 init 移除(plan 不再分桶)。
 
 ### 99_System/ —— 系统配置
 | 文件 | 用途 |
@@ -154,7 +151,7 @@ action_status: undecided|idea_extracted|todo_suggested
       "is_favorite": false,
       "last_read_at": null,
       "read_count": 0,
-      "action_status": "undecided|todo_suggested"
+      "action_status": "undecided|plan_suggested"
     }
   }
 }
@@ -174,12 +171,12 @@ action_status: undecided|idea_extracted|todo_suggested
    02_Summaries/<type>/summary_*.md
         │
         ▼  extract-suggestions(LLM 抽取候选)
-   03_Ideas/idea_suggestions.md  +  04_Plans/todo_suggestions.md
+   03_Ideas/idea_suggestions.md  +  04_Plans/plan_suggestions.md
         │
-        ▼  用户 review,改 status 为 accepted_*
+        ▼  用户 review,改 status 为 accepted
         │
    ├─ accept-ideas →  03_Ideas/research_ideas.md 或 productivity_ideas.md
-   └─ accept-todos →  04_Plans/Weekly/ 或 Monthly/ 或 someday.md
+   └─ accept-plans →  04_Plans/plan_<hash>.md(独立文件,含 deadline)
 ```
 
 **阅读追踪**:打开详情页 → state.json 的 `last_read_at` + `read_count` 更新 → `reading_status` 自动标 `read`
@@ -191,7 +188,7 @@ action_status: undecided|idea_extracted|todo_suggested
 `python scripts/kb.py init` 执行时:
 1. 创建全部目录(00_Inbox 到 99_System + .kb 子目录)
 2. 写入 11 个模板(从代码 TEMPLATES 字典,`if not exists` 保护)
-3. 创建空的 idea/todo 文件(带头部说明)
+3. 创建空的 idea/plan 文件(带头部说明)
 4. 创建 state.json 空骨架
 5. 创建 .env.example / .gitignore / requirements.txt(若不存在)
 

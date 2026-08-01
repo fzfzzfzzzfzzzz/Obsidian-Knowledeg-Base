@@ -10,8 +10,8 @@
 
 - Markdown 文件是主要数据层。
 - 不要静默覆盖用户手写的笔记。
-- AI 生成的 idea 和 todo 必须先进入建议文件(suggestion files)。
-- 只有用户接受的建议,才能移入正式 idea 列表或周/月度 todo 文件。
+- AI 生成的 idea 和 plan 必须先进入建议文件(suggestion files)。
+- 只有用户接受的建议,才能移入正式 idea 列表或周/月度 plan 文件。
 - MVP 不得依赖外部 LLM API。
 - MVP 必须支持在 Inbox 手动粘贴文本。
 - **离线优先:所有前端资源(JS 库、字体、图标)必须自托管在 `scripts/web/static/` 下。** 绝不依赖外部 CDN —— 工作台必须在离线状态下也能完整渲染。Lucide 图标库已 vendored 在 `scripts/web/static/lucide.min.js`;引用时写成 `/static/lucide.min.js?v=N`(每次内容变更都要 bump `v=` 以刷新浏览器缓存)。
@@ -26,7 +26,7 @@
 - 新增数据类型前,必须先确定它的数据源和读写入口,再写代码。
 
 ### 现状(单数据源,改动前先核对此表)
-- **知识内容**(文章 / 源笔记 / summary / idea / todo 建议 / 已接受的 idea 和计划):Markdown。
+- **知识内容**(文章 / 源笔记 / summary / idea / plan 建议 / 已接受的 idea 和计划):Markdown。
   - `01_Sources/`、`02_Summaries/`、`03_Ideas/`、`04_Plans/`
 - **任务**:`07_Tasks/task_*.md` 的 YAML frontmatter(含 checklist、deadline、pinned、category、status),正文是自由描述。读写入口 `kb.write_task_file` / `kb.load_task_file`。
 - **事件**:`06_Events/event_*.md` 的 frontmatter。读写入口 `kb.write_event_file` / `kb.load_event_file`。
@@ -142,14 +142,14 @@ MVP(本地无 LLM 也能跑):
 - 解析 inbox:`python scripts/kb.py ingest`
 - 生成手工 LLM 提示词:`python scripts/kb.py make-prompts`
 - 移动已接受的 idea:`python scripts/kb.py accept-ideas`
-- 移动已接受的 todo:`python scripts/kb.py accept-todos`
+- 移动已接受的 plan:`python scripts/kb.py accept-plans`
 - 查看状态:`python scripts/kb.py status`
 
 Additional commands(require LLM / web deps, gracefully degrade when absent):
 - 测试 LLM 连通性:`python scripts/kb.py llm-test`
 - 通过 LLM 自动生成 summary:`python scripts/kb.py make-prompts --auto`
 - 从已有 summary 回填 `summary_path`:`python scripts/kb.py make-prompts --reconcile`
-- 从 summary 抽取 idea/todo 建议:`python scripts/kb.py extract-suggestions`
+- 从 summary 抽取 idea/plan 建议:`python scripts/kb.py extract-suggestions`
 - 清洗 X (Twitter) 来源正文噪音:`python scripts/kb.py clean-x`
 - 启动 FastAPI 阅读前端:`python scripts/kb.py serve`
 
@@ -183,7 +183,7 @@ Additional commands(require LLM / web deps, gracefully degrade when absent):
 - Phase 1(ingest parser):**done**(自由文本 + KB_ITEM 双格式,可选 LLM)
 - Phase 2(make-prompts):**done**(手工 / `--auto` / `--reconcile` 模式)
 - Phase 3(手工产出导入):**done**(LLM 自动写入 + 手工粘贴两条路径)
-- Phase 4(accept-ideas / accept-todos):**done**
+- Phase 4(accept-ideas / accept-plans):**done**
 - Phase 5(status dashboard):**done**(CLI `status` + FastAPI web UI)
 
 ### 后续模块(Phase 5 之后)

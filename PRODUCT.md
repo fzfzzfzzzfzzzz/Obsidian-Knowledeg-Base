@@ -1,18 +1,18 @@
 # Obsidian 本地知识库 —— 产品功能文档
 
-> Local-first 知识库:收集前沿技术内容 → AI 总结 → 提炼 idea/todo → 个人阅读管理 → 日历事件管理。
+> Local-first 知识库:收集前沿技术内容 → AI 总结 → 提炼 idea/plan → 个人阅读管理 → 日历事件管理。
 > 当前版本:**v0.4.7**(2026-07-21)。
 
 ---
 
 ## 一、产品定位
 
-**一句话**:把看到的技术内容(文章/repo/推文/视频文案)快速沉淀成结构化知识,辅助提炼可执行的 idea/todo,管理阅读进度,并从内容中识别重要日期加入日历。
+**一句话**:把看到的技术内容(文章/repo/推文/视频文案)快速沉淀成结构化知识,辅助提炼可执行的 idea/plan,管理阅读进度,并从内容中识别重要日期加入日历。
 
 **核心原则**:
 - **Local-first**:Markdown 文件是主数据层,不依赖私有数据库
-- **AI 只建议,不替用户决策**:AI 生成的 idea/todo 先进 review 队列,用户确认后才进正式清单
-- **可追溯**:每个 source/summary/idea/todo/calendar 都有来源链接和 frontmatter
+- **AI 只建议,不替用户决策**:AI 生成的 idea/plan 先进 review 队列,用户确认后才进正式清单
+- **可追溯**:每个 source/summary/idea/plan/calendar 都有来源链接和 frontmatter
 - **幂等可重跑**:重复处理不会破坏已有内容
 
 ---
@@ -45,14 +45,14 @@
 | 手动 Agent 生成 | AGENT_SUMMARIZE.md 手册供本地 Agent 自主生成 summary |
 | 空内容检查 | LLM 返回空时不写入空 summary(防思考模型 token 浪费) |
 
-### 2.3 Idea/Todo 候选(v0.1)
+### 2.3 Idea/Plan 候选(v0.1)
 
 | 功能 | 说明 |
 |------|------|
 | 从 summary 抽 idea 候选 | LLM 提炼可长期跟进的 idea(含领域/优先级/可行性/新颖度) |
-| 从 summary 抽 todo 候选 | LLM 提炼可执行 todo(含推荐计划/时间/难度/验收标准) |
+| 从 summary 抽 plan 候选 | LLM 提炼可执行 plan(含推荐计划/时间/难度/验收标准) |
 | 宁缺毋滥 | 无可转化内容时返回空 |
-| 进 review 队列 | 候选先进 idea_suggestions.md / todo_suggestions.md |
+| 进 review 队列 | 候选先进 idea_suggestions.md / plan_suggestions.md |
 | 幂等 | action_status 标记,重复抽取不重复 append |
 
 ### 2.4 Review 确认(v0.1)
@@ -60,9 +60,8 @@
 | 功能 | 说明 |
 |------|------|
 | idea 确认 | accepted_research/productivity → 正式 idea list |
-| todo 确认 | accepted_weekly/monthly/someday → 计划文件 |
-| 自动创建计划文件 | weekly/monthly 不存在时用模板创建 |
-| 不覆盖正式内容 | 只 append;原 suggestion 标记 moved 保留追溯 |
+| plan 确认 | accepted → 独立 plan 文件(04_Plans/plan_*.md,含可选 deadline) |
+| 不覆盖正式内容 | 只创建独立文件;原 suggestion 标记 moved 保留追溯 |
 
 ### 2.5 阅读管理(v0.1~v0.2)
 
@@ -107,7 +106,7 @@
 | 批量收藏/取消收藏 | toggle is_favorite |
 | 批量加标签 | 追加去重,无 summary 的跳过 |
 | 批量生成 summary | 跳过已有 summary 的 |
-| 批量抽取 idea/todo | 只处理有 summary 且未抽取的 |
+| 批量抽取 idea/plan | 只处理有 summary 且未抽取的 |
 | 结果反馈 | 显示成功/失败/跳过数量 + 失败项 |
 
 ### 2.9 日历功能(v0.3~v0.3.1)
@@ -125,17 +124,17 @@
 | 关联管理 | 关联知识文章,可查看/移除关联 |
 | 删除文章清理 | 删除文章时自动清除日历事项的关联(事项保留) |
 
-### 2.10 手动生成 Idea/Todo(v0.4.0)
+### 2.10 手动生成 Idea/Plan(v0.4.0)
 
 | 功能 | 说明 |
 |------|------|
-| 详情页按钮 | 文章详情页操作栏「💡 生成 Idea 列表」「✅ 生成 Todo 列表」,仅在有 summary 时显示 |
-| 引导弹窗 | 点击后弹窗,可输入引导提示词(可选)+ 手动选优先级/领域(idea)/难度/预计时间/计划(todo) |
+| 详情页按钮 | 文章详情页操作栏「💡 生成 Idea 列表」「✅ 生成 Plan 列表」,仅在有 summary 时显示 |
+| 引导弹窗 | 点击后弹窗,可输入引导提示词(可选)+ 手动选优先级/领域(idea)/难度/预计时间/计划(plan) |
 | 参数语义 | 用户所选作为**引导**传给 LLM(非硬约束),每条候选可独立定级 |
 | 多条候选 | 一次生成 1-3 条候选,全部进 review 队列 |
-| 进 review 队列 | 生成的候选 status=`pending_review`,追加进 idea_suggestions.md / todo_suggestions.md |
-| 流程不变 | 仍需在 /ideas、/todos 页 accept + 跑 CLI 进正式清单(与 v0.1 一致) |
-| 兼容现有 | 首页批量「💡 抽 idea/todo」按钮 + CLI extract-suggestions 保留不变 |
+| 进 review 队列 | 生成的候选 status=`pending_review`,追加进 idea_suggestions.md / plan_suggestions.md |
+| 流程不变 | 仍需在 /ideas、/plans 页 accept + 跑 CLI 进正式清单(与 v0.1 一致) |
+| 兼容现有 | 首页批量「💡 抽 idea/plan」按钮 + CLI extract-suggestions 保留不变 |
 
 ### 2.11 批量投稿(v0.4.1)
 
@@ -148,24 +147,24 @@
 | 精确结果 | 显示「成功 N / 跳过 M 条重复 / 失败 K 条」(后端从 log 解析计数) |
 | 复用现有 | 复用 `/api/ingest`,单条/图片投稿不受影响 |
 
-### 2.12 Idea/Todo 页「待定/已确定」拆分(v0.4.1)
+### 2.12 Idea/Plan 页「待定/已确定」拆分(v0.4.1)
 
 | 功能 | 说明 |
 |------|------|
-| 同页 tab | /ideas、/todos 各加「待定 / 已确定」tab,复用首页 tab 样式,懒加载 |
-| 待定面板 | 现状 review 队列(idea/todo_suggestions.md),accept/reject 不变 |
+| 同页 tab | /ideas、/plans 各加「待定 / 已确定」tab,复用首页 tab 样式,懒加载 |
+| 待定面板 | 现状 review 队列(idea/plan_suggestions.md),accept/reject 不变 |
 | 已确定 Idea | 扫 `03_Ideas/*_ideas.md` 正式清单,按 `## Idea:` 解析,显示 area/priority/maturity |
-| 已确定 Todo | 扫 `04_Plans/Weekly`、`Monthly`、`someday`、`completed`,按 plan 分组 |
-| Todo 确定性 id | 基于 plan+period+title 的 sha1,重新解析不变(供日历关联) |
+| 已确定 Plan | 扫 `04_Plans/plan_*.md` 独立文件,按 status(待办/已完成)分组,显示 deadline |
+| Plan 确定性 id | 基于 frontmatter 的 `id` 字段(plan_<hash>),供日历关联 |
 | 健壮 | 文件不存在/为空显示友好空状态,不报错 |
 
-### 2.13 已确认 Todo → 日历链接(v0.4.1)
+### 2.13 已确认 Plan → 日历链接(v0.4.1)
 
 | 功能 | 说明 |
 |------|------|
-| 放入日历按钮 | 已确定 todo 卡片「📅 放入日历」,复用统一日历表单,标题默认=todo、日期可选 |
-| source_id 关联 | 用 todo 的确定性 id 作日历事项 source_id,建立 todo↔calendar 关联 |
-| 去重 | 同一 todo 重复放入返回已有事项,不创建重复 |
+| 放入日历按钮 | 已确定 plan 卡片「📅 放入日历」,复用统一日历表单,标题默认=plan、日期可选 |
+| source_id 关联 | 用 plan 的确定性 id 作日历事项 source_id,建立 plan↔calendar 关联 |
+| 去重 | 同一 plan 重复放入返回已有事项,不创建重复 |
 | 已加入状态 | 卡片显示「📅 已加入日历 · {date}」+ 编辑按钮,刷新后正确回显 |
 | 零新增 API | 复用现有 `POST /api/calendar`(已支持 source_id 关联+去重) |
 
@@ -194,7 +193,7 @@
 01_Sources/       source note(按来源类型分子目录)
 02_Summaries/     summary(按类型分子目录)
 03_Ideas/         idea 管理(review 队列 + 正式清单)
-04_Plans/         todo/计划管理(Weekly/Monthly/someday)
+04_Plans/         plan/计划管理(plan_suggestions.md + 独立 plan_*.md)
 05_Projects/      项目记录
 90_Templates/     11 个模板(init 生成)
 99_System/        schema/prompt_library/settings
@@ -216,9 +215,9 @@
 | `kb.py init` | 创建 vault 目录结构/模板/空文件 |
 | `kb.py ingest` | 解析 inbox,抓取+识别+生成 source note |
 | `kb.py make-prompts --auto` | LLM 生成 summary |
-| `kb.py extract-suggestions` | 从 summary 抽 idea/todo 候选 |
+| `kb.py extract-suggestions` | 从 summary 抽 idea/plan 候选 |
 | `kb.py accept-ideas` | accepted idea → 正式清单 |
-| `kb.py accept-todos` | accepted todo → weekly/monthly |
+| `kb.py accept-plans` | accepted plan → 独立 plan 文件 |
 | `kb.py status` | 知识库状态统计 |
 | `kb.py llm-test` | 测试 API 连通性 |
 | `kb.py serve` | 启动 Web 前端 |
@@ -247,5 +246,5 @@
 
 详见 `docs/ROADMAP.md`。
 
-- v0.4.0:详情页手动生成 idea/todo 见 `docs/v0.4.0/manual_idea_todo_generation_PRD.md`,含 idea/todo 生成规则已知问题批注
-- v0.4.1:批量投稿、Idea/Todo 页「待定/已确定」拆分、Todo→日历链接 三项功能见 `docs/v0.4.1/v041_features_PRD.md`
+- v0.4.0:详情页手动生成 idea/plan 见 `docs/v0.4.0/manual_idea_todo_generation_PRD.md`,含 idea/plan 生成规则已知问题批注
+- v0.4.1:批量投稿、Idea/Plan 页「待定/已确定」拆分、Todo→日历链接 三项功能见 `docs/v0.4.1/v041_features_PRD.md`

@@ -1,6 +1,6 @@
 # Obsidian 本地知识库
 
-> Local-first Obsidian knowledge base —— 把看到的前沿技术内容整理成结构化总结,提炼 idea,生成 todo 建议。
+> Local-first Obsidian knowledge base —— 把看到的前沿技术内容整理成结构化总结,提炼 idea,生成 plan 建议。
 > 当前版本:**MVP Phase 0 + Phase 1**(目录结构 + Inbox 解析器,**已接入智谱 GLM API**)。
 
 完整设计见 [`obsidian_kb_codex_implementation_plan.md`](./obsidian_kb_codex_implementation_plan.md)。
@@ -100,7 +100,7 @@ ingest 时 LLM 会为每段内容自动识别:
 | `python scripts/kb.py status` | ✅ | 输出 pending inbox / sources / 待 review 数量 |
 | `python scripts/kb.py make-prompts` | ⏳ Phase 2 | 生成总结 prompt |
 | `python scripts/kb.py accept-ideas` | ⏳ Phase 4 | 移动 accepted idea |
-| `python scripts/kb.py accept-todos` | ⏳ Phase 4 | 移动 accepted todo |
+| `python scripts/kb.py accept-plans` | ⏳ Phase 4 | 移动 accepted plan |
 
 ---
 
@@ -121,7 +121,7 @@ ingest 时 LLM 会为每段内容自动识别:
 01_Sources/      ingest 生成的 source note,按来源类型分子目录
 02_Summaries/    总结输出区(Phase 2+ 填充)
 03_Ideas/        research_ideas / productivity_ideas / idea_suggestions(review 队列)
-04_Plans/        Weekly/ Monthly/ todo_suggestions.md / completed_todos.md
+04_Plans/        plan_suggestions.md(review 队列)/ plan_*.md(独立 plan 文件)
 05_Projects/     项目自身的进度记录
 90_Templates/    11 个模板
 99_System/       schema / prompt_library / processing_log / settings
@@ -146,7 +146,7 @@ scripts/         kb.py(CLI) + kb_llm.py(LLM 封装)
 ## 下一阶段(待实现)
 
 - **Phase 2** `make-prompts`:为 source 生成总结 prompt,调 LLM 输出结构化 summary
-- **Phase 3** manual output import:summary/idea/todo 写回对应目录
-- **Phase 4** `accept-ideas` / `accept-todos`:用户改 status 后自动 append 到正式计划
+- **Phase 3** manual output import:summary/idea/plan 写回对应目录
+- **Phase 4** `accept-ideas` / `accept-plans`:用户改 status 后自动 append 到正式计划
 
 详见 plan.md 第 15、16 节。
