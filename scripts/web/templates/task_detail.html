@@ -80,6 +80,11 @@ function renderDetail(t) {
     ? '<div class="td-blocker"><span class="td-blocker-icon"><i data-lucide="ban"></i></span><div><div class="td-blocker-label">当前问题 / 阻塞</div><div class="td-blocker-text">' + escapeHtml(t.blocker) + '</div></div></div>'
     : '';
 
+  // 下一步行动
+  const nextActionHtml = t.next_action
+    ? '<div class="td-next"><span class="td-next-icon"><i data-lucide="arrow-right-circle"></i></span><div><div class="td-next-label">下一步行动</div><div class="td-next-text">' + escapeHtml(t.next_action) + '</div></div></div>'
+    : '';
+
   // 正文(服务端渲染好的 html_body)
   const bodyHtml = t.html_body
     ? '<section class="td-section"><h3 class="td-section-title"><i data-lucide="file-text"></i> 详细描述</h3><div class="td-body markdown-body">' + t.html_body + '</div></section>'
@@ -90,7 +95,7 @@ function renderDetail(t) {
     + '<article class="td-card" style="--td-status:'+sm.color+';--td-cat:'+catColor+'">'
       + '<header class="td-card-head">'
         + '<div class="td-badges">'
-          + '<span class="td-status-badge" style="background:'+sm.color+'"><i data-lucide="'+sm.icon+'"></i> ' + escapeHtml(sm.label) + '</span>'
+          + '<span class="td-status-badge" style="background:'+sm.color+'">' + escapeHtml(sm.label) + '</span>'
           + '<span class="td-cat-tag">' + escapeHtml(t.category) + '</span>'
           + dlBadge
         + '</div>'
@@ -103,6 +108,7 @@ function renderDetail(t) {
       + '</header>'
       + metaHtml
       + blockerHtml
+      + nextActionHtml
       + '<section class="td-section td-checklist-section">'
         + '<div class="td-section-head">'
           + '<h3 class="td-section-title"><i data-lucide="check-square"></i> Checklist <span class="td-prog-muted">'+clDone+' / '+clItems.length+'</span></h3>'

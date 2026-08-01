@@ -383,6 +383,50 @@ def test_api_pin_404(client):
     assert client.post("/api/tasks/task_none/pin", json={"pinned": True}).status_code == 404
 
 
+def test_pin_writes_pinned_at_and_clears_on_unpin(client):
+    """置顶写 pinned_at 时间戳,取消置顶清空。
+
+    前端 sortTkItems 在置顶组内按 pinned_at 倒序(最近置顶的排第一,微信语义)。
+    后端只负责正确写入/读取时间戳,排序在前端做。
+    注:now_ts 精度到秒,连续置顶的先后由实际操作时间决定(真实场景两次点击间隔 >1s)。
+    """
+    t = _create_task_via_api(client, title="要置顶")
+    tid = t["id"]
+    # 置顶 → 有时间戳
+    client.post(f"/api/tasks/{tid}/pin", json={"pinned": True})
+    pa = client.get(f"/api/tasks/{tid}").json()["pinned_at"]
+    assert pa, "置顶后应有 pinned_at 时间戳"
+    assert pa.startswith("20"), "pinned_at 应是 ISO 时间戳"
+    # 取消置顶 → 清空
+    client.post(f"/api/tasks/{tid}/pin", json={"pinned": False})
+    assert client.get(f"/api/tasks/{tid}").json()["pinned_at"] == ""
+
+
+def test_pinned_at_ordering_by_explicit_timestamp(isolate_vault):
+    """显式构造两个不同 pinned_at 的置顶任务,验证 load 读出后字段值正确
+    (前端据此倒序:时间戳大的排第一)。"""
+    import kb as kbmod
+    # 任务 A:较早置顶
+    path_a = kbmod._task_file_path("task_pinorder_a")
+    kbmod.write_task_file(path_a, {
+        "id": "task_pinorder_a", "title": "先置顶A", "status": "active",
+        "pinned": True, "pinned_at": "2026-07-31T10:00:00",
+    }, "", is_new=True)
+    # 任务 B:较晚置顶
+    path_b = kbmod._task_file_path("task_pinorder_b")
+    kbmod.write_task_file(path_b, {
+        "id": "task_pinorder_b", "title": "后置顶B", "status": "active",
+        "pinned": True, "pinned_at": "2026-07-31T11:00:00",
+    }, "", is_new=True)
+    a = kbmod.load_task_file(path_a)
+    b = kbmod.load_task_file(path_b)
+    # 字段正确读回
+    assert a["pinned_at"] == "2026-07-31T10:00:00"
+    assert b["pinned_at"] == "2026-07-31T11:00:00"
+    # 倒序比较:B(晚)应在 A(早)前 —— 这是前端 sortTkItems 的比较依据
+    assert b["pinned_at"] > a["pinned_at"]
+
+
 def test_api_create_task_with_pinned(client):
     """创建时直接带 pinned=True。"""
     t = _create_task_via_api(client, title="天生置顶", pinned=True)
@@ -409,3 +453,66 @@ def test_api_tasks_list(client):
     assert len(items) >= 2
     titles = [t["title"] for t in items]
     assert "T1" in titles and "T2" in titles
+
+
+# ---- next_action(下一步行动)字段 ----
+
+def test_write_load_next_action_roundtrip(isolate_vault):
+    """next_action 写入 frontmatter,load 读回仍是原值。"""
+    tmp = isolate_vault
+    path = tmp / "07_Tasks" / "task_na01.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    meta = {
+        "id": "task_na01", "title": "带下一步的任务", "category": "开发",
+        "status": "active", "deadline": "", "blocker": "卡在 X",
+        "next_action": "先写单元测试验证 Y",
+        "checklist": [], "related_source": "", "synced_calendar_ids": "",
+        "created_at": "2026-07-31T10:00:00", "updated_at": "2026-07-31T10:00:00",
+    }
+    kb.write_task_file(path, meta, "", is_new=False)
+    raw = path.read_text(encoding="utf-8")
+    assert "next_action: 先写单元测试验证 Y" in raw
+    loaded = kb.load_task_file(path)
+    assert loaded["next_action"] == "先写单元测试验证 Y"
+
+
+def test_load_task_file_next_action_defaults_empty(isolate_vault):
+    """旧任务文件无 next_action 字段,load 后默认空串(不报错)。"""
+    tmp = isolate_vault
+    path = tmp / "07_Tasks" / "task_legacy_na.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = (
+        "---\n"
+        "id: task_legacy_na\n"
+        "title: 老任务\n"
+        "category: 其他\n"
+        "status: active\n"
+        "deadline: ''\n"
+        "blocker: ''\n"
+        "checklist: []\n"
+        "related_source: ''\n"
+        "synced_calendar_ids: ''\n"
+        "created_at: ''\n"
+        "updated_at: ''\n"
+        "---\n\n正文\n"
+    )
+    path.write_text(content, encoding="utf-8")
+    loaded = kb.load_task_file(path)
+    assert loaded["next_action"] == ""
+
+
+def test_api_create_task_with_next_action(client):
+    """创建时直接带 next_action。"""
+    t = _create_task_via_api(client, title="带行动", next_action="联系导师")
+    assert t["next_action"] == "联系导师"
+
+
+def test_api_patch_next_action(client):
+    """整体 PATCH 支持改 next_action。"""
+    t = _create_task_via_api(client, title="改行动")
+    tid = t["id"]
+    r = client.patch(f"/api/tasks/{tid}", json={"next_action": "跑实验"})
+    assert r.status_code == 200
+    assert r.json()["task"]["next_action"] == "跑实验"
+    # 其他字段不受影响
+    assert r.json()["task"]["title"] == "改行动"

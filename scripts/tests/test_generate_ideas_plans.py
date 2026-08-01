@@ -86,7 +86,7 @@ def test_build_hint_idea_fields():
 
 def test_build_hint_todo_partial():
     h = kb_web._build_hint(
-        kb_web.GenerateTodosRequest(difficulty="medium", estimated_time="2-4h")
+        kb_web.GeneratePlansRequest(difficulty="medium", estimated_time="2-4h")
     )
     assert "难度: medium" in h
     assert "预计时间: 2-4h" in h
@@ -106,7 +106,7 @@ def test_generate_ideas_source_not_found(client):
 def test_generate_todos_no_summary(client, isolate_vault):
     # source 存在但没 summary
     kb.save_state({"sources": {"source_nosum": {"source_type": "manual"}}})
-    r = client.post("/api/article/source_nosum/generate-todos", json={})
+    r = client.post("/api/article/source_nosum/generate-plans", json={})
     assert r.status_code == 400
     assert "summary" in r.json()["detail"]
 
@@ -163,14 +163,14 @@ def test_generate_todos_success_and_action_status_unchanged(client, isolate_vaul
     sid = _seed_source_with_summary(isolate_vault)
 
     monkeypatch.setattr(
-        kb_llm, "extract_todos_from_summary",
+        kb_llm, "extract_plans_from_summary",
         lambda text, hint=None: [{"title": "todo A", "recommended_plan": "weekly",
                                   "priority": "P1", "estimated_time": "2-4h",
                                   "difficulty": "medium", "why": "y", "what": "w",
                                   "challenges": "c", "acceptance": "a"}],
     )
 
-    r = client.post(f"/api/article/{sid}/generate-todos", json={"plan": "weekly"})
+    r = client.post(f"/api/article/{sid}/generate-plans", json={"plan": "weekly"})
     assert r.status_code == 200
     assert r.json()["generated"] == 1
 
@@ -178,7 +178,7 @@ def test_generate_todos_success_and_action_status_unchanged(client, isolate_vaul
     state = kb.load_state()
     assert "action_status" not in state["sources"][sid]
 
-    todo_file = isolate_vault / "04_Plans" / "todo_suggestions.md"
+    todo_file = isolate_vault / "04_Plans" / "plan_suggestions.md"
     assert "todo A" in todo_file.read_text(encoding="utf-8")
 
 
@@ -213,4 +213,4 @@ def test_backward_compat_extract_without_hint(monkeypatch):
     monkeypatch.setattr(kb_llm, "chat", fake_chat)
     # 不带 hint 能正常调用,不抛 TypeError
     assert kb_llm.extract_ideas_from_summary("正文") == []
-    assert kb_llm.extract_todos_from_summary("正文") == []
+    assert kb_llm.extract_plans_from_summary("正文") == []

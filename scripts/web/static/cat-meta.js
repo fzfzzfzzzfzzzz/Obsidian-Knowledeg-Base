@@ -141,9 +141,9 @@
    * 设计:与类别元数据同构,每个状态含 icon(Lucide 名)/ color / label。
    * ============================================================ */
   var KB_TASK_STATUS = {
-    'active':   { icon: 'play',    color: '#2563eb', label: '进行中' },
-    'done':     { icon: 'check',   color: '#16a34a', label: '已完成' },
-    'blocked':  { icon: 'ban',     color: '#dc2626', label: '阻塞' },
+    'active':   { icon: 'loader',  color: '#2563eb', label: '进行中' },
+    'done':     { icon: 'check',   color: '#15803d', label: '已完成' },
+    'blocked':  { icon: 'ban',     color: '#b91c1c', label: '阻塞' },
     'archived': { icon: 'archive', color: '#64748b', label: '已归档' }
   };
   var KB_TASK_STATUS_ORDER = ['active', 'done', 'blocked', 'archived'];

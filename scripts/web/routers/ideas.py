@@ -25,7 +25,7 @@ from web.utils import (
     STATIC_DIR,
     BASE_DIR,
     VALID_IDEA_STATUS,
-    VALID_TODO_STATUS,
+    VALID_PLAN_STATUS,
     READING_FIELDS,
     VALID_READING_STATUS,
     VALID_BATCH_ACTIONS,
@@ -72,7 +72,7 @@ from web.models import (
     ArticleCollectionsRequest,
     BatchRequest,
     GenerateIdeasRequest,
-    GenerateTodosRequest,
+    GeneratePlansRequest,
     TagsRequest,
     IdeaCreate,
 )
@@ -171,6 +171,54 @@ async def api_ideas_create(payload: IdeaCreate):
 async def api_ideas_confirmed():
     """已确定的 idea:扫描 03_Ideas/*_ideas.md 正式清单(accept-ideas 落盘)。"""
     return JSONResponse({"items": _parse_formal_ideas()})
+
+
+@router.delete("/api/idea/confirmed/{idea_id}")
+async def api_delete_confirmed_idea(idea_id: str):
+    """从 03_Ideas/*_ideas.md 正式清单中删除指定 idea 块。
+
+    块级删除(非文件删除):扫描所有 *_ideas.md,找到包含 id:{idea_id} 的 ## Idea: 块,
+    从文件中移除该块,保留其他块。删除前备份原文件到 .kb/logs/web_backups/。
+    """
+    ideas_dir = kb.VAULT_ROOT / "03_Ideas"
+    if not ideas_dir.exists():
+        raise HTTPException(404, f"找不到 idea:{idea_id}")
+
+    # 扫描所有 *_ideas.md,找包含该 id 的块
+    found_file = None
+    for path in sorted(ideas_dir.glob("*_ideas.md")):
+        if path.name == "idea_suggestions.md":
+            continue
+        if not path.exists():
+            continue
+        text = path.read_text(encoding=ENC)
+        blocks = kb._split_suggestion_blocks(text, "Idea")
+        # 检查是否有匹配的块
+        if any(meta.get("id") == idea_id for _, meta, _ in blocks):
+            found_file = path
+            break
+
+    if found_file is None:
+        raise HTTPException(404, f"找不到 idea:{idea_id}")
+
+    # 备份原文件(安全兜底)
+    from web.utils import backup_file
+    backup_file(found_file, f"ideas_{found_file.stem}")
+
+    # 删除匹配的块,保留其他块
+    text = found_file.read_text(encoding=ENC)
+    blocks = kb._split_suggestion_blocks(text, "Idea")
+    remaining_blocks = [(raw, meta, body) for raw, meta, body in blocks if meta.get("id") != idea_id]
+
+    # 重新拼接文件内容:保留文件头部(第一个 ## Idea: 之前的内容),然后拼接剩余块
+    header_match = re.match(r"(.*?)(?=## Idea:)", text, re.DOTALL)
+    header = header_match.group(1) if header_match else ""
+
+    new_content = header + "\n" + "\n".join(raw for raw, _, _ in remaining_blocks)
+    found_file.write_text(new_content, encoding=ENC)
+
+    return JSONResponse({"ok": True, "deleted": idea_id})
+
 
 @router.post("/api/idea/{item_id}/status")
 async def api_idea_status(item_id: str, payload: StatusUpdate):

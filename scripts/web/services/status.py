@@ -72,9 +72,9 @@ def _update_suggestion_status(
         raise HTTPException(404, f"找不到 id={item_id} 的块")
 
     # 重建文件:头部 + 块
-    header_kind = "idea" if "Idea" in kind else "todo"
+    header_kind = "idea" if "Idea" in kind else "plan"
     header = kb._suggestion_header(
-        "Idea Suggestions (Review Queue)" if header_kind == "idea" else "Todo Suggestions (Review Queue)",
+        "Idea Suggestions (Review Queue)" if header_kind == "idea" else "Plan Suggestions (Review Queue)",
         header_kind,
     )
     new_content = header + "\n".join(new_blocks) + "\n"
@@ -101,13 +101,13 @@ def accept_and_move(
       4. 搬运抛错 → 回滚 status 到原值,返回 move_error(避免卡在 accepted)
 
     参数:
-        kind: "Idea Suggestion" / "Todo Suggestion"
+        kind: "Idea Suggestion" / "Plan Suggestion"
         item_id: suggestion 块 id
         new_status: 目标 status(accepted 或 accepted_* 才触发搬运)
         sug_path: suggestion 文件路径
         valid_set: 合法 status 集合(白名单)
-        move_func: kb.move_accepted_idea 或 kb.move_accepted_todo
-        deadline: v0.4.12 todo 接受时可选截止日期(YYYY-MM-DD,空串=不填)
+        move_func: kb.move_accepted_idea 或 kb.move_accepted_plan
+        deadline: v0.4.12 plan 接受时可选截止日期(YYYY-MM-DD,空串=不填)
     """
     # 是否为「接受」类状态(触发搬运)。v0.4.12 起新态为 accepted;旧态 accepted_* 仍兼容。
     is_accept = new_status == "accepted" or new_status.startswith("accepted_")
@@ -144,7 +144,7 @@ def accept_and_move(
                 result["moved"] = move_result.get("moved", False)
                 if move_result.get("moved"):
                     result["moved_to"] = move_result.get("target")
-                    # idea 用 area,todo 用 plan,都复制到结果
+                    # idea 用 area,plan 用 plan 字段,都复制到结果
                     if "area" in move_result:
                         result["area"] = move_result["area"]
                     if "plan" in move_result:

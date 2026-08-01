@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}日历 · 知识库{% endblock %}
 {% block content %}
-<h1 class="page-title">📅 日历</h1>
+<h1 class="page-title"><i data-lucide="calendar"></i> 日历</h1>
 
 <!-- v0.4.2: 标签筛选条(影响月/列表/时间轴三视图) -->
 <div class="cal-filter-bar" id="cal-filter-bar">
@@ -16,7 +16,7 @@
     <button class="btn btn-sm btn-secondary" data-view="list" onclick="switchView('list')">列表视图</button>
     <button class="btn btn-sm btn-secondary" data-view="timeline" onclick="switchView('timeline')">时间轴</button>
   </div>
-  <button class="btn btn-primary btn-sm" onclick="openCreateDialog()">+ 新建事项</button>
+  <!-- v0.4.20: 取消日历手动新建事项。日历项只能从任务/事件「同步到日历」单向推送产生。 -->
 </div>
 
 <!-- 月视图 -->
@@ -76,7 +76,7 @@
   // 前端兜底 resolveCategory:与后端 _resolve_category 对齐
   function resolveCategory(item) {
     if (item.category) return item.category;
-    return item.source_type === 'todo' ? 'todolist' : '其他';
+    return item.source_type === 'plan' ? 'todolist' : '其他';
   }
 
   function switchView(view) {
@@ -211,7 +211,9 @@
         itemsHtml += `<div class="cal-day-more" data-action="show-day-items" data-date-str="${escapeHtml(dateStr)}">+${dayItems.length - 3} 更多</div>`;
       }
       const todayBadge = isToday ? '<span class="cal-today-badge">今天</span>' : '';
-      html += `<div class="cal-day ${isToday ? 'cal-day-today' : ''}" data-action="quick-create" data-date-str="${escapeHtml(dateStr)}">
+      // v0.4.20: 空白日期格不再可点新建(去掉 data-action="quick-create")。
+      // 日历项只能从任务/事件同步产生;格子仅用于展示。
+      html += `<div class="cal-day ${isToday ? 'cal-day-today' : ''}">
         <div class="cal-day-num">${d}${todayBadge}</div>
         ${itemsHtml}
       </div>`;
@@ -361,24 +363,10 @@
     alert(msg);
   }
 
-  function quickCreate(dateStr) {
-    openCalendarEventForm({
-      mode: 'create',
-      entry: 'calendar-day',
-      defaultDate: dateStr,
-      onSaved: refreshAfterChange,
-      onDeleted: refreshAfterChange,
-    });
-  }
-
-  function openCreateDialog() {
-    openCalendarEventForm({
-      mode: 'create',
-      entry: 'calendar-create',
-      onSaved: refreshAfterChange,
-      onDeleted: refreshAfterChange,
-    });
-  }
+  // v0.4.20: 手动新建事项已下线。日历项只能从任务/事件「同步到日历」单向推送产生。
+  // 这两个函数保留为空壳,避免 app.js 全局委托里 case 'quick-create' 报 ReferenceError。
+  function quickCreate(dateStr) { /* 已禁用:不再支持日历内手动新建 */ }
+  function openCreateDialog() { /* 已禁用:不再支持日历内手动新建 */ }
 
   async function openEditDialog(itemId) {
     const item = allItems.find(i => i.id === itemId);

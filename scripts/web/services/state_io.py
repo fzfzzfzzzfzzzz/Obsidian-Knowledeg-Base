@@ -230,11 +230,11 @@ def _delete_one(source_id: str, state: dict) -> dict[str, Any]:
             deleted_files.append(str(rp.relative_to(kb.VAULT_ROOT).as_posix()))
         # 4. 删 suggestion 候选块
         for sug_path in [kb.VAULT_ROOT / "03_Ideas" / "idea_suggestions.md",
-                         kb.VAULT_ROOT / "04_Plans" / "todo_suggestions.md"]:
+                         kb.VAULT_ROOT / "04_Plans" / "plan_suggestions.md"]:
             if sug_path.exists():
                 txt = sug_path.read_text(encoding=ENC)
                 pattern = re.compile(
-                    rf"\n## (?:Idea|Todo) Suggestion:[^\n]*\n(?:(?!## (?:Idea|Todo) Suggestion:).)*?{re.escape(source_id)}(?:(?!## (?:Idea|Todo) Suggestion:).)*",
+                    rf"\n## (?:Idea|Plan) Suggestion:[^\n]*\n(?:(?!## (?:Idea|Plan) Suggestion:).)*?{re.escape(source_id)}(?:(?!## (?:Idea|Plan) Suggestion:).)*",
                     re.DOTALL,
                 )
                 new_txt = pattern.sub("", txt)

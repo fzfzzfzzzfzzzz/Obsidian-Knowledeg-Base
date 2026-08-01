@@ -42,14 +42,16 @@
         const safeId = escapeHtml(col.id);
         const safeName = escapeHtml(col.name);
         html += '<li class="collection-item' + (_activeCollection === col.id ? ' active' : '') + '" data-action="select-collection" data-col-id="' + safeId + '">' +
-          '<span class="collection-name">📂 ' + safeName + '</span>' +
+          '<span class="collection-name"><i data-lucide="folder"></i> ' + safeName + '</span>' +
           '<span class="collection-count">' + col.count + '</span>' +
           '<span class="collection-ops">' +
-            '<button class="col-op-btn" title="重命名" data-action="rename-collection" data-col-id="' + safeId + '" data-col-name="' + safeName + '">✎</button>' +
-            '<button class="col-op-btn" title="删除" data-action="delete-collection" data-col-id="' + safeId + '" data-col-name="' + safeName + '">🗑</button>' +
+            '<button class="col-op-btn icon-btn" title="重命名" data-action="rename-collection" data-col-id="' + safeId + '" data-col-name="' + safeName + '"><i data-lucide="pencil"></i></button>' +
+            '<button class="col-op-btn icon-btn icon-btn-danger" title="删除" data-action="delete-collection" data-col-id="' + safeId + '" data-col-name="' + safeName + '"><i data-lucide="trash-2"></i></button>' +
           '</span></li>';
       });
       list.innerHTML = html;
+      // 动态插入了含 <i data-lucide> 的 HTML,显式刷新图标(不依赖 MutationObserver 兜底)
+      if (window.refreshIcons) window.refreshIcons();
       // 更新「全部收藏」计数
       fetch('/api/collections/all/articles').then(r => r.json()).then(d => {
         const el = document.getElementById('count-all');
@@ -76,7 +78,7 @@
       titleEl.textContent = '全部收藏';
     } else {
       const col = _collectionsCache.find(c => c.id === colId);
-      titleEl.textContent = col ? '📂 ' + col.name : '文件夹';
+      titleEl.textContent = col ? col.name : '文件夹';
     }
     countEl.textContent = '';
     grid.innerHTML = '<div class="loading">加载中...</div>';
@@ -86,7 +88,7 @@
       const items = data.items || [];
       countEl.textContent = items.length;
       if (items.length === 0) {
-        grid.innerHTML = '<div class="empty">这个文件夹还没有文章。在文章详情页点「📂 加入文件夹」。</div>';
+        grid.innerHTML = '<div class="empty">这个文件夹还没有文章。在文章详情页点「加入文件夹」。</div>';
         return;
       }
       grid.innerHTML = items.map(renderArticleCard).join('');

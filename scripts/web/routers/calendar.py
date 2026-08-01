@@ -25,7 +25,7 @@ from web.utils import (
     STATIC_DIR,
     BASE_DIR,
     VALID_IDEA_STATUS,
-    VALID_TODO_STATUS,
+    VALID_PLAN_STATUS,
     READING_FIELDS,
     VALID_READING_STATUS,
     VALID_BATCH_ACTIONS,
@@ -72,7 +72,7 @@ from web.models import (
     ArticleCollectionsRequest,
     BatchRequest,
     GenerateIdeasRequest,
-    GenerateTodosRequest,
+    GeneratePlansRequest,
     TagsRequest,
 )
 
@@ -169,12 +169,13 @@ async def api_redetect_dates(source_id: str):
 def _resolve_category(item: dict) -> str:
     """v0.4.2: 推导事项的 category。
     - 已有非空 category 原样返回
-    - 否则按 source_type 回填:todo → todolist,其余 → 其他
+    - 否则按 source_type 回填:plan → todolist,其余 → 其他
     - 仅运行时计算,不写盘(避免改动旧用户数据)。
+    - v0.4.22: source_type 从 'todo' 改名为 'plan'(todolist 类别名保留)。
     """
     if item.get("category"):
         return item["category"]
-    return "todolist" if item.get("source_type") == "todo" else "其他"
+    return "todolist" if item.get("source_type") == "plan" else "其他"
 
 @router.get("/api/calendar")
 async def api_calendar_list(start: str = "", end: str = ""):

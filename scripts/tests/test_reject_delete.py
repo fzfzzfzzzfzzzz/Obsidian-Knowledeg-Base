@@ -11,21 +11,21 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-TODO_FILE_BODY = """# Todo Suggestions (Review Queue)
+TODO_FILE_BODY = """# Plan Suggestions (Review Queue)
 
 > 说明
 
-## Todo Suggestion: 任务A
+## Plan Suggestion: 任务A
 
-- id: todo_suggestion_20260717_aaa
+- id: plan_suggestion_20260717_aaa
 - status: pending_review
 - recommended_plan: weekly
 
 正文A
 
-## Todo Suggestion: 任务B
+## Plan Suggestion: 任务B
 
-- id: todo_suggestion_20260717_bbb
+- id: plan_suggestion_20260717_bbb
 - status: pending_review
 - recommended_plan: monthly
 
@@ -53,7 +53,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(kb_web, "VAULT_ROOT", tmp_path)
     plans = tmp_path / "04_Plans"
     plans.mkdir(parents=True)
-    (plans / "todo_suggestions.md").write_text(TODO_FILE_BODY, encoding="utf-8")
+    (plans / "plan_suggestions.md").write_text(TODO_FILE_BODY, encoding="utf-8")
     ideas = tmp_path / "03_Ideas"
     ideas.mkdir(parents=True)
     (ideas / "idea_suggestions.md").write_text(IDEA_FILE_BODY, encoding="utf-8")
@@ -63,13 +63,13 @@ def client(tmp_path, monkeypatch):
 def test_reject_todo_deletes_block(client):
     """拒绝 todo = 块从文件删除。"""
     c, tmp = client
-    r = c.post("/api/todo/todo_suggestion_20260717_aaa/status", json={"status": "rejected"})
+    r = c.post("/api/plan/plan_suggestion_20260717_aaa/status", json={"status": "rejected"})
     assert r.status_code == 200
     assert r.json()["deleted"] is True
     # 文件里任务A 没了,任务B 还在
-    content = (tmp / "04_Plans" / "todo_suggestions.md").read_text(encoding="utf-8")
+    content = (tmp / "04_Plans" / "plan_suggestions.md").read_text(encoding="utf-8")
     assert "任务A" not in content
-    assert "todo_suggestion_20260717_aaa" not in content
+    assert "plan_suggestion_20260717_aaa" not in content
     assert "任务B" in content
 
 
@@ -85,26 +85,26 @@ def test_reject_idea_deletes_block(client):
 
 
 def test_accept_todo_not_deleted(client):
-    """接受(非 rejected)不删块:块保留(标 moved),deleted=False,且自动搬到 weekly。
+    """接受(非 rejected)不删块:块保留(标 moved),deleted=False,并自动创建独立 plan 文件。
 
-    注:接受即搬运(阶段 4)后,原 suggestion 块的 status 会从 accepted_weekly
-    变成 moved,并被搬到 04_Plans/Weekly/。本测试验证「不删块」这一核心点。
+    注:接受即搬运(v0.4.23 重构)后,原 suggestion 块的 status 会从 accepted
+    变成 moved,并在 04_Plans/ 下生成独立 plan_*.md 文件。本测试验证「不删块」核心点。
     """
     c, tmp = client
-    r = c.post("/api/todo/todo_suggestion_20260717_aaa/status", json={"status": "accepted_weekly"})
+    r = c.post("/api/plan/plan_suggestion_20260717_aaa/status", json={"status": "accepted"})
     assert r.status_code == 200
     assert r.json()["deleted"] is False
-    content = (tmp / "04_Plans" / "todo_suggestions.md").read_text(encoding="utf-8")
+    content = (tmp / "04_Plans" / "plan_suggestions.md").read_text(encoding="utf-8")
     assert "任务A" in content
-    # 搬运后原块标 moved(不再是 accepted_weekly)
+    # 搬运后原块标 moved(不再是 accepted)
     assert "status: moved" in content
-    # 应已搬到 weekly
+    # 应已创建独立 plan 文件
     assert r.json().get("moved") is True
 
 
 def test_reject_not_found_404(client):
     c, tmp = client
-    r = c.post("/api/todo/todo_suggestion_nope/status", json={"status": "rejected"})
+    r = c.post("/api/plan/plan_suggestion_nope/status", json={"status": "rejected"})
     assert r.status_code == 404
 
 
@@ -112,22 +112,22 @@ def test_reject_last_block_leaves_header(client):
     """删除最后一个块后,文件只剩 header(不崩,重建成功)。"""
     c, tmp = client
     # 先删 A
-    c.post("/api/todo/todo_suggestion_20260717_aaa/status", json={"status": "rejected"})
+    c.post("/api/plan/plan_suggestion_20260717_aaa/status", json={"status": "rejected"})
     # 再删 B
-    r = c.post("/api/todo/todo_suggestion_20260717_bbb/status", json={"status": "rejected"})
+    r = c.post("/api/plan/plan_suggestion_20260717_bbb/status", json={"status": "rejected"})
     assert r.status_code == 200
-    content = (tmp / "04_Plans" / "todo_suggestions.md").read_text(encoding="utf-8")
+    content = (tmp / "04_Plans" / "plan_suggestions.md").read_text(encoding="utf-8")
     # 只剩 header,没有任务块
-    assert "Todo Suggestions (Review Queue)" in content
+    assert "Plan Suggestions (Review Queue)" in content
     assert "任务A" not in content and "任务B" not in content
 
 
 def test_get_todos_after_reject(client):
-    """拒绝后 GET /api/todos 不再返回被删的候选。"""
+    """拒绝后 GET /api/plans 不再返回被删的候选。"""
     c, tmp = client
-    before = c.get("/api/todos").json()["items"]
+    before = c.get("/api/plans").json()["items"]
     assert len(before) == 2
-    c.post("/api/todo/todo_suggestion_20260717_aaa/status", json={"status": "rejected"})
-    after = c.get("/api/todos").json()["items"]
+    c.post("/api/plan/plan_suggestion_20260717_aaa/status", json={"status": "rejected"})
+    after = c.get("/api/plans").json()["items"]
     assert len(after) == 1
-    assert after[0]["id"] == "todo_suggestion_20260717_bbb"
+    assert after[0]["id"] == "plan_suggestion_20260717_bbb"

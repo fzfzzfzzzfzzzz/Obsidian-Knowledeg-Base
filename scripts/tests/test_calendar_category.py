@@ -63,7 +63,7 @@ def test_todo_source_falls_back_to_todolist(client):
     c, _ = client
     r = c.post("/api/calendar", json={
         "title": "某 todo", "date": "2026-07-22",
-        "source_type": "todo", "source_id": "todo_abc"})
+        "source_type": "plan", "source_id": "todo_abc"})
     assert r.status_code == 200
     assert r.json()["item"]["category"] == "todolist"
 
@@ -117,8 +117,8 @@ def test_custom_category_preserved(client):
 def test_resolve_category_helper():
     """单元测试 _resolve_category 逻辑。"""
     assert kb_web._resolve_category({"category": "会议"}) == "会议"
-    assert kb_web._resolve_category({"category": "", "source_type": "todo"}) == "todolist"
-    assert kb_web._resolve_category({"source_type": "todo"}) == "todolist"
+    assert kb_web._resolve_category({"category": "", "source_type": "plan"}) == "todolist"
+    assert kb_web._resolve_category({"source_type": "plan"}) == "todolist"
     assert kb_web._resolve_category({"source_type": "github"}) == "其他"
     assert kb_web._resolve_category({}) == "其他"
     assert kb_web._resolve_category({"category": "自定义"}) == "自定义"

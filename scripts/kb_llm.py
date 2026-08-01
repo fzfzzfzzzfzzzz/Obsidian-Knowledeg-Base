@@ -1130,7 +1130,7 @@ def generate_summary(source_text: str, source_type: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Idea / Todo 抽取(从 summary 提炼候选)
+# Idea / Plan 抽取(从 summary 提炼候选)
 # ---------------------------------------------------------------------------
 
 IDEA_EXTRACT_SYSTEM_PROMPT = """你是一个研究/产品想法提炼助手。用户给你一份内容总结,你要从中提炼出值得长期跟进的 idea 候选。
@@ -1148,17 +1148,17 @@ IDEA_EXTRACT_SYSTEM_PROMPT = """你是一个研究/产品想法提炼助手。�
 - 如果用户在消息开头提供了【用户偏好】,请优先体现。
 """
 
-TODO_EXTRACT_SYSTEM_PROMPT = """你是一个行动项提炼助手。用户给你一份内容总结,你要从中提炼出具体可执行的 todo 候选。
+PLAN_EXTRACT_SYSTEM_PROMPT = """你是一个行动项提炼助手。用户给你一份内容总结,你要从中提炼出具体可执行的 plan 候选。
 
 只输出一个 JSON 数组(不要任何解释、不要 markdown 代码块标记),数组每个元素是一个对象,只含 title 字段:
 
 [
-  { "title": "todo 的简短中文标题(不超过 25 字)" }
+  { "title": "plan 的简短中文标题(不超过 25 字)" }
 ]
 
 规则:
-- 每个 todo 必须是具体可执行的动作(读文档、跑 demo、写脚本、做对比实验),不是抽象方向。
-- 宁缺毋滥。如果总结里没有可转化的 todo,返回空数组 []。
+- 每个 plan 必须是具体可执行的动作(读文档、跑 demo、写脚本、做对比实验),不是抽象方向。
+- 宁缺毋滥。如果总结里没有可转化的 plan,返回空数组 []。
 - 不要编造总结里没有的内容。
 - 如果用户在消息开头提供了【用户偏好】,请优先体现。
 """
@@ -1254,10 +1254,10 @@ def extract_ideas_from_summary(
     return cleaned
 
 
-def extract_todos_from_summary(
+def extract_plans_from_summary(
     summary_text: str, hint: str | None = None
 ) -> list[dict[str, str]]:
-    """从 summary 提炼 todo 候选。
+    """从 summary 提炼 plan 候选。
 
     v0.4.13: 简化为只返回 title(LLM prompt 也只要求 title)。
     保留 hint 参数向后兼容(仍作为偏好提示拼进 user message)。
@@ -1265,12 +1265,12 @@ def extract_todos_from_summary(
     返回 list[dict],每个 dict 只含 title 字段(字符串)。
     """
     if not summary_text.strip():
-        raise LLMError("空 summary,无法抽取 todo")
+        raise LLMError("空 summary,无法抽取 plan")
 
     user_msg = _with_hint(summary_text, hint)
     result = chat(
         [
-            {"role": "system", "content": TODO_EXTRACT_SYSTEM_PROMPT},
+            {"role": "system", "content": PLAN_EXTRACT_SYSTEM_PROMPT},
             {"role": "user", "content": user_msg},
         ],
         temperature=0.3,

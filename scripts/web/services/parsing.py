@@ -15,9 +15,9 @@ def _parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     return kb.parsefrontmatter(text)
 
 def _parse_suggestion_file(path: Path, kind: str) -> list[dict[str, Any]]:
-    """解析 idea_suggestions.md / todo_suggestions.md 的候选块。
+    """解析 idea_suggestions.md / plan_suggestions.md 的候选块。
 
-    kind: "Idea Suggestion" 或 "Todo Suggestion"
+    kind: "Idea Suggestion" 或 "Plan Suggestion"
     返回 [{id, title, status, fields..., body}],每块含解析出的字段。
     """
     if not path.exists():

@@ -3,7 +3,7 @@
 """
 Obsidian 本地知识库 CLI
 
-本地优先的 Markdown 知识库:采集 → 总结 → idea/todo 建议 → 用户确认 → 正式清单。
+本地优先的 Markdown 知识库:采集 → 总结 → idea/plan 建议 → 用户确认 → 正式清单。
 
 命令:
     python scripts/kb.py init                 创建 vault 目录结构 / 模板 / 空文件 / state.json
@@ -11,9 +11,9 @@ Obsidian 本地知识库 CLI
     python scripts/kb.py status               输出当前知识库状态统计
     python scripts/kb.py llm-test             测试 LLM API 连通性
     python scripts/kb.py make-prompts         生成 summary 提示(手动 / --auto 自动调 LLM / --reconcile 回填)
-    python scripts/kb.py extract-suggestions  从已生成的 summary 抽 idea/todo 候选,append 到 review 队列
+    python scripts/kb.py extract-suggestions  从已生成的 summary 抽 idea/plan 候选,append 到 review 队列
     python scripts/kb.py accept-ideas         把 accepted 的 idea suggestion 搬到正式 idea list
-    python scripts/kb.py accept-todos         把 accepted 的 todo suggestion 搬到 weekly/monthly/someday
+    python scripts/kb.py accept-plans         把 accepted 的 plan suggestion 搬成独立 plan 文件(04_Plans/plan_*.md)
     python scripts/kb.py clean-x              清洗已入库 X source 正文(就地重写「## 原始内容」段)
     python scripts/kb.py serve                启动 FastAPI 阅读前端(uvicorn)
 
@@ -78,8 +78,8 @@ SOURCE_TYPES = ("github", "x", "wechat", "douyin", "gpt_chat", "web", "manual")
 EVENT_DIR_NAME = "06_Events"
 TASK_DIR_NAME = "07_Tasks"
 MARKET_DIR_NAME = "08_Market"
-MARKET_KINDS = ("watchlist", "alert")      # watchlist=自选股/赛道,alert=异动提醒
-MARKET_DIRECTIONS = ("up", "down", "flat")  # alert 异动方向(驱动红绿配色 + 箭头图标)
+PLAN_DIR_NAME = "04_Plans"
+MARKET_KINDS = ("watchlist",)                # 仅 watchlist=自选股/赛道(alert 已合并到 event 系统)
 
 # ---------------------------------------------------------------------------
 # 工具函数
@@ -620,7 +620,7 @@ def build_source_note(source_id: str, meta: dict, body: str, metadata_source: st
     fm.append(f"raw_location: .kb/raw_text/{source_id}.txt")
     fm.append("summary_location:")
     fm.append("related_ideas: []")
-    fm.append("related_todos: []")
+    fm.append("related_plans: []")
     fm.append(f"metadata_source: {metadata_source}")
     fm.append("---")
     fm.append("")
@@ -665,7 +665,7 @@ status: source_created
 raw_location:
 summary_location:
 related_ideas: []
-related_todos: []
+related_plans: []
 ---
 
 # {{source_title}}
@@ -768,7 +768,7 @@ status: candidate | thinking | validated | active | paused | rejected | archived
 maturity: spark | rough | structured | validated | project
 priority: P0 | P1 | P2 | P3
 sources: []
-related_todos: []
+related_plans: []
 created_at:
 updated_at:
 ---
@@ -777,7 +777,7 @@ updated_at:
 
 ## 可行性判断
 
-## 下一步 todo
+## 下一步 plan
 
 - [ ] ...
 """,
@@ -804,17 +804,16 @@ updated_at:
 
 ### 风险 / 不确定性
 
-### 如果接受，下一步 todo 候选
+### 如果接受，下一步 plan 候选
 
 - [ ] ...
 """,
-    "todo_suggestion_template.md": """## Todo Suggestion: <title>
+    "plan_suggestion_template.md": """## Plan Suggestion: <title>
 
-- id: todo_suggestion_YYYYMMDD_slug
+- id: plan_suggestion_YYYYMMDD_slug
 - status: pending_review
 - source_summary: [[...]]
 - related_idea: [[...]]
-- recommended_plan: weekly | monthly | someday
 - priority: P0 | P1 | P2 | P3
 - estimated_time: 2-4h
 - difficulty: low | medium | high
@@ -832,50 +831,6 @@ updated_at:
 ### 建议加入的任务
 
 - [ ] ...
-""",
-    "weekly_template.md": """# Weekly Todo: YYYY-Www
-
-## 本周重点
-
-1.
-2.
-3.
-
-## Research
-
-- [ ] <task>
-  - 来源：[[...]]
-  - 预计时间：
-  - 难度：
-  - 难点：
-
-## Productivity
-
-- [ ] <task>
-  - 来源：[[...]]
-  - 预计时间：
-  - 难度：
-  - 难点：
-
-## Review
-
-- [ ] Review pending summaries
-- [ ] Review idea suggestions
-- [ ] Review todo suggestions
-""",
-    "monthly_template.md": """# Monthly Todo: YYYY-MM
-
-## 本月目标
-
-## Research
-
-## Productivity
-
-## 要尝试的工具 / repo
-
-## 暂缓事项
-
-## 月末复盘
 """,
 }
 
@@ -926,7 +881,7 @@ def inbox_seed_content() -> str:
 > - 结构化模式:用 `<!-- KB_ITEM_START --> ... <!-- KB_ITEM_END -->` 包裹(见 plan.md 第 4 节)。
 > 已处理的 item 会被移动到 `processed.md`。
 
-我和 GPT 讨论了本地知识库的架构,核心结论是 local-first:所有重要内容必须以 Markdown 文件形式存在,不能只存在 SQLite 或外部服务里。inbox 接收用户从各渠道粘贴的文本,生成 source note 后,idea 和 todo suggestion 必须先进 review 区,由用户确认才能进正式计划。这个原则保证了系统透明、可控、可审计。
+我和 GPT 讨论了本地知识库的架构,核心结论是 local-first:所有重要内容必须以 Markdown 文件形式存在,不能只存在 SQLite 或外部服务里。inbox 接收用户从各渠道粘贴的文本,生成 source note 后,idea 和 plan suggestion 必须先进 review 区,由用户确认才能进正式计划。这个原则保证了系统透明、可控、可审计。
 
 ---
 
@@ -971,8 +926,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         *[f"01_Sources/{t}" for t in SOURCE_TYPES],
         *[f"02_Summaries/{t}" for t in SOURCE_TYPES],
         "03_Ideas",
-        "04_Plans/Weekly",
-        "04_Plans/Monthly",
+        "04_Plans",
         "05_Projects",
         "06_Events",
         "07_Tasks",
@@ -1031,8 +985,8 @@ def cmd_init(args: argparse.Namespace) -> int:
 
     # ---- 04_Plans ----
     plans_files = {
-        "todo_suggestions.md": "# Todo Suggestions (Review Queue)\n\n> AI / Codex 生成的 todo 先进入这里。用户确认后改 status 为 `accepted_weekly` / `accepted_monthly` / `accepted_someday`,再运行 `accept-todos`。\n\n",
-        "completed_todos.md": "# Completed Todos\n\n",
+        "plan_suggestions.md": "# Plan Suggestions (Review Queue)\n\n> AI / Codex 生成的 plan 先进入这里。用户确认后改 status 为 `accepted`,再运行 `accept-plans`。\n\n",
+        "completed_plans.md": "# Completed Plans\n\n",
     }
     for name, content in plans_files.items():
         p = VAULT_ROOT / "04_Plans" / name
@@ -1047,7 +1001,7 @@ def cmd_init(args: argparse.Namespace) -> int:
             proj,
             empty_md(
                 "Obsidian KB Project",
-                "本项目自身的进度记录。\n\n- [x] Phase 0: 项目初始化\n- [x] Phase 1: Inbox parser\n- [ ] Phase 2: make-prompts\n- [ ] Phase 3: manual output import\n- [ ] Phase 4: accept-ideas / accept-todos\n",
+                "本项目自身的进度记录。\n\n- [x] Phase 0: 项目初始化\n- [x] Phase 1: Inbox parser\n- [ ] Phase 2: make-prompts\n- [ ] Phase 3: manual output import\n- [ ] Phase 4: accept-ideas / accept-plans\n",
             ),
         )
         created_files.append("05_Projects/obsidian_kb_project.md")
@@ -1462,16 +1416,16 @@ def cmd_status(args: argparse.Namespace) -> int:
 
     # 统计待 review 的 suggestion
     idea_sug = VAULT_ROOT / "03_Ideas" / "idea_suggestions.md"
-    todo_sug = VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
+    plan_sug = VAULT_ROOT / "04_Plans" / "plan_suggestions.md"
     idea_pending = _count_status_in_file(idea_sug, "pending_review")
-    todo_pending = _count_status_in_file(todo_sug, "pending_review")
+    plan_pending = _count_status_in_file(plan_sug, "pending_review")
     idea_accepted = _count_status_in_file(idea_sug, "accepted_")
-    todo_accepted = _count_status_in_file(todo_sug, "accepted_")
+    plan_accepted = _count_status_in_file(plan_sug, "accepted_")
     print(f" Idea suggestions pending review : {idea_pending}")
-    print(f" Todo suggestions pending review  : {todo_pending}")
-    if idea_accepted or todo_accepted:
+    print(f" Plan suggestions pending review  : {plan_pending}")
+    if idea_accepted or plan_accepted:
         print(f" Idea suggestions accepted (待 accept) : {idea_accepted}")
-        print(f" Todo suggestions accepted (待 accept)  : {todo_accepted}")
+        print(f" Plan suggestions accepted (待 accept)  : {plan_accepted}")
     # summary 维度
     summarized = sum(
         1 for s in sources.values() if s.get("summary_path")
@@ -1636,7 +1590,7 @@ def cmd_make_prompts(args):
 
 
 def cmd_extract_suggestions(args):
-    """从 summary 抽取 idea/todo 候选,append 到 review 队列。"""
+    """从 summary 抽取 idea/plan 候选,append 到 review 队列。"""
     if not _LLM_AVAILABLE:
         print("[extract-suggestions] LLM 模块不可用。")
         return 1
@@ -1658,7 +1612,7 @@ def cmd_extract_suggestions(args):
             continue
         status = info.get("action_status", "undecided")
         if status not in ("undecided", "idea_extracted"):
-            # 已是 todo_suggested / reviewed,跳过
+            # 已是 plan_suggested / reviewed,跳过
             continue
         targets.append((sid, info))
 
@@ -1670,10 +1624,10 @@ def cmd_extract_suggestions(args):
     print(f"[extract-suggestions] 待抽取 summary: {len(targets)} 个")
 
     idea_sug_file = VAULT_ROOT / "03_Ideas" / "idea_suggestions.md"
-    todo_sug_file = VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
+    plan_sug_file = VAULT_ROOT / "04_Plans" / "plan_suggestions.md"
 
     total_ideas = 0
-    total_todos = 0
+    total_plans = 0
     failed = 0  # LLM 抽取失败的 source 数(可观测性:进 kb.log,action_status 留 undecided 下次重试)
     for sid, info in targets:
         summary_path = VAULT_ROOT / info["summary_path"]
@@ -1686,21 +1640,21 @@ def cmd_extract_suggestions(args):
             continue
 
         try:
-            print(f"  → {sid}: 抽取 idea/todo 候选...")
+            print(f"  → {sid}: 抽取 idea/plan 候选...")
             ideas = kb_llm.extract_ideas_from_summary(summary_text)
-            todos = kb_llm.extract_todos_from_summary(summary_text)
+            plans = kb_llm.extract_plans_from_summary(summary_text)
             today = today_iso()
             # 写 idea suggestions
             for it in ideas:
                 block = _format_idea_suggestion(sid, info, it, today)
                 _append_section(idea_sug_file, block)
-            for it in todos:
-                block = _format_todo_suggestion(sid, info, it, today)
-                _append_section(todo_sug_file, block)
-            info["action_status"] = "todo_suggested"
+            for it in plans:
+                block = _format_plan_suggestion(sid, info, it, today)
+                _append_section(plan_sug_file, block)
+            info["action_status"] = "plan_suggested"
             total_ideas += len(ideas)
-            total_todos += len(todos)
-            print(f"    ✓ idea 候选 {len(ideas)} 个,todo 候选 {len(todos)} 个")
+            total_plans += len(plans)
+            print(f"    ✓ idea 候选 {len(ideas)} 个,plan 候选 {len(plans)} 个")
         except LLMError as e:
             print(f"    ✗ 抽取失败: {e}")
             append_log(f"extract-suggestions FAILED source={sid}: {e}")
@@ -1708,21 +1662,21 @@ def cmd_extract_suggestions(args):
 
     save_state(state)
     append_log(
-        f"extract-suggestions: sources={len(targets)} ideas={total_ideas} todos={total_todos} failed={failed}"
+        f"extract-suggestions: sources={len(targets)} ideas={total_ideas} plans={total_plans} failed={failed}"
     )
-    print(f"\n[extract-suggestions] 完成。共抽取 idea 候选 {total_ideas} 个,todo 候选 {total_todos} 个。")
-    if total_ideas or total_todos:
+    print(f"\n[extract-suggestions] 完成。共抽取 idea 候选 {total_ideas} 个,plan 候选 {total_plans} 个。")
+    if total_ideas or total_plans:
         print("[extract-suggestions] 候选已进入 review 队列:")
         print("  - 03_Ideas/idea_suggestions.md")
-        print("  - 04_Plans/todo_suggestions.md")
-        print("  用户确认后改 status 为 accepted_*,再运行 accept-ideas / accept-todos。")
+        print("  - 04_Plans/plan_suggestions.md")
+        print("  用户确认后改 status 为 accepted_*,再运行 accept-ideas / accept-plans。")
     return 0
 
 
 def _list_accepted_suggestion_ids(kind: str) -> list[tuple[str, str, dict, str, str]]:
     """扫描 review 队列文件,返回所有 accepted_* 块的元信息。
 
-    kind: "Idea Suggestion" 或 "Todo Suggestion"
+    kind: "Idea Suggestion" 或 "Plan Suggestion"
     返回 [(item_id, status, meta, body, raw_block), ...]
     item_id 优先用 meta["id"],否则用 title slug。
     """
@@ -1730,8 +1684,8 @@ def _list_accepted_suggestion_ids(kind: str) -> list[tuple[str, str, dict, str, 
         sug_file = VAULT_ROOT / "03_Ideas" / "idea_suggestions.md"
         header_kind = "idea"
     else:
-        sug_file = VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
-        header_kind = "todo"
+        sug_file = VAULT_ROOT / "04_Plans" / "plan_suggestions.md"
+        header_kind = "plan"
     if not sug_file.exists():
         return []
     text = read_text(sug_file)
@@ -1739,7 +1693,7 @@ def _list_accepted_suggestion_ids(kind: str) -> list[tuple[str, str, dict, str, 
     out = []
     for raw, meta, body in blocks:
         status = meta.get("status", "").strip()
-        # v0.4.12: todo 新态为 accepted(无下划线);旧态 accepted_* 仍兼容
+        # v0.4.12: plan 新态为 accepted(无下划线);旧态 accepted_* 仍兼容
         if status == "accepted" or status.startswith("accepted_"):
             item_id = meta.get("id", "").strip() or meta.get("title", "")
             out.append((item_id, status, meta, body, raw))
@@ -1756,9 +1710,9 @@ def _rewrite_suggestion_file(kind: str, item_ids_to_moved: dict[str, str]) -> No
         header_kind = "idea"
         header_title = "Idea Suggestions (Review Queue)"
     else:
-        sug_file = VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
-        header_kind = "todo"
-        header_title = "Todo Suggestions (Review Queue)"
+        sug_file = VAULT_ROOT / "04_Plans" / "plan_suggestions.md"
+        header_kind = "plan"
+        header_title = "Plan Suggestions (Review Queue)"
     if not sug_file.exists():
         return
     text = read_text(sug_file)
@@ -1780,7 +1734,7 @@ def move_accepted_idea(item_id: str, deadline: str = "") -> dict:
     """把单个 accepted_* 的 idea suggestion 搬到正式 idea list。
 
     幂等:已是 moved 状态的不重复搬;非 accepted_* 的不搬。
-    (deadline 参数仅为与 move_accepted_todo 同签名而保留,idea 搬运不使用。)
+    (deadline 参数仅为与 move_accepted_plan 同签名而保留,idea 搬运不使用。)
     返回:
         {moved: bool, item_id, area, target, reason}
         reason 描述跳过原因(如 "not_accepted" / "already_moved" / "not_found")。
@@ -1815,102 +1769,55 @@ def move_accepted_idea(item_id: str, deadline: str = "") -> dict:
     }
 
 
-def move_accepted_todo(item_id: str, deadline: str = "") -> dict:
-    """把单个 accepted 的 todo suggestion 搬到 weekly/monthly/someday。
+def move_accepted_plan(item_id: str, deadline: str = "") -> dict:
+    """把单个 accepted 的 plan suggestion 搬成独立 plan 文件。
 
-    v0.4.12 起去向由 deadline 决定(不再让用户在 UI 里手选三态):
-      - 本周内(到本周日) → 04_Plans/Weekly/{年}-W{周}.md
-      - 本月内(到月末)   → 04_Plans/Monthly/{年}-{月}.md
-      - 更远 / 未填 deadline → 04_Plans/someday.md
-    兼容:旧数据 status 仍可能带 accepted_weekly/monthly/someday 后缀,此时按后缀归类。
+    v0.4.23 重构:不再按 weekly/monthly/someday 分桶,而是像 task 一样
+    每条 plan 存为 04_Plans/plan_<hash>.md,带可选 deadline 字段。
+    deadline 透传写进文件 frontmatter(空串=无截止日期)。
 
     幂等:已是 moved 状态的不重复搬;非 accepted 的不搬。
-    返回:{moved, item_id, plan, target, reason}
+    返回:{moved, item_id, plan_id, target, reason}
     """
-    accepted = _list_accepted_suggestion_ids("Todo Suggestion")
+    accepted = _list_accepted_suggestion_ids("Plan Suggestion")
     target_for = None
     target_meta = None
     target_body = None
-    target_status = None
     for iid, status, meta, body, raw in accepted:
         if iid == item_id or iid.endswith(item_id):
             target_for = iid
             target_meta = meta
             target_body = body
-            target_status = status
             break
     if target_for is None:
         return {"moved": False, "item_id": item_id,
                 "reason": "not_found_or_not_accepted"}
 
-    import kb_date
-    today = kb_date._today()
-    iso_year, iso_week, iso_weekday = today.isocalendar()
-    week_tag = f"{iso_year}-W{iso_week:02d}"
-    month_tag = today.strftime("%Y-%m")
+    title = (target_meta.get("title", "") or target_for).strip()
+    plan_id = make_plan_id(title)
+    path = _plan_file_path(plan_id)
+    # 极小概率文件名冲突:追加时间戳重生成
+    if path.exists():
+        plan_id = make_plan_id(title + str(now_ts()))
+        path = _plan_file_path(plan_id)
 
-    # 决定去向 plan:旧态后缀优先(兼容历史),否则按 deadline 归类
-    legacy_plan = ""
-    if target_status.startswith("accepted_"):
-        legacy_plan = target_status.removeprefix("accepted_")  # weekly/monthly/someday
-
-    if legacy_plan:
-        plan = legacy_plan
-    else:
-        plan = _todo_plan_from_deadline(deadline, today)
-
-    if plan == "weekly":
-        target_file = VAULT_ROOT / "04_Plans" / "Weekly" / f"{week_tag}.md"
-        _ensure_weekly_file(target_file, week_tag)
-    elif plan == "monthly":
-        target_file = VAULT_ROOT / "04_Plans" / "Monthly" / f"{month_tag}.md"
-        _ensure_monthly_file(target_file, month_tag)
-    else:  # someday
-        target_file = VAULT_ROOT / "04_Plans" / "someday.md"
-        if not target_file.exists():
-            write_text(target_file, "# Someday Todo\n\n> 暂存,有空再做。\n\n")
-    # 把用户填的 deadline 落进 meta,供 _format_weekly_task 渲染
-    if deadline:
-        if target_meta is None:
-            target_meta = {}
-        target_meta = dict(target_meta)
-        target_meta["deadline"] = deadline
-    task = _format_weekly_task(target_meta, target_body)
-    _append_section(target_file, task)
-    _rewrite_suggestion_file("Todo Suggestion", {target_for: "moved"})
+    meta = {
+        "id": plan_id,
+        "title": title,
+        "deadline": (deadline or "").strip(),
+        "status": "active",
+        "source_summary": target_meta.get("source_summary", "").strip(),
+        "related_source": "",
+        "synced_calendar_ids": "",
+    }
+    write_plan_file(path, meta, target_body, is_new=True)
+    _rewrite_suggestion_file("Plan Suggestion", {target_for: "moved"})
     return {
         "moved": True,
         "item_id": target_for,
-        "plan": plan,
-        "target": target_file.relative_to(VAULT_ROOT).as_posix(),
+        "plan_id": plan_id,
+        "target": path.relative_to(VAULT_ROOT).as_posix(),
     }
-
-
-def _todo_plan_from_deadline(deadline: str, today) -> str:
-    """根据 deadline 日期归类到 weekly/monthly/someday。
-
-    - 无 deadline / 解析失败 → someday
-    - 截止日在本周(本周一..本周日)内 → weekly
-    - 截止日在本月内(但不在本周) → monthly
-    - 更远 → someday
-    """
-    if not deadline:
-        return "someday"
-    try:
-        from datetime import date as _date
-        d = _date.fromisoformat(deadline)
-    except (ValueError, TypeError):
-        return "someday"
-    iso_year, iso_week, iso_weekday = today.isocalendar()
-    # 本周的范围:周一(iso_weekday=1)到周日(iso_weekday=7)
-    monday = today.fromisocalendar(iso_year, iso_week, 1)
-    sunday = today.fromisocalendar(iso_year, iso_week, 7)
-    if monday <= d <= sunday:
-        return "weekly"
-    # 本月范围
-    if d.year == today.year and d.month == today.month:
-        return "monthly"
-    return "someday"
 
 
 def cmd_accept_ideas(args):
@@ -1954,19 +1861,20 @@ def cmd_accept_ideas(args):
     return 0
 
 
-def cmd_accept_todos(args):
-    """Phase 4:把 accepted 的 todo suggestion 移到 weekly/monthly/someday。
+def cmd_accept_plans(args):
+    """Phase 4:把 accepted 的 plan suggestion 移成独立 plan 文件。
 
-    遍历 review 队列里所有 accepted_* 块,逐个调 move_accepted_todo。
+    v0.4.23: 不再分 weekly/monthly/someday,每条 plan 存为 04_Plans/plan_<hash>.md。
+    遍历 review 队列里所有 accepted 块,逐个调 move_accepted_plan。
     """
-    sug_file = VAULT_ROOT / "04_Plans" / "todo_suggestions.md"
+    sug_file = VAULT_ROOT / "04_Plans" / "plan_suggestions.md"
     if not sug_file.exists():
-        print("[accept-todos] todo_suggestions.md 不存在。")
+        print("[accept-plans] plan_suggestions.md 不存在。")
         return 1
 
-    accepted = _list_accepted_suggestion_ids("Todo Suggestion")
+    accepted = _list_accepted_suggestion_ids("Plan Suggestion")
     if not accepted:
-        print("[accept-todos] 没有 accepted_* 状态的 todo suggestion(可能都已 moved)。")
+        print("[accept-plans] 没有 accepted_* 状态的 plan suggestion(可能都已 moved)。")
         return 0
 
     # 持 suggestion 文件锁整个搬运(v0.4.12 S2):与 web accept_and_move 共用同一锁路径。
@@ -1976,7 +1884,7 @@ def cmd_accept_todos(args):
     try:
         with _file_lock(lock_path, timeout=30.0):
             for item_id, status, meta, body, raw in accepted:
-                result = move_accepted_todo(item_id)
+                result = move_accepted_plan(item_id)
                 if result.get("moved"):
                     moved += 1
                     print(f"  → {meta.get('title', item_id)} → {result['target']}")
@@ -1984,13 +1892,13 @@ def cmd_accept_todos(args):
                     failed += 1
                     print(f"  ! {item_id}: {result.get('reason')}")
     except TimeoutError as e:
-        print(f"[accept-todos] 等待文件锁超时(可能 web 正在操作):{e}")
+        print(f"[accept-plans] 等待文件锁超时(可能 web 正在操作):{e}")
         return 1
 
-    append_log(f"accept-todos: moved={moved} failed={failed}")
-    print(f"\n[accept-todos] 移动 {moved} 个" + (f",失败 {failed} 个" if failed else "") + "。")
+    append_log(f"accept-plans: moved={moved} failed={failed}")
+    print(f"\n[accept-plans] 移动 {moved} 个" + (f",失败 {failed} 个" if failed else "") + "。")
     if moved:
-        print("[accept-todos] weekly/monthly/someday 已更新,原 suggestion 标记为 moved。")
+        print("[accept-plans] 已生成独立 plan 文件,原 suggestion 标记为 moved。")
     return 0
 
 
@@ -2037,9 +1945,9 @@ def _write_summary(sid: str, info: dict, body: str) -> Path:
         "priority: P2",
         "confidence: medium",
         "idea_extracted: false",
-        "todo_extracted: false",
+        "plan_extracted: false",
         "related_ideas: []",
-        "related_todos: []",
+        "related_plans: []",
         "tags: []",
         "---",
         "",
@@ -2421,8 +2329,8 @@ def _format_idea_suggestion(source_id: str, info: dict, it: dict, today: str) ->
 """
 
 
-def _format_todo_suggestion(source_id: str, info: dict, it: dict, today: str) -> str:
-    """把 LLM 抽取的 todo dict 格式化成 todo_suggestion 模板格式的块。
+def _format_plan_suggestion(source_id: str, info: dict, it: dict, today: str) -> str:
+    """把 LLM 抽取的 plan dict 格式化成 plan_suggestion 模板格式的块。
 
     v0.4.13: 简化为只写 title + id + status + source(保留 source 追溯来源文章)。
     LLM 抽取现在只返回 title;旧数据若带其他字段则忽略(向后兼容)。
@@ -2431,10 +2339,10 @@ def _format_todo_suggestion(source_id: str, info: dict, it: dict, today: str) ->
     # v0.4.12: 加 4 字节随机后缀(8 hex),防同日同标题撞 id。
     import secrets
     suffix = secrets.token_hex(4)
-    tid = f"todo_suggestion_{today.replace('-', '')}_{slug}_{suffix}"
+    tid = f"plan_suggestion_{today.replace('-', '')}_{slug}_{suffix}"
     src_summary = f"[[summary_{source_id}]]"
     return f"""
-## Todo Suggestion: {it.get('title', 'untitled')}
+## Plan Suggestion: {it.get('title', 'untitled')}
 
 - id: {tid}
 - status: pending_review
@@ -2466,21 +2374,6 @@ def _format_formal_idea(meta: dict, body: str, area: str) -> str:
 """
 
 
-def _format_weekly_task(meta: dict, body: str) -> str:
-    """把 accepted todo suggestion 转成 weekly/monthly task 格式(plan.md 11.1)。
-
-    v0.4.13: 简化为只写 title + 来源 + 截止日期(若有)。
-    """
-    title = meta.get("title", meta.get("id", "untitled"))
-    deadline = meta.get("deadline", "") if meta else ""
-    deadline_line = f"  - 截止日期:{deadline}\n" if deadline else ""
-    return f"""
-
-- [ ] {title}
-  - 来源:{meta.get('source_summary', '')}
-{deadline_line}"""
-
-
 def _append_section(path: Path, section: str) -> None:
     """把 section 追加到文件末尾(自动创建父目录)。"""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -2500,56 +2393,14 @@ def _replace_status_in_block(block: str, old_status: str, new_status: str) -> st
 
 def _suggestion_header(title: str, kind: str) -> str:
     """review 队列文件的头部说明。"""
-    accept_val = "accepted_research" if kind == "idea" else "accepted_weekly"
+    accept_val = "accepted_research" if kind == "idea" else "accepted"
     return f"""# {title}
 
-> AI / Codex 生成的候选先进入这里。用户确认后改 status 为 `{accept_val}` 等,
-> 再运行 `python scripts/kb.py accept-{'ideas' if kind == 'idea' else 'todos'}`。
+> AI / Codex 生成的候选先进入这里。用户确认后改 status 为 `{accept_val}`,
+> 再运行 `python scripts/kb.py accept-{'ideas' if kind == 'idea' else 'plans'}`。
 > 已移动的候选 status 会变成 `moved`,保留作追溯。
 
 """
-
-
-def _ensure_weekly_file(path: Path, week_tag: str) -> None:
-    """确保 weekly 文件存在,不存在则用模板创建。"""
-    if path.exists():
-        return
-    content = f"""# Weekly Todo: {week_tag}
-
-## 本周重点
-
-## Research
-
-## Productivity
-
-## Review
-
-- [ ] Review pending summaries
-- [ ] Review idea suggestions
-- [ ] Review todo suggestions
-"""
-    write_text(path, content)
-
-
-def _ensure_monthly_file(path: Path, month_tag: str) -> None:
-    """确保 monthly 文件存在。"""
-    if path.exists():
-        return
-    content = f"""# Monthly Todo: {month_tag}
-
-## 本月目标
-
-## Research
-
-## Productivity
-
-## 要尝试的工具 / repo
-
-## 暂缓事项
-
-## 月末复盘
-"""
-    write_text(path, content)
 
 
 # ---------------------------------------------------------------------------
@@ -2575,9 +2426,20 @@ from kb_entities import (  # noqa: E402
     load_market_file, scan_market, write_market_file,
     validate_ticker, normalize_ticker, parse_ticker,
     MARKET_CODES, MARKET_CODE_PREFIXES, MARKET_CODE_LABELS,
+    # market judgments
+    make_market_judgment_id, _market_judgment_file_path, _find_market_judgment_file,
+    _format_market_judgment_file, load_market_judgment_file,
+    scan_market_judgments, write_market_judgment_file,
+    # market simulations
+    make_market_simulation_id, _market_simulation_file_path, _find_market_simulation_file,
+    _format_market_simulation_file, load_market_simulation_file,
+    scan_market_simulations, write_market_simulation_file,
     # task
     make_task_id, _task_file_path, _find_task_file, _format_task_file,
     load_task_file, scan_tasks, write_task_file, sync_task_to_calendar,
+    # plan(v0.4.23 重构:独立文件 + deadline,废弃 weekly/monthly/someday 分桶)
+    make_plan_id, _plan_file_path, _find_plan_file, _format_plan_file,
+    load_plan_file, scan_plans, write_plan_file, sync_plan_to_calendar,
     # cleanup 系列
     cleanup_calendar_ref, cleanup_source_ref, cleanup_dead_calendar_items,
 )
@@ -2736,15 +2598,15 @@ def build_parser() -> argparse.ArgumentParser:
     p_mp.add_argument("--force", action="store_true", help="强制重新生成已存在的 summary")
     p_mp.set_defaults(func=cmd_make_prompts)
 
-    p_es = sub.add_parser("extract-suggestions", help="从 summary 抽取 idea/todo 候选到 review 队列")
+    p_es = sub.add_parser("extract-suggestions", help="从 summary 抽取 idea/plan 候选到 review 队列")
     p_es.add_argument("--source", help="只处理指定 source_id")
     p_es.set_defaults(func=cmd_extract_suggestions)
 
     p_ai = sub.add_parser("accept-ideas", help="Phase 4:把 accepted idea 移到正式 idea list")
     p_ai.set_defaults(func=cmd_accept_ideas)
 
-    p_at = sub.add_parser("accept-todos", help="Phase 4:把 accepted todo 移到 weekly/monthly/someday")
-    p_at.set_defaults(func=cmd_accept_todos)
+    p_at = sub.add_parser("accept-plans", help="Phase 4:把 accepted plan 移成独立 plan 文件")
+    p_at.set_defaults(func=cmd_accept_plans)
 
     p_serve = sub.add_parser("serve", help="启动知识库阅读前端(FastAPI)")
     p_serve.add_argument("--host", default="127.0.0.1", help="监听地址(默认 127.0.0.1)")

@@ -25,7 +25,7 @@ from web.utils import (
     STATIC_DIR,
     BASE_DIR,
     VALID_IDEA_STATUS,
-    VALID_TODO_STATUS,
+    VALID_PLAN_STATUS,
     READING_FIELDS,
     VALID_READING_STATUS,
     VALID_BATCH_ACTIONS,
@@ -74,7 +74,7 @@ from web.models import (
     ArticleCollectionsRequest,
     BatchRequest,
     GenerateIdeasRequest,
-    GenerateTodosRequest,
+    GeneratePlansRequest,
     TagsRequest,
 )
 

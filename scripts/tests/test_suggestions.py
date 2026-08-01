@@ -48,15 +48,15 @@ def test_split_nested_h2_regression():
 
 
 def test_split_ignores_other_kind_header():
-    # 切 Idea 块时,body 里的 "## Todo Suggestion:" 不应作为 Idea 块边界
+    # 切 Idea 块时,body 里的 "## Plan Suggestion:" 不应作为 Idea 块边界
     text = (
         "## Idea Suggestion: A\n\n正文\n\n"
-        "## Todo Suggestion: B\n\n其它\n\n"
+        "## Plan Suggestion: B\n\n其它\n\n"
         "## Idea Suggestion: C\n\n收尾\n"
     )
     blocks = kb._split_suggestion_blocks(text, "Idea Suggestion")
     assert len(blocks) == 2
-    assert "## Todo Suggestion: B" in blocks[0][2]
+    assert "## Plan Suggestion: B" in blocks[0][2]
 
 
 def test_replace_status_in_block():

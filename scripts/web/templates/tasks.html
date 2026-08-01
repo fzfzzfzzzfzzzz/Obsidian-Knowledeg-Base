@@ -102,6 +102,12 @@ function sortTkItems(items) {
     const ap = a.pinned ? 1 : 0;
     const bp = b.pinned ? 1 : 0;
     if (ap !== bp) return bp - ap;  // pinned 的(b=1)排前
+    // 两个都置顶时:最近置顶的(pinned_at 大)排第一(微信置顶语义)
+    if (ap && bp) {
+      const pa = String(a.pinned_at || '');
+      const pb = String(b.pinned_at || '');
+      if (pa !== pb) return pb.localeCompare(pa);  // 倒序:大的在前
+    }
     const va = tkSortValue(a, tkSortKey);
     const vb = tkSortValue(b, tkSortKey);
     // 空值/未知值始终排末尾,不受升降序影响(避免切降序时空 deadline 涌到最前)
@@ -152,7 +158,7 @@ function renderTaskCard(t) {
   const pinned = !!t.pinned;
   return '<div class="task-card'+(pinned ? ' task-pinned' : '')+'" style="--tk-cat:'+catColor+'">'
     + '<div class="tk-card-header">'
-      + '<span class="tk-status-badge" style="background:'+sm.color+'"><i data-lucide="'+sm.icon+'"></i> '+sm.label+'</span>'
+      + '<span class="tk-status-badge" style="background:'+sm.color+'">'+sm.label+'</span>'
       + (pinned ? '<span class="tk-pin-badge"><i data-lucide="pin"></i> 置顶</span>' : '')
       + '<span class="tk-date '+dlClass+'"><i data-lucide="calendar"></i> '+escapeHtml(dlText)+'</span>'
     + '</div>'
@@ -223,7 +229,7 @@ async function togglePin(id) {
 async function openTaskForm(opts) {
   opts = opts || {};
   const isEdit = opts.mode === 'edit';
-  let task = { title:'', category:'开发', project:'', status:'active', deadline:'', blocker:'', body:'', checklist:[], pinned:false };
+  let task = { title:'', category:'开发', project:'', status:'active', deadline:'', blocker:'', next_action:'', body:'', checklist:[], pinned:false };
   if (isEdit) {
     try {
       const r = await fetch('/api/tasks/'+opts.id);
@@ -256,9 +262,10 @@ async function openTaskForm(opts) {
       + '<div class="cal-form-field"><label>置顶</label><label class="tk-pin-check"><input type="checkbox" id="tk-pinned" '+(task.pinned?'checked':'')+'> 显示在列表顶部</label></div>'
     + '</div>'
     + '<div class="cal-form-row2">'
-      + '<div class="cal-form-field"><label>截止日期</label><input id="tk-deadline" type="date" class="search-input" value="'+escapeHtml(task.deadline||'')+'"></div>'
+      + '<div class="cal-form-field"><label>截止日期</label><input id="tk-deadline" type="text" placeholder="2026-08-15" onfocus="KBDate.onFocus(this)" onblur="KBDate.onBlur(this)" class="search-input" value="'+escapeHtml(task.deadline||'')+'"></div>'
       + '<div class="cal-form-field"><label>当前问题/阻塞</label><input id="tk-blocker" class="search-input" placeholder="卡在哪里?" value="'+escapeHtml(task.blocker||'')+'"></div>'
     + '</div>'
+    + '<div class="cal-form-field"><label>下一步行动</label><input id="tk-next-action" class="search-input" placeholder="接下来要做什么?" value="'+escapeHtml(task.next_action||'')+'"></div>'
     + '<div class="cal-form-field"><label>描述</label><textarea id="tk-body" class="search-input" rows="3">'+escapeHtml(task.body||'')+'</textarea></div>'
     + '<div class="cal-form-field"><label>Checklist 子任务</label>'
       + '<div id="tk-checklist" class="cl-list">'+clHtml+'</div>'
@@ -353,6 +360,7 @@ async function saveTask(opts, btn, isEdit) {
     status: document.getElementById('tk-status').value,
     deadline: document.getElementById('tk-deadline').value,
     blocker: document.getElementById('tk-blocker').value,
+    next_action: document.getElementById('tk-next-action').value,
     body: document.getElementById('tk-body').value,
     checklist: (window._tkCl||[]).filter(x => x.text && x.text.trim()),
     pinned: document.getElementById('tk-pinned').checked,

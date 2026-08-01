@@ -10,11 +10,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 
-TODO_FILE_BODY = """# Todo Suggestions (Review Queue)
+TODO_FILE_BODY = """# Plan Suggestions (Review Queue)
 
 > 说明
 
-## Todo Suggestion: 周任务
+## Plan Suggestion: 周任务
 
 - id: todo_accept_test_1
 - status: pending_review
@@ -33,20 +33,20 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setattr(kb_web, "VAULT_ROOT", tmp_path)
     plans = tmp_path / "04_Plans"
     plans.mkdir(parents=True)
-    (plans / "todo_suggestions.md").write_text(TODO_FILE_BODY, encoding="utf-8")
+    (plans / "plan_suggestions.md").write_text(TODO_FILE_BODY, encoding="utf-8")
     return TestClient(kb_web.app), tmp_path
 
 
 def test_accept_rollback_on_move_failure(client, monkeypatch):
-    """搬运函数抛错时,status 应回滚到原值 pending_review(不卡在 accepted_*)。"""
+    """搬运函数抛错时,status 应回滚到原值 pending_review(不卡在 accepted)。"""
     c, tmp = client
-    # 让 move_accepted_todo 抛错
-    def boom(item_id):
+    # 让 move_accepted_plan 抛错(新签名含 deadline 参数)
+    def boom(item_id, deadline=""):
         raise RuntimeError("simulated move failure")
-    monkeypatch.setattr(kb, "move_accepted_todo", boom)
+    monkeypatch.setattr(kb, "move_accepted_plan", boom)
 
-    r = c.post("/api/todo/todo_accept_test_1/status",
-               json={"status": "accepted_weekly"})
+    r = c.post("/api/plan/todo_accept_test_1/status",
+               json={"status": "accepted", "deadline": "2026-09-01"})
     assert r.status_code == 200
     body = r.json()
     assert body["moved"] is False
@@ -54,13 +54,12 @@ def test_accept_rollback_on_move_failure(client, monkeypatch):
     assert body.get("rolled_back_to") == "pending_review"
 
     # 验证 suggestion 文件里 status 已回滚
-    sug = (tmp / "04_Plans" / "todo_suggestions.md").read_text(encoding="utf-8")
+    sug = (tmp / "04_Plans" / "plan_suggestions.md").read_text(encoding="utf-8")
     assert "- status: pending_review" in sug
-    assert "- status: accepted_weekly" not in sug
-    # weekly 文件不应被创建
-    weekly_dir = tmp / "04_Plans" / "Weekly"
-    if weekly_dir.exists():
-        assert list(weekly_dir.glob("*.md")) == []
+    assert "- status: accepted" not in sug
+    # 独立 plan 文件不应被创建(搬运失败)
+    plan_files = list((tmp / "04_Plans").glob("plan_*.md"))
+    assert all(p.name != "plan_todo_accept_test_1.md" for p in plan_files)
 
 
 def test_accept_rollback_on_idea_move_failure(tmp_path, monkeypatch):

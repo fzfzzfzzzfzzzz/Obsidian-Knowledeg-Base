@@ -9,7 +9,7 @@ Pydantic 模型在 web/models.py,共享常量/templates 在 web/utils.py。
 
 启动:python scripts/kb.py serve
 路由:
-    页面: /  /summary/{id}  /ideas  /todos  /recent  /favorites  /articles
+    页面: /  /summary/{id}  /ideas  /plans  /recent  /favorites  /articles
           /calendar  /search  /submit
     API:  /api/* (见各 router 文件)
 """
@@ -29,7 +29,7 @@ from web.routers import (
     dashboard,
     articles,
     ideas,
-    todos,
+    plans,
     calendar,
     collections,
     search,
@@ -91,7 +91,7 @@ _auth_deps = [Depends(_maybe_auth)]
 app.include_router(dashboard.router, dependencies=_auth_deps)
 app.include_router(articles.router, dependencies=_auth_deps)
 app.include_router(ideas.router, dependencies=_auth_deps)
-app.include_router(todos.router, dependencies=_auth_deps)
+app.include_router(plans.router, dependencies=_auth_deps)
 app.include_router(calendar.router, dependencies=_auth_deps)
 app.include_router(collections.router, dependencies=_auth_deps)
 app.include_router(search.router, dependencies=_auth_deps)
@@ -115,9 +115,9 @@ from web.models import (  # noqa: E402,F401
     ArticleCollectionsRequest,
     BatchRequest,
     GenerateIdeasRequest,
-    GenerateTodosRequest,
+    GeneratePlansRequest,
     TagsRequest,
 )
 from web.routers.ideas import _parse_formal_ideas  # noqa: E402,F401
-from web.routers.todos import _parse_formal_todos  # noqa: E402,F401
+from web.routers.plans import _parse_formal_plans  # noqa: E402,F401
 from web.routers.calendar import _resolve_category  # noqa: E402,F401

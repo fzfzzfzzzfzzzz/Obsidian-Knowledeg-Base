@@ -30,8 +30,8 @@ EXPECTED_PATHS = {
     "/ideas", "/api/ideas", "/api/ideas/confirmed",
     "/api/idea/{item_id}/status", "/api/article/{source_id}/generate-ideas",
     # todos
-    "/todos", "/api/todos", "/api/todos/confirmed",
-    "/api/todo/{item_id}/status", "/api/article/{source_id}/generate-todos",
+    "/plans", "/api/plans", "/api/plans/confirmed",
+    "/api/plan/{item_id}/status", "/api/article/{source_id}/generate-plans",
     # calendar
     "/calendar", "/api/calendar", "/api/calendar/{item_id}",
     "/api/article/{source_id}/detected-dates", "/api/article/{source_id}/detect-dates",
@@ -69,7 +69,7 @@ def test_all_routers_registered_in_openapi():
 
 PAGE_ROUTES_200 = [
     "/", "/kb", "/articles", "/recent", "/favorites",
-    "/ideas", "/todos", "/calendar", "/search", "/submit", "/tasks",
+    "/ideas", "/plans", "/calendar", "/search", "/submit", "/tasks",
 ]
 
 
@@ -85,7 +85,7 @@ API_GET_ROUTES = [
     "/api/health", "/api/dashboard", "/api/dashboard_full", "/api/recent",
     "/api/summaries", "/api/articles",
     "/api/ideas", "/api/ideas/confirmed",
-    "/api/todos", "/api/todos/confirmed",
+    "/api/plans", "/api/plans/confirmed",
     "/api/calendar", "/api/collections", "/api/favorites",
     "/api/search?q=test",
 ]

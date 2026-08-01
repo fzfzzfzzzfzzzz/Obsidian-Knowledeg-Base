@@ -29,13 +29,9 @@ VALID_IDEA_STATUS = {
     "archived",
     "moved",
 }
-VALID_TODO_STATUS = {
+VALID_PLAN_STATUS = {
     "pending_review",
-    "accepted",
-    # 向后兼容:历史数据可能仍带这三态,归一为 accepted
-    "accepted_weekly",
-    "accepted_monthly",
-    "accepted_someday",
+    "accepted",  # v0.4.23: plan 改为独立文件 + deadline,不再分 weekly/monthly/someday
     "rejected",
     "archived",
     "moved",
@@ -78,7 +74,6 @@ def _build_hint(payload) -> str:
         ("area", "领域"),
         ("difficulty", "难度"),
         ("estimated_time", "预计时间"),
-        ("plan", "计划"),
     ):
         val = getattr(payload, field, "")
         if val:

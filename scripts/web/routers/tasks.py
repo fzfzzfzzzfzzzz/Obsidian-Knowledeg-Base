@@ -9,7 +9,7 @@
          POST /api/tasks/{task_id}/sync-calendar
 
 任务数据存 07_Tasks/task_*.md(markdown 文件,YAML frontmatter + 正文),
-与 04_Plans/todo_suggestions.md(文章抽取的待办建议)是完全不同的系统。
+与 04_Plans/plan_suggestions.md(文章抽取的计划建议)是完全不同的系统。
 模式照搬 events.py,新增 checklist 单项打勾端点。
 """
 from __future__ import annotations
@@ -126,6 +126,7 @@ async def api_tasks_create(payload: TaskCreate):
         "status": payload.status,
         "deadline": payload.deadline.strip(),
         "blocker": payload.blocker.strip(),
+        "next_action": payload.next_action.strip(),
         "checklist": [item.model_dump() for item in payload.checklist],
         "related_source": payload.related_source.strip(),
         "synced_calendar_ids": "",
@@ -174,12 +175,20 @@ def _update_task_fields(task: dict, payload: TaskUpdate) -> dict:
         meta["deadline"] = dl
     if payload.blocker is not None:
         meta["blocker"] = payload.blocker.strip()
+    if payload.next_action is not None:
+        meta["next_action"] = payload.next_action.strip()
     if payload.checklist is not None:
         meta["checklist"] = [item.model_dump() for item in payload.checklist]
     if payload.related_source is not None:
         meta["related_source"] = payload.related_source.strip()
     if payload.pinned is not None:
-        meta["pinned"] = bool(payload.pinned)
+        new_pinned = bool(payload.pinned)
+        # 与 /pin 端点保持一致:新置顶时记时间戳(排序用),取消时清空
+        if new_pinned and not task.get("pinned"):
+            meta["pinned_at"] = kb.now_ts()
+        elif not new_pinned:
+            meta["pinned_at"] = ""
+        meta["pinned"] = new_pinned
     meta["synced_calendar_ids"] = ",".join(task.get("synced_calendar_ids", []))
     return meta
 
@@ -266,5 +275,7 @@ async def api_tasks_pin(task_id: str, payload: TaskPinRequest):
     task = kb.load_task_file(path)
     meta = {k: v for k, v in task.items() if k not in ("body", "path")}
     meta["pinned"] = bool(payload.pinned)
+    # 置顶时记时间戳(组内按此倒序:最近置顶的排第一);取消时清空
+    meta["pinned_at"] = kb.now_ts() if payload.pinned else ""
     kb.write_task_file(path, meta, task["body"], is_new=False)
     return JSONResponse({"ok": True, "task_id": task_id, "pinned": meta["pinned"]})

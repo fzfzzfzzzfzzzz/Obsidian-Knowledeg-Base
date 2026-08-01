@@ -6,6 +6,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="/static/sortable.min.js?v=1"></script>
 <script>
 // 任务全页编辑器:加载已有任务 → 宽敞表单 → PATCH 保存 → 保留在编辑界面(不跳转)
 const TASK_ID = "{{ task_id }}";
@@ -49,7 +50,8 @@ function renderForm(t) {
         + '<div class="te-field"><label>当前问题/阻塞</label><input id="te-blocker" class="search-input" placeholder="卡在哪里?" value="' + escapeHtml(t.blocker || '') + '"></div>'
       + '</div>'
       + '<div class="te-row2">'
-        + '<div class="te-field"><label>截止日期</label><input id="te-deadline" type="date" class="search-input" value="' + escapeHtml(t.deadline || '') + '"></div>'
+        + '<div class="te-field"><label>截止日期</label><input id="te-deadline" type="text" placeholder="2026-08-15" onfocus="KBDate.onFocus(this)" onblur="KBDate.onBlur(this)" class="search-input" value="' + escapeHtml(t.deadline || '') + '"></div>'
+        + '<div class="te-field"><label>下一步行动</label><input id="te-next-action" class="search-input" placeholder="接下来要做什么?" value="' + escapeHtml(t.next_action || '') + '"></div>'
       + '</div>'
       + '<div class="te-field">'
         + '<label>详细描述</label>'
@@ -86,6 +88,7 @@ function teOnKeydown(e) {
 // 数据源是 DOM 本身:保存时从输入框现读,避免外部状态与 DOM 不同步。
 function checklistRow(it) {
   return '<div class="cl-row"' + (it.id ? ' data-cli="' + escapeHtml(it.id) + '"' : '') + '>'
+    + '<span class="cl-drag-handle" title="拖动调整顺序"><i data-lucide="grip-vertical"></i></span>'
     + '<input type="checkbox" class="cl-done"' + (it.done ? ' checked' : '') + '>'
     + '<input type="text" class="cl-text search-input" value="' + escapeHtml(it.text || '') + '" placeholder="子任务内容">'
     + '<button class="icon-btn icon-btn-danger te-cl-del" type="button" title="删除"><i data-lucide="x"></i></button>'
@@ -146,6 +149,20 @@ function bindChecklistEvents() {
       const row = del.closest('.cl-row');
       if (row) { row.remove(); syncClEmpty(); }
     });
+
+    // v0.4.22: 初始化 SortableJS 支持 checklist 拖拽排序
+    if (typeof Sortable !== 'undefined') {
+      Sortable.create(wrap, {
+        handle: '.cl-drag-handle',  // 只允许通过拖拽手柄拖动
+        animation: 150,
+        ghostClass: 'cl-ghost',     // 拖拽时的占位样式
+        onEnd: function() {
+          // 拖拽结束后 DOM 顺序已更新,数据源是 DOM 本身,无需额外处理
+          // 但需要确保空状态提示正确显示
+          syncClEmpty();
+        }
+      });
+    }
   }
 }
 function syncClEmpty() {
@@ -166,6 +183,7 @@ async function saveTask() {
     status: document.getElementById('te-status').value,
     deadline: document.getElementById('te-deadline').value,
     blocker: document.getElementById('te-blocker').value,
+    next_action: document.getElementById('te-next-action').value,
     body: document.getElementById('te-body').value,
     checklist: collectChecklist().filter(x => x.text && x.text.trim()),
   };

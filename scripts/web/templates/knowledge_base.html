@@ -2,13 +2,15 @@
 {% block title %}知识库{% endblock %}
 {% block content %}
 
+<h1 class="page-title"><i data-lucide="book-open"></i> 知识库</h1>
+
 <div id="batch-bar" class="batch-bar" style="display:none;">
   <span class="batch-info">已选 <strong id="batch-count">0</strong> 篇</span>
   <button class="btn btn-sm" onclick="batchAction('archive')"><i data-lucide="archive"></i> 归档</button>
   <button class="btn btn-sm btn-accept" onclick="batchAction('favorite')"><i data-lucide="star"></i> 收藏</button>
   <button class="btn btn-sm" onclick="batchAction('unfavorite')">取消收藏</button>
   <button class="btn btn-sm" onclick="batchAction('add_tags')"><i data-lucide="tag"></i> 加标签</button>
-  <button class="btn btn-sm" onclick="batchAction('extract_suggestions')"><i data-lucide="lightbulb"></i> 抽 idea/todo</button>
+  <button class="btn btn-sm" onclick="batchAction('extract_suggestions')"><i data-lucide="lightbulb"></i> 抽 idea/plan</button>
   <button class="btn btn-sm" onclick="batchAction('generate_summary')"><i data-lucide="file-text"></i> 生成 summary</button>
   <button class="btn btn-sm btn-danger" onclick="batchAction('delete')"><i data-lucide="trash-2"></i> 删除</button>
   <button class="btn btn-sm btn-ghost" onclick="clearSelection()">取消选择</button>
@@ -35,7 +37,7 @@
 
 <div class="tab-bar" role="tablist" aria-label="文章分组">
   <button class="tab active" data-tab="unread" role="tab" aria-selected="true"><i data-lucide="book-open"></i> 未读 <span class="count-badge" id="count-unread"></span></button>
-  <button class="tab" data-tab="read" role="tab" aria-selected="false"><i data-lucide="check"></i> 已读 <span class="count-badge" id="count-read"></span></button>
+  <button class="tab" data-tab="read" role="tab" aria-selected="false"><i data-lucide="history"></i> 最近阅读 <span class="count-badge" id="count-read"></span></button>
   <button class="tab" data-tab="readlater" role="tab" aria-selected="false"><i data-lucide="bookmark"></i> 稍后阅读 <span class="count-badge" id="count-read-later"></span></button>
 </div>
 

@@ -1,0 +1,261 @@
+(function(global){
+  'use strict';
+
+  var VERDICTS = {
+    pending:  { label:'待验证',   icon:'clock',        cls:'pending' },
+    correct:  { label:'正确',     icon:'check-circle', cls:'correct' },
+    wrong:    { label:'错误',     icon:'x-circle',     cls:'wrong' },
+    partial:  { label:'部分正确', icon:'circle-dot',   cls:'partial' },
+    archived: { label:'已归档',   icon:'archive',      cls:'archived' }
+  };
+
+  function emptyHTML(msg){ return '<div class="empty">' + escapeHtml(msg) + '</div>'; }
+  function setHTML(id, html){ var el = document.getElementById(id); if(el) el.innerHTML = html; }
+  function refresh(){ if(global.refreshIcons) global.refreshIcons(); }
+  function fmtTime(s){
+    if(!s) return '';
+    return String(s).replace('T', ' ').replace(/\+\d\d:\d\d$/, '').slice(0, 16);
+  }
+  function nowInput(){
+    var d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    return d.toISOString().slice(0, 16);
+  }
+  function toInputTime(s){ return s ? String(s).slice(0, 16) : nowInput(); }
+  function verdictMeta(v){ return VERDICTS[v] || VERDICTS.pending; }
+  function verdictBadge(v){
+    var m = verdictMeta(v);
+    return '<span class="mj-badge mj-badge-'+m.cls+'"><i data-lucide="'+m.icon+'"></i>'+m.label+'</span>';
+  }
+  function verdictOptions(selected){
+    return ['pending','correct','wrong','partial','archived'].map(function(v){
+      return '<option value="'+v+'"'+(selected===v?' selected':'')+'>'+VERDICTS[v].label+'</option>';
+    }).join('');
+  }
+
+  function mount(opts){
+    opts = opts || {};
+    var root = opts.rootSelector ? document.querySelector(opts.rootSelector) : document;
+    if(!root) return null;
+
+    var statsId = opts.statsId || 'mj-stats';
+    var listId = opts.listId || 'mj-list';
+    var addButtonId = opts.addButtonId || 'mj-add';
+    var filterSelector = opts.filterSelector || '[data-mj-filter]';
+    var store = new Map();
+    var currentFilter = 'all';
+
+    function rootAll(selector){
+      return Array.prototype.slice.call(root.querySelectorAll(selector));
+    }
+    function isInRoot(node){
+      return root === document || root.contains(node);
+    }
+
+    async function loadJudgments(){
+      try{
+        var r = await fetch('/api/market/judgments');
+        var d = await r.json();
+        var items = d.items || [];
+        store.clear();
+        items.forEach(function(it){ store.set(it.id, it); });
+        renderStats(items);
+        renderList(items);
+      }catch(e){
+        setHTML(listId, emptyHTML('加载失败'));
+      }
+    }
+
+    function renderStats(items){
+      var counts = { all: items.length, pending:0, correct:0, wrong:0, partial:0 };
+      items.forEach(function(it){
+        if(counts[it.verdict] != null) counts[it.verdict]++;
+      });
+      setHTML(statsId,
+        '<div class="mj-stat"><span>全部</span><b>'+counts.all+'</b></div>'
+        + '<div class="mj-stat"><span>待验证</span><b>'+counts.pending+'</b></div>'
+        + '<div class="mj-stat"><span>正确</span><b>'+counts.correct+'</b></div>'
+        + '<div class="mj-stat"><span>错误</span><b>'+counts.wrong+'</b></div>'
+        + '<div class="mj-stat"><span>部分正确</span><b>'+counts.partial+'</b></div>'
+      );
+    }
+
+    function renderList(items){
+      var shown = currentFilter === 'all' ? items : items.filter(function(it){ return it.verdict === currentFilter; });
+      if(!shown.length){
+        setHTML(listId, emptyHTML(currentFilter === 'all' ? '还没有判断记录。' : '这个筛选下没有记录。'));
+        return;
+      }
+      setHTML(listId, shown.map(renderCard).join(''));
+      refresh();
+    }
+
+    function renderCard(it){
+      var title = it.title || it.target || '市场判断';
+      var target = it.target ? '<span class="mj-chip"><i data-lucide="crosshair"></i>'+escapeHtml(it.target)+'</span>' : '';
+      var horizon = it.horizon ? '<span class="mj-chip"><i data-lucide="timer"></i>'+escapeHtml(it.horizon)+'</span>' : '';
+      var result = it.actual_result
+        ? '<div class="mj-result"><span class="mj-label">实际结果</span><p>'+escapeHtml(it.actual_result)+'</p></div>'
+        : '';
+      var body = it.body && it.body !== '（暂无补充）'
+        ? '<div class="mj-note muted">'+escapeHtml(it.body)+'</div>'
+        : '';
+      return '<article class="mj-card" id="mj_'+escapeHtml(it.id)+'">'
+        + '<div class="mj-card-head">'
+          + '<div class="mj-card-title-wrap">'
+            + '<h2 class="mj-card-title">'+escapeHtml(title)+'</h2>'
+            + '<div class="mj-card-meta">'
+              + '<span class="mj-chip"><i data-lucide="calendar-clock"></i>'+escapeHtml(fmtTime(it.judged_at))+'</span>'
+              + target + horizon
+            + '</div>'
+          + '</div>'
+          + verdictBadge(it.verdict)
+        + '</div>'
+        + '<div class="mj-judgment"><span class="mj-label">判断</span><p>'+escapeHtml(it.judgment)+'</p></div>'
+        + result
+        + body
+        + '<div class="mj-card-actions">'
+          + '<button class="btn btn-sm btn-ghost" data-mj-action="edit" data-mj-id="'+escapeHtml(it.id)+'"><i data-lucide="edit-3"></i> 编辑</button>'
+          + '<button class="btn btn-sm btn-danger" data-mj-action="delete" data-mj-id="'+escapeHtml(it.id)+'"><i data-lucide="trash-2"></i> 删除</button>'
+        + '</div>'
+      + '</article>';
+    }
+
+    function openJudgmentForm(formOpts){
+      formOpts = formOpts || {};
+      var isEdit = formOpts.mode === 'edit';
+      var it = formOpts.item || {};
+      var formHtml = '<div class="cal-form market-judgment-form">'
+        + '<div class="cal-form-field"><label>标题</label>'
+        + '<input type="text" id="mj-title" value="'+escapeHtml(it.title||'')+'" maxlength="120" placeholder="可留空，系统会按时间和标的生成"></div>'
+        + '<div class="cal-form-row2">'
+          + '<div class="cal-form-field"><label>标的 / 板块</label>'
+          + '<input type="text" id="mj-target" value="'+escapeHtml(it.target||'')+'" maxlength="80" placeholder="例如 芯片股 / 半导体 / 688981"></div>'
+          + '<div class="cal-form-field"><label>判断时间 <span class="required">*</span></label>'
+          + '<input type="datetime-local" id="mj-judged-at" value="'+escapeHtml(toInputTime(it.judged_at))+'"></div>'
+        + '</div>'
+        + '<div class="cal-form-field"><label>判断 <span class="required">*</span></label>'
+        + '<textarea id="mj-judgment" rows="4" maxlength="2000" placeholder="例如 7.30 芯片股大涨后，我判断这里只是稍微回调">'+escapeHtml(it.judgment||'')+'</textarea></div>'
+        + '<div class="cal-form-row2">'
+          + '<div class="cal-form-field"><label>观察周期</label>'
+          + '<input type="text" id="mj-horizon" value="'+escapeHtml(it.horizon||'')+'" maxlength="80" placeholder="例如 1-3 天 / 一周 / 到下次财报"></div>'
+          + '<div class="cal-form-field"><label>验证状态</label>'
+          + '<select id="mj-verdict">'+verdictOptions(it.verdict||'pending')+'</select></div>'
+        + '</div>'
+        + '<div class="cal-form-field"><label>实际结果 / 复盘</label>'
+        + '<textarea id="mj-actual" rows="3" maxlength="2000" placeholder="后续走势、错在哪里、哪些信号有效">'+escapeHtml(it.actual_result||'')+'</textarea></div>'
+        + '<div class="cal-form-field"><label>复盘时间</label>'
+        + '<input type="datetime-local" id="mj-reviewed-at" value="'+escapeHtml(it.reviewed_at ? toInputTime(it.reviewed_at) : '')+'"></div>'
+        + '<div class="cal-form-field"><label>补充笔记</label>'
+        + '<textarea id="mj-body" rows="3" maxlength="4000" placeholder="依据、盘面背景、链接或后续观察">'+escapeHtml((it.body && it.body !== '（暂无补充）') ? it.body : '')+'</textarea></div>'
+        + '<div class="cal-form-actions">'
+        + (isEdit ? '<button class="btn btn-danger" id="mj-delete-in-form">删除</button>' : '')
+        + '<button class="btn btn-ghost" id="mj-cancel">取消</button>'
+        + '<button class="btn btn-primary" id="mj-save">'+(isEdit?'保存':'创建')+'</button></div>'
+        + '</div>';
+
+      var overlay = document.getElementById('modalOverlay');
+      if(!overlay){ alert('modal 不可用'); return; }
+      document.getElementById('modalTitle').textContent = isEdit ? '编辑判断' : '新建判断';
+      document.getElementById('modalBody').innerHTML = formHtml;
+      document.getElementById('modalActions').innerHTML = '';
+      overlay.hidden = false;
+      refresh();
+
+      document.getElementById('mj-cancel').onclick = function(){ overlay.hidden = true; };
+      document.getElementById('mj-save').onclick = async function(){
+        var payload = collectPayload();
+        if(!payload.judgment){ alert('判断内容不能为空'); return; }
+        if(!payload.judged_at){ alert('判断时间不能为空'); return; }
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = '保存中...';
+        try{
+          var res = isEdit
+            ? await fetch('/api/market/judgments/'+encodeURIComponent(it.id), {method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)})
+            : await fetch('/api/market/judgments', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+          var data = await res.json().catch(function(){ return {}; });
+          if(!res.ok){
+            alert('保存失败:'+(data.detail||res.status));
+            btn.disabled = false;
+            btn.textContent = isEdit ? '保存' : '创建';
+            return;
+          }
+          overlay.hidden = true;
+          toast(isEdit ? '已保存判断' : '已创建判断', 'success');
+          loadJudgments();
+        }catch(e){
+          alert('网络错误:'+e.message);
+          btn.disabled = false;
+          btn.textContent = isEdit ? '保存' : '创建';
+        }
+      };
+
+      if(isEdit){
+        var del = document.getElementById('mj-delete-in-form');
+        if(del) del.onclick = function(){ deleteJudgment(it); };
+      }
+      setTimeout(function(){ var el = document.getElementById('mj-judgment'); if(el) el.focus(); }, 50);
+    }
+
+    function collectPayload(){
+      return {
+        title: document.getElementById('mj-title').value.trim(),
+        target: document.getElementById('mj-target').value.trim(),
+        judged_at: document.getElementById('mj-judged-at').value.trim(),
+        judgment: document.getElementById('mj-judgment').value.trim(),
+        horizon: document.getElementById('mj-horizon').value.trim(),
+        verdict: document.getElementById('mj-verdict').value,
+        actual_result: document.getElementById('mj-actual').value.trim(),
+        reviewed_at: document.getElementById('mj-reviewed-at').value.trim(),
+        body: document.getElementById('mj-body').value.trim()
+      };
+    }
+
+    async function deleteJudgment(item){
+      if(!item) return;
+      if(!await confirmModal('确定删除「'+(item.title||item.target||'市场判断')+'」吗？', {title:'删除判断', confirmText:'删除', danger:true})) return;
+      try{
+        var res = await fetch('/api/market/judgments/'+encodeURIComponent(item.id), {method:'DELETE'});
+        if(res.ok){
+          var overlay = document.getElementById('modalOverlay');
+          if(overlay) overlay.hidden = true;
+          toast('已删除判断', 'success');
+          loadJudgments();
+        } else {
+          var d = await res.json().catch(function(){ return {}; });
+          toast('删除失败:'+(d.detail||res.status), 'error');
+        }
+      }catch(e){
+        toast('网络错误:'+e.message, 'error');
+      }
+    }
+
+    document.addEventListener('click', function(e){
+      if(!isInRoot(e.target)) return;
+      if(e.target.closest('#'+addButtonId)){ openJudgmentForm({mode:'create'}); return; }
+      var filter = e.target.closest(filterSelector);
+      if(filter && isInRoot(filter)){
+        currentFilter = filter.dataset.mjFilter;
+        rootAll(filterSelector).forEach(function(btn){
+          btn.classList.toggle('active', btn.dataset.mjFilter === currentFilter);
+        });
+        renderList(Array.from(store.values()));
+        return;
+      }
+      var actionBtn = e.target.closest('[data-mj-action]');
+      if(actionBtn && isInRoot(actionBtn)){
+        var id = actionBtn.dataset.mjId;
+        var item = store.get(id);
+        if(!item){ toast('记录已变化，正在刷新', 'warning'); loadJudgments(); return; }
+        if(actionBtn.dataset.mjAction === 'edit') openJudgmentForm({mode:'edit', item:item});
+        else if(actionBtn.dataset.mjAction === 'delete') deleteJudgment(item);
+      }
+    });
+
+    loadJudgments();
+    return { load: loadJudgments, openForm: openJudgmentForm };
+  }
+
+  global.KBMarketJudgments = { mount: mount };
+})(window);

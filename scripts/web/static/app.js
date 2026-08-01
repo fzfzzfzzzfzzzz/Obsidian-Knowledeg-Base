@@ -15,6 +15,67 @@ function escapeHtml(s) {
     .replace(/'/g, '&#39;');
 }
 
+// 可选日期字段的渐进增强:
+// 原生 <input type="date"> 的占位符(yyyy/mm/dd 等)由浏览器/系统语言决定,代码改不了,
+// 而且空值时长得不一致。这里用「text + placeholder ↔ date 控件」切换:
+//   - 空值时显示为 text,露出自定义 placeholder(如 2026-08-15,与后端 ISO 格式一致)
+//   - 聚焦时切回 date 控件,弹出原生日期选择器(保留便捷选择能力)
+//   - 选完/有值后保持 date 控件;清空后失焦切回 text 重新显示 placeholder
+// 只用于「可选」日期字段(任务 deadline);必填日期(事件/market)默认有值,无需此处理。
+window.KBDate = {
+  onFocus: function (el) { if (!el.value) el.type = 'date'; },
+  onBlur: function (el) { if (!el.value) el.type = 'text'; },
+};
+
+/* ====================== 行情缓存(localStorage) ======================
+ * 行情/资金流/详情数据是只读的临时数据,不进 Markdown 数据层(符合 AGENTS.md
+ * 的「纯 UI 状态可存 localStorage」)。用途:刷新页面/重开浏览器时先秒显示上次
+ * 数据(标注更新时间),再后台拉最新 —— 避免每次刷新空白等几十秒。
+ * 失败兜底:拉取失败时若有过期缓存,继续显示缓存 + 提示「网络异常,显示上次数据」。
+ * 用 try/catch 包裹(localStorage 可能被隐私模式禁用 / 超额)。
+ */
+var KB_QUOTE_CACHE = (function(){
+  var PREFIX = 'kbqc:';          // 行情缓存键前缀,与 kb-theme 区分
+  var MAX_AGE_MS = 1000 * 60 * 60 * 6;  // 6 小时:超过则视为过期(但仍可用于兜底显示)
+  function _k(key){ return PREFIX + key; }
+  return {
+    // 读缓存。返回 {data, age_label, fresh} 或 null(无缓存)。
+    // fresh=true 表示在有效期内,可放心显示。
+    get: function(key){
+      try{
+        var raw = localStorage.getItem(_k(key));
+        if(!raw) return null;
+        var obj = JSON.parse(raw);
+        var age = Date.now() - (obj._t || 0);
+        return {
+          data: obj.data,
+          fresh: age < MAX_AGE_MS,
+          age_label: _ageLabel(age)
+        };
+      }catch(e){ return null; }
+    },
+    // 写缓存。data 是任意可序列化对象。
+    set: function(key, data){
+      try{
+        localStorage.setItem(_k(key), JSON.stringify({data: data, _t: Date.now()}));
+      }catch(e){ /* 配额满或被禁用,静默忽略 */ }
+    },
+    // 清除指定 key
+    clear: function(key){
+      try{ localStorage.removeItem(_k(key)); }catch(e){}
+    }
+  };
+  function _ageLabel(age){
+    var min = Math.floor(age / 60000);
+    if(min < 1) return '刚刚';
+    if(min < 60) return min + '分钟前';
+    var hr = Math.floor(min / 60);
+    if(hr < 24) return hr + '小时前';
+    return Math.floor(hr / 24) + '天前';
+  }
+})();
+
+
 /* ====================== 主题 ====================== */
 function applyTheme(theme) {
   if (theme === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
@@ -37,6 +98,36 @@ function initTheme() {
     const next = cur === 'dark' ? 'light' : 'dark';
     try { localStorage.setItem('kb-theme', next); } catch (e) {}
     applyTheme(next);
+  });
+}
+
+/* ====================== 侧栏收起/展开 ====================== */
+// 状态用 html[data-sidebar-collapsed="1"] 标记(base.html 顶部防闪脚本已据此提前应用,
+// 避免刷新时侧栏先展开再缩回)。状态持久化到 localStorage('kb-sidebar-collapsed')。
+function applySidebarCollapsed(collapsed) {
+  if (collapsed) document.documentElement.setAttribute('data-sidebar-collapsed', '1');
+  else document.documentElement.removeAttribute('data-sidebar-collapsed');
+  // 切换按钮图标:展开态显示 panel-left-close(点击收起);收起态显示 panel-left-open(点击展开)
+  const btn = document.getElementById('sidebarCollapse');
+  if (btn) {
+    const icon = collapsed ? 'panel-left-open' : 'panel-left-close';
+    btn.innerHTML = '<i data-lucide="' + icon + '"></i>';
+    btn.title = collapsed ? '展开侧栏' : '收起侧栏';
+    btn.setAttribute('aria-label', collapsed ? '展开侧栏' : '收起侧栏');
+    if (window.refreshIcons) window.refreshIcons();
+  }
+}
+
+function initSidebarCollapse() {
+  // 从 localStorage 恢复(防闪脚本已提前应用属性,这里只同步按钮图标)
+  let collapsed = false;
+  try { collapsed = localStorage.getItem('kb-sidebar-collapsed') === '1'; } catch (e) {}
+  applySidebarCollapsed(collapsed);
+  const btn = document.getElementById('sidebarCollapse');
+  if (btn) btn.addEventListener('click', function () {
+    const next = document.documentElement.getAttribute('data-sidebar-collapsed') === '1' ? false : true;
+    try { localStorage.setItem('kb-sidebar-collapsed', next ? '1' : '0'); } catch (e) {}
+    applySidebarCollapsed(next);
   });
 }
 
@@ -443,7 +534,7 @@ function updateDetailButtons(field, value) {
   if (window.refreshIcons) window.refreshIcons();
 }
 
-/* ====================== idea/todo 审阅 ====================== */
+/* ====================== idea/plan 审阅 ====================== */
 function statusBadgeClass(status) {
   if (!status) return 'status-pending_review';
   return 'status-' + status;
@@ -454,9 +545,6 @@ function statusLabel(status) {
     'accepted_research': '已接受·科研',
     'accepted_productivity': '已接受·效率',
     'accepted': '已接受',
-    'accepted_weekly': '已接受',
-    'accepted_monthly': '已接受',
-    'accepted_someday': '已接受',
     'moved': '已移动',
     'rejected': '已拒绝',
     'archived': '已归档',
@@ -496,14 +584,14 @@ function renderSuggestionCard(item, type) {
       <button class="btn btn-ghost" data-action="update-status" data-kind="idea" data-sid="${sid}" data-status="rejected">拒绝</button>
     `;
   } else {
-    // v0.4.12: todo 简化为接受 / 拒绝;接受弹窗可选填截止日期,按日期自动归类去向
+    // v0.4.12: plan 简化为接受 / 拒绝;接受弹窗可选填截止日期,按日期自动归类去向
     actions = `
-      <button class="btn btn-accept" data-action="accept-todo" data-sid="${sid}">接受</button>
-      <button class="btn btn-ghost" data-action="update-status" data-kind="todo" data-sid="${sid}" data-status="rejected">拒绝</button>
+      <button class="btn btn-accept" data-action="accept-plan" data-sid="${sid}">接受</button>
+      <button class="btn btn-ghost" data-action="update-status" data-kind="plan" data-sid="${sid}" data-status="rejected">拒绝</button>
     `;
   }
 
-  // v0.4.13: idea 和 todo 卡片都只留标题,不再显示正文
+  // v0.4.13: idea 和 plan 卡片都只留标题,不再显示正文
   const bodyHtml = '';
 
   return `
@@ -520,8 +608,8 @@ function renderSuggestionCard(item, type) {
 
 function formatSuggestionBody(body, type) {
   let text = body;
-  // v0.4.12: todo 过滤掉「主要难点」「验收标准」两节(连同其正文),只保留其它小节
-  if (type === 'todo') {
+  // v0.4.12: plan 过滤掉「主要难点」「验收标准」两节(连同其正文),只保留其它小节
+  if (type === 'plan') {
     const DROP = ['主要难点', '验收标准'];
     const parts = text.split(/^###\s+/m);   // [前导文本, "标题\n正文", ...]
     text = parts.map(function (part, idx) {
@@ -566,7 +654,7 @@ async function updateStatus(type, itemId, newStatus, btn, deadline) {
       const where = data.moved_to || '';
       const label = type === 'idea'
         ? `已加入「${data.area || ''}」idea 列表`
-        : `已加入${data.plan === 'weekly' ? '本周' : data.plan === 'monthly' ? '本月' : 'someday'}计划`;
+        : `已加入计划`;  // v0.4.23: plan 不再分 weekly/monthly/someday
       toast('✓ ' + label + (where ? `(${where})` : ''), 'success');
     } else if (data.move_reason === 'already_moved') {
       toast('该候选已搬运过,无需重复操作', 'info');
@@ -582,11 +670,11 @@ async function updateStatus(type, itemId, newStatus, btn, deadline) {
   }
 }
 
-// v0.4.12: todo 接受 —— 弹窗可选填截止日期,确定后调 updateStatus(status=accepted, deadline)
-function acceptTodoWithDeadline(itemId, btn) {
+// v0.4.12: plan 接受 —— 弹窗可选填截止日期,确定后调 updateStatus(status=accepted, deadline)
+function acceptPlanWithDeadline(itemId, btn) {
   const overlay = document.getElementById('modalOverlay');
   const box = document.getElementById('modalBox');
-  if (!overlay || !box) { updateStatus('todo', itemId, 'accepted', btn, ''); return; }
+  if (!overlay || !box) { updateStatus('plan', itemId, 'accepted', btn, ''); return; }
   document.getElementById('modalTitle').textContent = '接受该待办';
   box.classList.remove('modal--danger');
   const body = document.getElementById('modalBody');
@@ -595,7 +683,7 @@ function acceptTodoWithDeadline(itemId, btn) {
   actions.innerHTML = '';
   const hint = document.createElement('div');
   hint.className = 'modal-prompt-hint muted';
-  hint.textContent = '可填写截止日期(可不填)。本周内的会进本周计划,本月内的进本月计划,其余进 someday。';
+  hint.textContent = '可填写截止日期(可不填)。';
   body.appendChild(hint);
   const input = document.createElement('input');
   input.type = 'date';
@@ -611,7 +699,7 @@ function acceptTodoWithDeadline(itemId, btn) {
   ok.onclick = function () {
     const dl = (input.value || '').trim();
     overlay.hidden = true;
-    updateStatus('todo', itemId, 'accepted', btn, dl);
+    updateStatus('plan', itemId, 'accepted', btn, dl);
   };
   actions.appendChild(cancel);
   actions.appendChild(ok);
@@ -619,7 +707,7 @@ function acceptTodoWithDeadline(itemId, btn) {
   setTimeout(function () { ok.focus(); }, 30);
 }
 
-/* ====================== 已确定 idea/todo(正式清单) ====================== */
+/* ====================== 已确定 idea/plan(正式清单) ====================== */
 
 async function loadConfirmedIdeas() {
   const grid = document.getElementById('idea-confirmed-grid');
@@ -634,6 +722,16 @@ async function loadConfirmedIdeas() {
       return;
     }
     grid.innerHTML = items.map(renderFormalIdeaCard).join('');
+    // v0.4.22: 绑定删除按钮事件委托
+    grid.addEventListener('click', function(e) {
+      const btn = e.target.closest('[data-action="delete-idea"]');
+      if (btn) {
+        const id = btn.getAttribute('data-idea-id');
+        deleteConfirmedIdea(id);
+      }
+    });
+    // 刷新 Lucide 图标
+    if (window.refreshIcons) window.refreshIcons();
   } catch (e) {
     grid.innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
   }
@@ -641,45 +739,74 @@ async function loadConfirmedIdeas() {
 
 function renderFormalIdeaCard(item) {
   // v0.4.11: 已确定 idea 卡片也只留标题(去掉所有标签 + 正文)
+  // v0.4.22: 添加删除按钮(右上角,hover 显示)
   return '<div class="card suggestion-card">' +
+    '<button class="icon-btn icon-btn-danger idea-delete-btn" title="删除此 idea" data-action="delete-idea" data-idea-id="' + escapeHtml(item.id) + '">' +
+    '<i data-lucide="trash-2"></i></button>' +
     '<h3 class="card-title">' + escapeHtml(item.title || item.id || '(未命名)') + '</h3>' +
     '</div>';
 }
 
-async function loadConfirmedTodos() {
-  const grid = document.getElementById('todo-confirmed-grid');
+async function deleteConfirmedIdea(ideaId) {
+  // v0.4.22: 删除已确定的 idea
+  if (!await confirmModal('确定删除此 idea？此操作不可撤销。', {
+    title: '删除 Idea', danger: true, confirmText: '删除'
+  })) return;
+
+  try {
+    const res = await fetch('/api/idea/confirmed/' + encodeURIComponent(ideaId), {
+      method: 'DELETE'
+    });
+    if (!res.ok) {
+      const d = await res.json();
+      throw new Error(d.detail || '删除失败');
+    }
+    toast('✓ 已删除', 'success');
+    await loadConfirmedIdeas(); // 刷新列表
+  } catch (e) {
+    toast('删除失败:' + e.message, 'error');
+  }
+}
+
+async function loadConfirmedPlans() {
+  const grid = document.getElementById('plan-confirmed-grid');
   if (!grid) return;
   grid.innerHTML = '<div class="loading">加载中...</div>';
   try {
-    const res = await fetch('/api/todos/confirmed');
+    const res = await fetch('/api/plans/confirmed');
     const data = await res.json();
     const items = data.items || [];
     if (items.length === 0) {
-      grid.innerHTML = '<div class="empty">还没有正式 todo。先在「待定」确认后运行 <code>python scripts/kb.py accept-todos</code>。</div>';
+      grid.innerHTML = '<div class="empty">还没有正式 plan。先在「待定」确认后运行 <code>python scripts/kb.py accept-plans</code>。</div>';
       return;
     }
-    // 拉日历事项,建 source_id → calItem 映射,用于「已加入日历」状态回显
+    // 拉日历事项,建 plan_id/source_id → calItem 映射,用于「已加入日历」状态回显
+    // v0.4.23:新 plan 日历项用 plan_id 字段(而非 source_id),两端都匹配兼容
     let calMap = {};
     try {
       const calRes = await fetch('/api/calendar');
       const calData = await calRes.json();
       (calData.items || []).forEach(ci => {
         if (ci.source_id) calMap[ci.source_id] = ci;
+        if (ci.plan_id) calMap[ci.plan_id] = ci;
       });
-    } catch (e) { /* 日历加载失败不阻塞 todo 显示 */ }
-    // 按 plan 分组:weekly / monthly / someday / completed
-    const groups = { weekly: [], monthly: [], someday: [], completed: [] };
+    } catch (e) { /* 日历加载失败不阻塞 plan 显示 */ }
+    // v0.4.23: 扁平列表(按 status 分两组:待办 / 已完成),不再按 weekly/monthly/someday 分组
+    const groups = { active: [], done: [] };
     items.forEach(it => {
-      const key = groups[it.plan] ? it.plan : 'someday';
+      const key = it.status === 'done' ? 'done' : 'active';
       groups[key].push(it);
     });
-    const labels = { weekly: '<i data-lucide="calendar"></i> Weekly(按周)', monthly: '<i data-lucide="calendar-days"></i> Monthly(按月)', someday: '<i data-lucide="inbox"></i> Someday', completed: '<i data-lucide="check"></i> 已完成' };
+    const labels = {
+      active: '<i data-lucide="circle"></i> 待办',
+      done: '<i data-lucide="check"></i> 已完成'
+    };
     let html = '';
-    for (const key of ['weekly', 'monthly', 'someday', 'completed']) {
+    for (const key of ['active', 'done']) {
       if (groups[key].length === 0) continue;
       html += '<div class="confirmed-group"><h3 class="confirmed-group-title">' + labels[key] +
               ' <span class="count-badge">' + groups[key].length + '</span></h3>';
-      html += '<div class="card-grid">' + groups[key].map(it => renderFormalTodoCard(it, calMap[it.id])).join('') + '</div></div>';
+      html += '<div class="card-grid">' + groups[key].map(it => renderFormalPlanCard(it, calMap[it.id])).join('') + '</div></div>';
     }
     grid.innerHTML = html || '<div class="empty">暂无</div>';
   } catch (e) {
@@ -687,69 +814,80 @@ async function loadConfirmedTodos() {
   }
 }
 
-function renderFormalTodoCard(item, calItem) {
-  // v0.4.6: 存全局 todoStore,点击时按 id 取回完整 item(替代 onclick=JSON.stringify 注入)
-  if (item.id) window.todoStore.set(item.id, item);
-  // v0.4.13: 已确定 todo 卡片简化——只留标题 + 完成状态 + 日历关联按钮
-  const doneBadge = item.done ? '<span class="tag" style="background:#dcfce7;color:#166534"><i data-lucide="check"></i> 已完成</span>'
-                              : '<span class="tag tag-area"><i data-lucide="circle"></i> 待办</span>';
+function renderFormalPlanCard(item, calItem) {
+  // v0.4.6: 存全局 planStore,点击时按 id 取回完整 item(替代 onclick=JSON.stringify 注入)
+  if (item.id) window.planStore.set(item.id, item);
+  // v0.4.23: 卡片显示 状态 + 标题 + deadline(如有) + 日历关联区
+  const isDone = item.status === 'done';
+  const doneBadge = isDone ? '<span class="tag" style="background:#dcfce7;color:#166534"><i data-lucide="check"></i> 已完成</span>'
+                           : '<span class="tag tag-area"><i data-lucide="circle"></i> 待办</span>';
   const itemId = escapeHtml(item.id || '');
+  // deadline 显示(有值才显示,逾期标红)
+  const today = new Date().toISOString().slice(0, 10);
+  let dlHtml = '';
+  if (item.deadline) {
+    const overdue = !isDone && item.deadline < today;
+    const dlClass = overdue ? 'tk-dl-overdue' : (item.deadline === today ? 'tk-dl-today' : '');
+    dlHtml = '<div class="plan-deadline ' + dlClass + '"><i data-lucide="calendar-clock"></i> '
+      + (overdue ? '⚠ ' : '') + escapeHtml(item.deadline) + '</div>';
+  }
   // 日历关联区:已加入显示日期+编辑,未加入显示「放入日历」按钮
   let calSection;
   if (calItem) {
-    calSection = '<div class="todo-cal-link">' +
+    calSection = '<div class="plan-cal-link">' +
       '<span class="tag" style="background:#dbeafe;color:#1e40af">📅 已加入日历 · ' + escapeHtml(calItem.date) + '</span>' +
-      '<button class="btn btn-sm btn-ghost" data-action="open-todo-calendar" data-todo-id="' + itemId + '" data-mode="edit">编辑</button>' +
+      '<button class="btn btn-sm btn-ghost" data-action="open-plan-calendar" data-plan-id="' + itemId + '" data-mode="edit">编辑</button>' +
       '</div>';
   } else {
     calSection = '<div class="action-row">' +
-      '<button class="btn btn-sm btn-primary" data-action="open-todo-calendar" data-todo-id="' + itemId + '" data-mode="create">📅 放入日历</button>' +
+      '<button class="btn btn-sm btn-primary" data-action="open-plan-calendar" data-plan-id="' + itemId + '" data-mode="create">📅 放入日历</button>' +
       '</div>';
   }
-  return '<div class="card suggestion-card' + (item.done ? ' card-done' : '') + '">' +
+  return '<div class="card suggestion-card' + (isDone ? ' card-done' : '') + '">' +
     '<div class="card-header">' + doneBadge + '</div>' +
     '<h3 class="card-title">' + escapeHtml(item.title) + '</h3>' +
+    dlHtml +
     calSection +
     '</div>';
 }
 
-// 已确认 todo 放入日历(复用统一日历表单 openCalendarEventForm)
-function openTodoCalendar(todoItemOrId, mode) {
+// 已确认 plan 放入日历(复用统一日历表单 openCalendarEventForm)
+function openPlanCalendar(planItemOrId, mode) {
   // v0.4.6: 兼容两种入参——完整 item 对象(旧调用方)或 id 字符串(事件委托)
-  // id 字符串时从全局 todoStore 取回完整 item
-  let todoItem = todoItemOrId;
-  if (typeof todoItemOrId === 'string') {
-    todoItem = window.todoStore ? window.todoStore.get(todoItemOrId) : null;
-    if (!todoItem) {
-      toast('未找到 todo 数据(可能页面已刷新)', 'warning');
+  // id 字符串时从全局 planStore 取回完整 item
+  let planItem = planItemOrId;
+  if (typeof planItemOrId === 'string') {
+    planItem = window.planStore ? window.planStore.get(planItemOrId) : null;
+    if (!planItem) {
+      toast('未找到 plan 数据(可能页面已刷新)', 'warning');
       return;
     }
   }
   if (mode === 'edit') {
-    // 编辑模式:先查该 todo 已有的日历事项
+    // 编辑模式:先查该 plan 已有的日历事项
     fetch('/api/calendar').then(r => r.json()).then(d => {
-      const existing = (d.items || []).find(ci => ci.source_id === todoItem.id);
+      const existing = (d.items || []).find(ci => ci.source_id === planItem.id);
       if (!existing) { toast('未找到关联的日历事项', 'warning'); return; }
       openCalendarEventForm({
         mode: 'edit',
-        entry: 'todo-edit',
+        entry: 'plan-edit',
         item: existing,
-        onSaved: function() { loadConfirmedTodos(); },
-        onDeleted: function() { loadConfirmedTodos(); },
+        onSaved: function() { loadConfirmedPlans(); },
+        onDeleted: function() { loadConfirmedPlans(); },
       });
     }).catch(e => toast('加载日历失败:' + e.message, 'error'));
     return;
   }
-  // 创建模式:默认标题=todo 标题,日期=今天,source_id=todo id(用于去重和回显)
+  // 创建模式:默认标题=plan 标题,日期=今天,source_id=plan id(用于去重和回显)
   openCalendarEventForm({
     mode: 'create',
-    entry: 'todo-create',
-    sourceId: todoItem.id,
-    sourceType: 'todo',
-    sourceTitle: todoItem.title,
-    defaultTitle: todoItem.title,
+    entry: 'plan-create',
+    sourceId: planItem.id,
+    sourceType: 'plan',
+    sourceTitle: planItem.title,
+    defaultTitle: planItem.title,
     defaultDate: new Date().toISOString().slice(0, 10),
-    onSaved: function() { loadConfirmedTodos(); },
+    onSaved: function() { loadConfirmedPlans(); },
   });
 }
 
@@ -862,7 +1000,7 @@ function renderPanel(tab) {
   if (!items.length) {
     const emptyMsg = {
       unread: '没有未读文章,全部已读 🎉',
-      read: '还没有已读文章。打开文章详情会自动标记为已读。',
+      read: '还没有最近阅读记录。打开文章详情会自动记录到这里。',
       readlater: '还没有稍后阅读的文章。在文章详情页点 📖 加入。',
     }[tab];
     if (grid) grid.innerHTML = '<div class="empty">' + emptyMsg + '</div>';
@@ -897,7 +1035,7 @@ function switchTab(tab) {
 async function initDashboard() {
   // 标签切换
   document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
-  // 恢复上次查看的标签(HTML 默认 unread,有会话记录则覆盖)
+  // 默认打开未读；如果本次会话里手动切过其它标签，再恢复到上次标签。
   const lastTab = KBState.get('kb-dash-tab', 'unread');
   if (lastTab !== 'unread') switchTab(lastTab);
 
@@ -985,6 +1123,7 @@ async function initDashboard() {
 
 /* ====================== 全局初始化 ====================== */
 initTheme();
+initSidebarCollapse();
 initNav();
 initModalOverlay();
 
@@ -1018,8 +1157,8 @@ function openCalendarEventForm(opts) {
     sourceTitle = opts.item.source_title || '';
     category = opts.item.category || '';
     itemId = opts.item.id || '';
-  } else if (sourceType === 'todo') {
-    // v0.4.2: 从 todo 创建的事项默认归类为 todolist
+  } else if (sourceType === 'plan') {
+    // v0.4.2: 从 plan 创建的事项默认归类为 todolist
     category = 'todolist';
   }
 
@@ -1205,13 +1344,13 @@ function openCalendarEventForm(opts) {
 }
 
 // ---------------------------------------------------------------------------
-// 详情页手动生成 Idea/Todo(v0.4.0)
+// 详情页手动生成 Idea/Plan(v0.4.0)
 // 参考 openCalendarEventForm 的表单弹窗模式:innerHTML 注入 + 自带按钮
 // ---------------------------------------------------------------------------
 
 function openGenerateDialog(kind, sourceId) {
   const isIdea = kind === 'idea';
-  const title = isIdea ? '生成 Idea 列表' : '生成 Todo 列表';
+  const title = isIdea ? '生成 Idea 列表' : '生成 Plan 列表';
   const promptPh = isIdea
     ? '例如:重点找可落地的工具型 idea / 关注 Agent 相关方向'
     : '例如:本周能做完的 / 找可立即试用的工具';
@@ -1227,17 +1366,14 @@ function openGenerateDialog(kind, sourceId) {
       '<option value="web_design">web_design</option>' +
       '<option value="other">other</option></select></div>'
     : '';
-  const todoFields = !isIdea
+  const planFields = !isIdea
     ? '<div class="cal-form-field"><label>难度</label>' +
       '<select id="gen-difficulty"><option value="">不限</option>' +
       '<option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></div>' +
       '<div class="cal-form-field"><label>预计时间</label>' +
       '<select id="gen-time"><option value="">不限</option>' +
       '<option value="30min">30min</option><option value="1h">1h</option><option value="2-4h">2-4h</option>' +
-      '<option value="半天">半天</option><option value="1-2 天">1-2 天</option></select></div>' +
-      '<div class="cal-form-field"><label>计划</label>' +
-      '<select id="gen-plan"><option value="">不限</option>' +
-      '<option value="weekly">weekly</option><option value="monthly">monthly</option><option value="someday">someday</option></select></div>'
+      '<option value="半天">半天</option><option value="1-2 天">1-2 天</option></select></div>'
     : '';
 
   const formHtml =
@@ -1247,7 +1383,7 @@ function openGenerateDialog(kind, sourceId) {
     '<div class="cal-form-field"><label>优先级</label>' +
     '<select id="gen-priority"><option value="">不限</option>' +
     '<option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option><option value="P3">P3</option></select></div>' +
-    ideaFields + todoFields +
+    ideaFields + planFields +
     '<div class="cal-form-actions">' +
     '<button class="btn btn-ghost" id="gen-cancel">取消</button>' +
     '<button class="btn btn-primary" id="gen-submit">生成</button></div>' +
@@ -1279,11 +1415,10 @@ function openGenerateDialog(kind, sourceId) {
     } else {
       body.difficulty = document.getElementById('gen-difficulty').value;
       body.estimated_time = document.getElementById('gen-time').value;
-      body.plan = document.getElementById('gen-plan').value;
     }
 
     const url = '/api/article/' + encodeURIComponent(sourceId) +
-                (isIdea ? '/generate-ideas' : '/generate-todos');
+                (isIdea ? '/generate-ideas' : '/generate-plans');
     submitBtn.disabled = true;
     submitBtn.textContent = '⏳ 生成中...(约 10-30 秒)';
     cancelBtn.disabled = true;
@@ -1302,7 +1437,7 @@ function openGenerateDialog(kind, sourceId) {
       }
       overlay.hidden = true;
       const n = data.generated || 0;
-      const listPage = isIdea ? '/ideas' : '/todos';
+      const listPage = isIdea ? '/ideas' : '/plans';
       if (n > 0) {
         toast('✓ 已生成 ' + n + ' 条候选,前往 ' + listPage + ' 查看', 'success');
       } else {
@@ -1356,14 +1491,14 @@ function setupGlobalDelegation() {
           updateStatus(target.dataset.kind, sid, target.dataset.status, target);
         }
         break;
-      case 'accept-todo':
-        if (typeof acceptTodoWithDeadline === 'function') {
-          acceptTodoWithDeadline(sid, target);
+      case 'accept-plan':
+        if (typeof acceptPlanWithDeadline === 'function') {
+          acceptPlanWithDeadline(sid, target);
         }
         break;
-      case 'open-todo-calendar':
-        if (typeof openTodoCalendar === 'function') {
-          openTodoCalendar(target.dataset.todoId, target.dataset.mode || 'edit');
+      case 'open-plan-calendar':
+        if (typeof openPlanCalendar === 'function') {
+          openPlanCalendar(target.dataset.planId, target.dataset.mode || 'edit');
         }
         break;
       case 'select-collection':
@@ -1429,9 +1564,9 @@ function setupGlobalDelegation() {
   });
 }
 
-// 全局 todo 存储(替代 onclick='openTodoCalendar(JSON.stringify(item))')
+// 全局 plan 存储(替代 onclick='openPlanCalendar(JSON.stringify(item))')
 // 渲染时存,点击时取,避免在 HTML 里序列化整个对象
-window.todoStore = window.todoStore || new Map();
+window.planStore = window.planStore || new Map();
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', setupGlobalDelegation);

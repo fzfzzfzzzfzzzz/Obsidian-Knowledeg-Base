@@ -25,7 +25,7 @@ from web.utils import (
     STATIC_DIR,
     BASE_DIR,
     VALID_IDEA_STATUS,
-    VALID_TODO_STATUS,
+    VALID_PLAN_STATUS,
     READING_FIELDS,
     VALID_READING_STATUS,
     VALID_BATCH_ACTIONS,
@@ -73,7 +73,7 @@ from web.models import (
     ArticleCollectionsRequest,
     BatchRequest,
     GenerateIdeasRequest,
-    GenerateTodosRequest,
+    GeneratePlansRequest,
     TagsRequest,
 )
 
@@ -475,7 +475,7 @@ async def api_batch(payload: BatchRequest):
                         if not sources[sid].get("summary_path"):
                             results["skipped"] += 1
                             continue
-                        if sources[sid].get("action_status") == "todo_suggested":
+                        if sources[sid].get("action_status") == "plan_suggested":
                             results["skipped"] += 1
                             continue
                         # 调抽取逻辑
@@ -486,19 +486,19 @@ async def api_batch(payload: BatchRequest):
                             continue
                         _, body = _parse_frontmatter(spath.read_text(encoding=ENC))
                         ideas = kb_llm.extract_ideas_from_summary(body)
-                        todos = kb_llm.extract_todos_from_summary(body)
+                        plans = kb_llm.extract_plans_from_summary(body)
                         today = kb.today_iso()
                         for it in ideas:
                             kb._append_section(
                                 kb.VAULT_ROOT / "03_Ideas" / "idea_suggestions.md",
                                 kb._format_idea_suggestion(sid, sources[sid], it, today),
                             )
-                        for it in todos:
+                        for it in plans:
                             kb._append_section(
-                                kb.VAULT_ROOT / "04_Plans" / "todo_suggestions.md",
-                                kb._format_todo_suggestion(sid, sources[sid], it, today),
+                                kb.VAULT_ROOT / "04_Plans" / "plan_suggestions.md",
+                                kb._format_plan_suggestion(sid, sources[sid], it, today),
                             )
-                        sources[sid]["action_status"] = "todo_suggested"
+                        sources[sid]["action_status"] = "plan_suggested"
                         results["success"] += 1
                 except Exception as e:
                     results["failed"] += 1

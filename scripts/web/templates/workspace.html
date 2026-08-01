@@ -11,12 +11,12 @@
   <div class="ws-hero-actions">
     <div class="ws-search">
       <svg class="ws-search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      <input type="text" id="wsSearchInput" placeholder="搜索 Idea、笔记、内容…" aria-label="搜索">
+      <input type="text" id="wsSearchInput" placeholder="搜索知识库文章…" aria-label="搜索">
     </div>
     <a class="ws-submit" href="/submit" title="投稿">＋</a>
-    <button class="ws-notify" id="wsNotify" aria-label="通知">
+    <button class="ws-notify" id="wsNotify" aria-label="通知" title="通知">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-      <span class="ws-notify-dot" hidden></span>
+      <span class="ws-notify-dot" id="wsNotifyDot" hidden></span>
     </button>
   </div>
 </section>
@@ -77,6 +77,7 @@
       <section class="ws-card" aria-label="知识库常用">
         <div class="ws-card-head">
           <h3 class="ws-card-title">知识库常用</h3>
+          <a class="ws-section-more" href="/kb">知识库 →</a>
         </div>
         <div class="ws-card-body" id="ws-quick-access">
           <div class="ws-quick-grid">
@@ -91,14 +92,14 @@
       <section class="ws-card" aria-label="市场常用">
         <div class="ws-card-head">
           <h3 class="ws-card-title">市场常用</h3>
+          <a class="ws-section-more" href="/market">市场中心 →</a>
         </div>
         <div class="ws-card-body" id="ws-market-access">
-          <!-- v0.4.20: 占位入口,结构与「知识库常用」一致;待填真实金融链接/图标 -->
           <div class="ws-quick-grid">
-            <a class="ws-quick-item" href="#"><span class="ws-quick-icon"><i data-lucide="circle"></i></span><span class="ws-quick-label">入口 1</span></a>
-            <a class="ws-quick-item" href="#"><span class="ws-quick-icon"><i data-lucide="circle"></i></span><span class="ws-quick-label">入口 2</span></a>
-            <a class="ws-quick-item" href="#"><span class="ws-quick-icon"><i data-lucide="circle"></i></span><span class="ws-quick-label">入口 3</span></a>
-            <a class="ws-quick-item" href="#"><span class="ws-quick-icon"><i data-lucide="circle"></i></span><span class="ws-quick-label">入口 4</span></a>
+            <a class="ws-quick-item" href="/market#mk-index"><span class="ws-quick-icon"><i data-lucide="activity"></i></span><span class="ws-quick-label">市场指数</span></a>
+            <a class="ws-quick-item" href="/market#mk-watchlist"><span class="ws-quick-icon"><i data-lucide="star"></i></span><span class="ws-quick-label">自选股</span></a>
+            <a class="ws-quick-item" href="/market#mk-alerts"><span class="ws-quick-icon"><i data-lucide="zap"></i></span><span class="ws-quick-label">异动提醒</span></a>
+            <a class="ws-quick-item" href="/market#mk-earnings"><span class="ws-quick-icon"><i data-lucide="calendar-clock"></i></span><span class="ws-quick-label">财报日历</span></a>
           </div>
         </div>
       </section>
@@ -211,6 +212,13 @@
         + '<span class="ws-sub-label">当前问题</span>'
         + '<span class="ws-sub-val">'+(blocker?esc(blocker):'无')+'</span>'
         + '</div>';
+      // 下一步行动始终显示:非空时主色高亮(next),空时显示「无」
+      var na = t.next_action || '';
+      var nextActionHtml = '<div class="ws-sub-row'+(na?' next':'')+'">'
+        + '<i class="ws-sub-ico" data-lucide="arrow-right-circle"></i>'
+        + '<span class="ws-sub-label">下一步</span>'
+        + '<span class="ws-sub-val">'+(na?esc(na):'无')+'</span>'
+        + '</div>';
       var relHtml = t.related_source || t.project
         ? ('<a class="ws-meta-link" href="'+(t.related_source ? ('/summary/'+esc(t.related_source)) : '/tasks')+'">查看关联项目 →</a>')
         : '';
@@ -240,6 +248,7 @@
                 + '<span class="ws-sub-val">'+esc(dlText)+'</span>'
               + '</div>'
               + blockerHtml
+              + nextActionHtml
             + '</div>'
             + (relHtml ? '<div class="ws-task-rel">'+relHtml+'</div>' : '')
           + '</div>'
@@ -376,8 +385,24 @@
     });
   }
 
-  // ---- 推荐阅读 ----
-  function loadRecommend(){
+  // ---- 推荐阅读 + 最近阅读(共用一次 dashboard_full 请求,避免重复 fetch)----
+  var READ_THUMBS = [
+    'linear-gradient(135deg,#3b82f6,#8b5cf6)',
+    'linear-gradient(135deg,#8b5cf6,#ec4899)',
+    'linear-gradient(135deg,#06b6d4,#3b82f6)'
+  ];
+  function renderArticleCard(x, i, metaField){
+    var tags = (x.tags && x.tags.length) ? x.tags.slice(0,2).map(esc).join(' ') : '';
+    return '<a class="ws-article" href="/summary/'+esc(x.source_id)+'">'
+      + '<div class="ws-article-thumb" style="background:'+READ_THUMBS[i%READ_THUMBS.length]+'"></div>'
+      + '<div class="ws-article-body">'
+        + '<div class="ws-article-title">'+esc(x.title||x.source_id)+'</div>'
+        + '<div class="ws-article-meta">'+(x.area ? esc(x.area)+' · ' : '')+fmtTimeAgo(x[metaField])+'</div>'
+        + (tags ? '<div class="ws-article-tags">'+tags+'</div>' : '')
+      + '</div>'
+      + '</a>';
+  }
+  function loadReading(){
     fetch('/api/dashboard_full').then(function(r){return r.json();}).catch(function(){return {unread:[],read:[]};}).then(function(d){
       var unread = d.unread || [];
       var read = d.read || [];
@@ -387,52 +412,69 @@
       document.getElementById('rs-read').textContent = read.length;
       document.getElementById('rs-progress').textContent = progress + '%';
 
-      var items = unread.slice(0,3);
-      if(!items.length){ setBody('ws-recommend-body', emptyHTML('没有未读文章,去 /kb 看全部')); return; }
-      var thumbs = [
-        'linear-gradient(135deg,#3b82f6,#8b5cf6)',
-        'linear-gradient(135deg,#8b5cf6,#ec4899)',
-        'linear-gradient(135deg,#06b6d4,#3b82f6)'
-      ];
-      var html = items.map(function(x, i){
-        var tags = (x.tags && x.tags.length) ? x.tags.slice(0,2).map(esc).join(' ') : '';
-        return '<a class="ws-article" href="/summary/'+esc(x.source_id)+'">'
-          + '<div class="ws-article-thumb" style="background:'+thumbs[i%thumbs.length]+'"></div>'
-          + '<div class="ws-article-body">'
-            + '<div class="ws-article-title">'+esc(x.title||x.source_id)+'</div>'
-            + '<div class="ws-article-meta">'+(x.area ? esc(x.area)+' · ' : '')+fmtTimeAgo(x.summarized_at)+'</div>'
-            + (tags ? '<div class="ws-article-tags">'+tags+'</div>' : '')
-          + '</div>'
-          + '</a>';
-      }).join('');
-      setBody('ws-recommend-body', html);
-    }).catch(function(){ setBody('ws-recommend-body', emptyHTML('加载失败')); });
+      // 推荐阅读(未读前3)
+      var rec = unread.slice(0,3);
+      setBody('ws-recommend-body', rec.length
+        ? rec.map(function(x,i){return renderArticleCard(x,i,'summarized_at');}).join('')
+        : emptyHTML('没有未读文章,去 /kb 看全部'));
+
+      // 最近阅读(已读前3,按 last_read_at)
+      var rec2 = read.slice(0,3);
+      setBody('ws-recent-body', rec2.length
+        ? rec2.map(function(x,i){return renderArticleCard(x,i,'last_read_at');}).join('')
+        : emptyHTML('还没有阅读记录'));
+    });
   }
 
-  // ---- 最近阅读(结构复制自推荐阅读,数据用 read 数组,按 last_read_at 倒序) ----
-  function loadRecent(){
-    fetch('/api/dashboard_full').then(function(r){return r.json();}).catch(function(){return {unread:[],read:[]};}).then(function(d){
-      var read = d.read || [];
-      var items = read.slice(0,3);
-      if(!items.length){ setBody('ws-recent-body', emptyHTML('还没有阅读记录')); return; }
-      var thumbs = [
-        'linear-gradient(135deg,#3b82f6,#8b5cf6)',
-        'linear-gradient(135deg,#8b5cf6,#ec4899)',
-        'linear-gradient(135deg,#06b6d4,#3b82f6)'
-      ];
-      var html = items.map(function(x, i){
-        var tags = (x.tags && x.tags.length) ? x.tags.slice(0,2).map(esc).join(' ') : '';
-        return '<a class="ws-article" href="/summary/'+esc(x.source_id)+'">'
-          + '<div class="ws-article-thumb" style="background:'+thumbs[i%thumbs.length]+'"></div>'
-          + '<div class="ws-article-body">'
-            + '<div class="ws-article-title">'+esc(x.title||x.source_id)+'</div>'
-            + '<div class="ws-article-meta">'+(x.area ? esc(x.area)+' · ' : '')+fmtTimeAgo(x.last_read_at)+'</div>'
-            + (tags ? '<div class="ws-article-tags">'+tags+'</div>' : '')
-          + '</div>'
-          + '</a>';
-      }).join('');
-      setBody('ws-recent-body', html);
-    }).catch(function(){ setBody('ws-recent-body', emptyHTML('加载失败')); });
+  // ---- 通知中心(聚合 待处理事项,点按钮弹出面板)----
+  // 三类来源:逾期/即将截止任务 + 待 review 的 idea/todo。全部复用现有 API。
+  var notifyData = { overdue: [], soon: [], ideas: 0, todos: 0 };
+  function loadNotifications(){
+    Promise.all([
+      fetch('/api/workspace/reminders').then(function(r){return r.json();}).catch(function(){return {items:[]};}),
+      fetch('/api/ideas').then(function(r){return r.json();}).catch(function(){return {items:[]};}),
+      fetch('/api/plans').then(function(r){return r.json();}).catch(function(){return {items:[]};})
+    ]).then(function(res){
+      var reminders = res[0].items || [];
+      notifyData.overdue = reminders.filter(function(x){return x.urgency === 'overdue';});
+      notifyData.soon = reminders.filter(function(x){return x.urgency === 'due_today' || x.urgency === 'due_this_week';});
+      notifyData.ideas = (res[1].items || []).filter(function(x){return (x.status||'').indexOf('pending')===0;}).length;
+      notifyData.todos = (res[2].items || []).filter(function(x){return (x.status||'').indexOf('pending')===0;}).length;
+      var total = notifyData.overdue.length + notifyData.soon.length + notifyData.ideas + notifyData.todos;
+      var dot = document.getElementById('wsNotifyDot');
+      var btn = document.getElementById('wsNotify');
+      if(dot){ dot.hidden = total === 0; if(total>0) dot.textContent = total > 99 ? '99+' : total; }
+      if(btn) btn.setAttribute('title', total ? ('有 '+total+' 项待处理') : '无待处理事项');
+    });
+  }
+  function openNotifyPanel(){
+    var d = notifyData;
+    var sections = [];
+    if(d.overdue.length){
+      sections.push('<div class="ws-notify-group"><h4>逾期任务 ('+d.overdue.length+')</h4>'
+        + d.overdue.map(function(x){
+            return '<a class="ws-notify-item danger" href="/task/'+esc(x.id)+'"><span>'+esc(x.title)+'</span><span class="ws-notify-sub">已逾期 '+(-x.days_left)+' 天</span></a>';
+          }).join('') + '</div>');
+    }
+    if(d.soon.length){
+      sections.push('<div class="ws-notify-group"><h4>即将截止 ('+d.soon.length+')</h4>'
+        + d.soon.map(function(x){
+            var txt = x.days_left===0 ? '今天截止' : ('还剩 '+x.days_left+' 天');
+            return '<a class="ws-notify-item" href="/task/'+esc(x.id)+'"><span>'+esc(x.title)+'</span><span class="ws-notify-sub">'+esc(x.deadline)+' · '+txt+'</span></a>';
+          }).join('') + '</div>');
+    }
+    if(d.ideas || d.todos){
+      sections.push('<div class="ws-notify-group"><h4>待 Review</h4>'
+        + (d.ideas ? '<a class="ws-notify-item" href="/ideas">'+d.ideas+' 个待定 Idea →</a>' : '')
+        + (d.todos ? '<a class="ws-notify-item" href="/plans">'+d.todos+' 个待定 Plan →</a>' : '')
+        + '</div>');
+    }
+    var html = sections.length ? sections.join('') : '<div class="ws-placeholder">暂无待处理事项 🎉</div>';
+    if(window.openDrawer) window.openDrawer('待处理事项', html);
+    else alert(html.replace(/<[^>]+>/g,''));
+    // 打开面板后红点清除(事项仍可再看)
+    var dot = document.getElementById('wsNotifyDot');
+    if(dot) dot.hidden = true;
   }
 
   // 搜索框 Enter 提交(⌘K 装饰已移除)
@@ -445,6 +487,9 @@
       }
     });
   }
+  // 通知按钮:点击弹出待处理事项面板
+  var notifyBtn = document.getElementById('wsNotify');
+  if(notifyBtn) notifyBtn.addEventListener('click', openNotifyPanel);
 
   // 暴露给 app.js 的抽屉/切换逻辑刷新
   window.loadCurrentTask = loadCurrentTask;
@@ -464,9 +509,9 @@
   // 初始化加载
   loadCurrentTask();
   loadTimeline();
-  loadRecent();
+  loadReading();
   loadBottomCards();
-  loadRecommend();
+  loadNotifications();
 })();
 </script>
 {% endblock %}

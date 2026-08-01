@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 class StatusUpdate(BaseModel):
     status: str
-    # v0.4.12: todo 接受时可选填截止日期(YYYY-MM-DD,空串=不填)。idea 端点忽略此字段。
+    # v0.4.12: plan 接受时可选填截止日期(YYYY-MM-DD,空串=不填)。idea 端点忽略此字段。
     deadline: str = ""
 
 class IdeaCreate(BaseModel):
@@ -25,12 +25,11 @@ class GenerateIdeasRequest(BaseModel):
     priority: str = ""  # "" / P0 / P1 / P2 / P3
     area: str = ""  # "" / research / productivity / product / ai_agent / web_design / other
 
-class GenerateTodosRequest(BaseModel):
+class GeneratePlansRequest(BaseModel):
     prompt: str = ""
     priority: str = ""  # "" / P0 / P1 / P2 / P3
     difficulty: str = ""  # "" / low / medium / high
     estimated_time: str = ""  # "" / 30min / 1h / 2-4h / 半天 / 1-2 天
-    plan: str = ""  # "" / weekly / monthly / someday
 
 class CalendarItemCreate(BaseModel):
     title: str
@@ -105,6 +104,7 @@ class TaskCreate(BaseModel):
     status: str = "active"  # active | done | blocked | archived
     deadline: str = ""  # YYYY-MM-DD,可空
     blocker: str = ""  # 当前问题/阻塞
+    next_action: str = ""  # 下一步行动
     body: str = ""  # 正文 Markdown
     checklist: list[ChecklistItem] = []  # 子任务清单
     related_source: str = ""  # 可选,关联文章 source_id
@@ -123,6 +123,7 @@ class TaskUpdate(BaseModel):
     status: str | None = None
     deadline: str | None = None
     blocker: str | None = None
+    next_action: str | None = None
     body: str | None = None
     checklist: list[ChecklistItem] | None = None
     related_source: str | None = None
@@ -141,24 +142,19 @@ class ChecklistItemUpdate(BaseModel):
 
 
 class MarketCreate(BaseModel):
-    """创建市场条目(自选股 watchlist / 异动 alert,kind 区分)。"""
-    kind: str            # watchlist | alert
+    """创建市场条目(自选股 watchlist)。"""
+    kind: str            # watchlist
     title: str
-    market: str = ""     # watchlist 专属:SH/SZ/BJ/HK/US(alert 忽略)
-    ticker: str = ""     # watchlist 专属:股票代码(规范化为 MARKET:CODE)
-    sector: str = ""     # watchlist 专属:所属赛道/行业
-    date: str = ""       # alert 专属:异动日期 YYYY-MM-DD
-    trigger: str = ""    # alert 专属:异动触发描述(如"放量上涨")
+    market: str = ""     # SH/SZ/BJ/HK/US
+    ticker: str = ""     # 股票代码(规范化为 MARKET:CODE)
+    sector: str = ""     # 所属赛道/行业
     note: str = ""
     status: str = "active"
-    # watchlist 专属:持仓位置(全 str,避免浮点精度 + 支持空串,前端 parseFloat 算盈亏)
+    # 持仓位置(全 str,避免浮点精度 + 支持空串,前端 parseFloat 算盈亏)
     cost_price: str = ""    # 成本价/买入价
     shares: str = ""        # 持仓股数
     target_price: str = ""  # 目标价/止盈位
     stop_price: str = ""    # 止损价
-    # alert 专属:异动方向 + 幅度(驱动红绿配色 + 箭头图标)
-    direction: str = ""     # up | down | flat(空=未指定)
-    magnitude: str = ""     # 变动幅度(如 "+3.2%" / "-5",原样存)
 
 
 class MarketUpdate(BaseModel):
@@ -167,13 +163,71 @@ class MarketUpdate(BaseModel):
     market: str | None = None     # None=不改,提供值含空串=清空
     ticker: str | None = None
     sector: str | None = None
-    date: str | None = None
-    trigger: str | None = None
     note: str | None = None
     status: str | None = None
     cost_price: str | None = None
     shares: str | None = None
     target_price: str | None = None
     stop_price: str | None = None
-    direction: str | None = None
-    magnitude: str | None = None
+
+
+class MarketSimulationCreate(BaseModel):
+    """Create a simulated market position."""
+    title: str
+    market: str = ""
+    ticker: str = ""
+    sector: str = ""
+    entry_price: str = ""
+    shares: str = ""
+    entry_date: str = ""
+    target_price: str = ""
+    stop_price: str = ""
+    status: str = "active"
+    exit_price: str = ""
+    exit_date: str = ""
+    note: str = ""
+    body: str = ""
+
+
+class MarketSimulationUpdate(BaseModel):
+    """Update a simulated market position. None means unchanged."""
+    title: str | None = None
+    market: str | None = None
+    ticker: str | None = None
+    sector: str | None = None
+    entry_price: str | None = None
+    shares: str | None = None
+    entry_date: str | None = None
+    target_price: str | None = None
+    stop_price: str | None = None
+    status: str | None = None
+    exit_price: str | None = None
+    exit_date: str | None = None
+    note: str | None = None
+    body: str | None = None
+
+
+class MarketJudgmentCreate(BaseModel):
+    """Create a personal market judgment record."""
+    title: str = ""
+    target: str = ""
+    judgment: str
+    judged_at: str = ""
+    horizon: str = ""
+    verdict: str = "pending"
+    actual_result: str = ""
+    reviewed_at: str = ""
+    body: str = ""
+
+
+class MarketJudgmentUpdate(BaseModel):
+    """Update a personal market judgment record. None means unchanged."""
+    title: str | None = None
+    target: str | None = None
+    judgment: str | None = None
+    judged_at: str | None = None
+    horizon: str | None = None
+    verdict: str | None = None
+    actual_result: str | None = None
+    reviewed_at: str | None = None
+    body: str | None = None

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Plan · 知识库{% endblock %}
+{% block content %}
+<h1 class="page-title"><i data-lucide="list-checks"></i> Plan</h1>
+<p class="page-hint muted">「待定」是 AI 抽取的候选(来自 plan_suggestions.md);「已确定」是 accept 后进入计划的 plan(来自 04_Plans/plan_*.md 独立文件)。</p>
+
+<div class="tab-bar">
+  <button class="tab active" data-tab="pending" onclick="switchTab('pending')">待定</button>
+  <button class="tab" data-tab="confirmed" onclick="switchTab('confirmed')">已确定</button>
+</div>
+
+<div id="panel-pending" class="tab-panel active">
+  <p class="page-hint muted">AI 抽取的 plan 先进这里。点「接受」可填可选截止日期,状态会改为 accepted 并自动创建独立 plan 文件。</p>
+  <div id="plan-grid" class="card-grid">
+    <div class="loading">加载中...</div>
+  </div>
+</div>
+
+<div id="panel-confirmed" class="tab-panel">
+  <p class="page-hint muted">已 accept 的 plan。文件不存在或为空时,先在「待定」确认后运行 <code>python scripts/kb.py accept-plans</code>。</p>
+  <div id="plan-confirmed-grid">
+    <div class="muted">切换到此页加载...</div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  loadSuggestions('plan');
+  let _planConfirmedLoaded = false;
+  document.addEventListener('click', function(e) {
+    const tab = e.target.closest('.tab[data-tab="confirmed"]');
+    if (tab && !_planConfirmedLoaded) {
+      _planConfirmedLoaded = true;
+      loadConfirmedPlans();
+    }
+  });
+</script>
+{% endblock %}

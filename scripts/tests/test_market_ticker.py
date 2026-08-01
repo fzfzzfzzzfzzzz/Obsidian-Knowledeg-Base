@@ -6,6 +6,7 @@ ticker 规范化存储为 'MARKET:CODE'。范式参考 test_events.py。
 import kb
 import kb_web
 import pytest
+import web.routers.market as market_router
 from fastapi.testclient import TestClient
 
 
@@ -126,6 +127,41 @@ def test_api_create_watchlist_us_uppercased(client, isolate_vault):
     client.delete("/api/market/" + r.json()["market"]["id"])
 
 
+def test_api_market_quote_batch_keeps_partial_failures(client, isolate_vault, monkeypatch):
+    """行情源单只失败时,批量接口仍返回所有自选股和成功/失败计数。"""
+    r1 = client.post("/api/market", json={
+        "kind": "watchlist", "title": "茅台", "market": "SH", "ticker": "600519"
+    })
+    r2 = client.post("/api/market", json={
+        "kind": "watchlist", "title": "苹果", "market": "US", "ticker": "aapl"
+    })
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+
+    def fake_get_quote(market, code, days):
+        if code == "600519":
+            return {
+                "ok": True, "market": market, "code": code,
+                "price": 123.4, "change_pct": 1.2,
+                "kline": [{"date": "2026-08-01", "close": 123.4}],
+                "kline_days": 1, "date": "2026-08-01",
+            }
+        return {
+            "ok": False, "market": market, "code": code,
+            "error": "行情源连接失败,请稍后重试",
+        }
+
+    monkeypatch.setattr(market_router.kb_quote, "get_quote", fake_get_quote)
+
+    r = client.get("/api/market/quote?days=30")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["ok_count"] == 1
+    assert d["fail_count"] == 1
+    assert len(d["items"]) == 2
+    assert {it["title"] for it in d["items"]} == {"茅台", "苹果"}
+
+
 @pytest.mark.parametrize("market,code", [
     ("SH", "700"),       # 港股代码填到沪市
     ("US", "1234"),      # 美股填数字
@@ -139,16 +175,6 @@ def test_api_create_watchlist_rejects_illegal(client, isolate_vault, market, cod
     })
     assert r.status_code == 400, f"{market}:{code} 应被拒绝"
     assert r.json().get("detail"), "应返回可读错误描述"
-
-
-def test_api_create_alert_no_ticker_validation(client, isolate_vault):
-    """异动不校验 ticker(异动不一定关联具体代码)。"""
-    r = client.post("/api/market", json={
-        "kind": "alert", "title": "异动", "date": "2026-07-27",
-        "trigger": "放量上涨", "ticker": "随便填什么都可以"
-    })
-    assert r.status_code == 200, r.text
-    client.delete("/api/market/" + r.json()["market"]["id"])
 
 
 # —— Web API:PATCH 更新时联合校验 ——
@@ -201,7 +227,7 @@ updated_at: 2026-07-20T00:00:00
     assert code == "AAPL"
 
 
-# —— v0.4.22:持仓位置字段(watchlist)+ 方向幅度字段(alert)——
+# —— v0.4.22:持仓位置字段(watchlist)——
 
 def test_watchlist_position_roundtrip(isolate_vault):
     """watchlist 的 4 个持仓字段写读一致(纯 str,避免浮点精度)。"""
@@ -219,27 +245,6 @@ def test_watchlist_position_roundtrip(isolate_vault):
     assert m["shares"] == "100"
     assert m["target_price"] == "1900"
     assert m["stop_price"] == "1550"
-    # watchlist 不该写 alert 专属字段(direction/magnitude 为空)
-    assert m["direction"] == ""
-    assert m["magnitude"] == ""
-
-
-def test_alert_direction_magnitude_roundtrip(isolate_vault):
-    """alert 的 direction + magnitude 写读一致。"""
-    path = kb._market_file_path("market_alert_dirtest01")
-    meta = {
-        "id": "market_alert_dirtest01", "kind": "alert", "title": "茅台异动",
-        "date": "2026-07-28", "trigger": "放量上涨",
-        "direction": "up", "magnitude": "+3.2%",
-        "note": "", "status": "active",
-    }
-    kb.write_market_file(path, meta, "", is_new=True)
-    m = kb.load_market_file(path)
-    assert m["direction"] == "up"
-    assert m["magnitude"] == "+3.2%"
-    # alert 不该写 watchlist 专属字段(持仓位置为空)
-    assert m["cost_price"] == ""
-    assert m["shares"] == ""
 
 
 def test_api_create_watchlist_with_position(client, isolate_vault):
@@ -257,43 +262,8 @@ def test_api_create_watchlist_with_position(client, isolate_vault):
     client.delete("/api/market/" + m["id"])
 
 
-def test_api_create_alert_with_direction(client, isolate_vault):
-    """POST 创建 alert 带方向 + 幅度。"""
-    r = client.post("/api/market", json={
-        "kind": "alert", "title": "异动", "date": "2026-07-28", "trigger": "放量上涨",
-        "direction": "up", "magnitude": "+3.2%",
-    })
-    assert r.status_code == 200, r.text
-    m = r.json()["market"]
-    assert m["direction"] == "up"
-    assert m["magnitude"] == "+3.2%"
-    client.delete("/api/market/" + m["id"])
-
-
-@pytest.mark.parametrize("bad_dir", ["UPx", "rise", "higher", "123"])
-def test_api_create_alert_rejects_bad_direction(client, isolate_vault, bad_dir):
-    """非法 direction 值应 400(白名单 up/down/flat)。"""
-    r = client.post("/api/market", json={
-        "kind": "alert", "title": "异动", "date": "2026-07-28", "trigger": "涨",
-        "direction": bad_dir,
-    })
-    assert r.status_code == 400
-    assert r.json().get("detail")
-
-
-def test_api_create_alert_direction_lowercased(client, isolate_vault):
-    """direction 大写应被规范化为小写(UP → up)。"""
-    r = client.post("/api/market", json={
-        "kind": "alert", "title": "异动", "date": "2026-07-28", "trigger": "涨",
-        "direction": "UP",
-    })
-    assert r.status_code == 200, r.text
-    assert r.json()["market"]["direction"] == "up"
-    client.delete("/api/market/" + r.json()["market"]["id"])
-
-
-def test_api_patch_position_and_direction(client, isolate_vault):
-    """PATCH 能更新持仓字段和方向字段。"""
+def test_api_patch_position(client, isolate_vault):
+    """PATCH 能更新持仓字段。"""
     # 建一个空 watchlist
     r = client.post("/api/market", json={
         "kind": "watchlist", "title": "茅台", "market": "SH", "ticker": "600519",
@@ -307,21 +277,9 @@ def test_api_patch_position_and_direction(client, isolate_vault):
     assert m["shares"] == "200"
     client.delete("/api/market/" + wid)
 
-    # 建一个 alert 并补方向
-    r = client.post("/api/market", json={
-        "kind": "alert", "title": "异动", "date": "2026-07-28", "trigger": "跌",
-    })
-    aid = r.json()["market"]["id"]
-    r = client.patch("/api/market/" + aid, json={"direction": "down", "magnitude": "-2%"})
-    assert r.status_code == 200
-    m = r.json()["market"]
-    assert m["direction"] == "down"
-    assert m["magnitude"] == "-2%"
-    client.delete("/api/market/" + aid)
 
-
-def test_load_legacy_market_without_new_fields(isolate_vault):
-    """旧数据(无持仓/方向字段)load 时不报错,新字段默认空串。"""
+def test_load_legacy_market_without_position_fields(isolate_vault):
+    """旧数据(无持仓字段)load 时不报错,持仓字段默认空串。"""
     tmp = isolate_vault
     path = tmp / "08_Market" / "market_watchlist_legacy_newfld.md"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -340,5 +298,3 @@ updated_at: 2026-07-20T00:00:00
     m = kb.load_market_file(path)
     assert m["cost_price"] == ""
     assert m["shares"] == ""
-    assert m["direction"] == ""
-    assert m["magnitude"] == ""

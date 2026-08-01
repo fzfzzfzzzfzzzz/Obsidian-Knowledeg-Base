@@ -321,7 +321,7 @@ def sync_event_to_calendar(event_id: str) -> dict:
 
 # ---------------------------------------------------------------------------
 # Market(市场)管理 —— 08_Market/market_*.md
-# watchlist=自选股/赛道,alert=异动提醒,kind 字段区分。异动纯手动录入。
+# 仅 watchlist=自选股/赛道(alert 异动已合并到 event 系统,不再单独管理)
 # ---------------------------------------------------------------------------
 
 # ticker 规范化存储为 "<MARKET>:<CODE>"(如 SH:600519 / HK:0700 / US:AAPL),
@@ -447,13 +447,11 @@ def _find_market_file(market_id: str) -> Path | None:
 def _format_market_file(meta: dict, body: str) -> str:
     """把 market meta dict + 正文格式化成完整 markdown 文件(frontmatter + body)。
 
-    字段集兼容两种 kind:watchlist 用 ticker/sector + 持仓位置(cost_price/shares/
-    target_price/stop_price),alert 用 date/trigger + 方向幅度(direction/magnitude);
-    不适用的字段写空串。所有字段单行字符串。
+    字段:watchlist 用 ticker/sector + 持仓位置(cost_price/shares/target_price/
+    stop_price),不适用的字段写空串。所有字段单行字符串。
     """
     lines = ["---"]
     for key in ("id", "kind", "title", "market", "ticker", "sector",
-                "date", "trigger", "direction", "magnitude",
                 "cost_price", "shares", "target_price", "stop_price",
                 "note", "status",
                 "created_at", "updated_at"):
@@ -477,10 +475,6 @@ def load_market_file(path: Path) -> dict:
         "market": meta.get("market", "").strip(),
         "ticker": meta.get("ticker", "").strip(),
         "sector": meta.get("sector", "").strip(),
-        "date": meta.get("date", "").strip(),
-        "trigger": meta.get("trigger", "").strip(),
-        "direction": meta.get("direction", "").strip(),
-        "magnitude": meta.get("magnitude", "").strip(),
         "cost_price": meta.get("cost_price", "").strip(),
         "shares": meta.get("shares", "").strip(),
         "target_price": meta.get("target_price", "").strip(),
@@ -497,8 +491,7 @@ def load_market_file(path: Path) -> dict:
 def scan_market(kind: str | None = None) -> list[dict]:
     """扫描 08_Market/market_*.md,可选按 kind 过滤。
 
-    watchlist 按标题字母序,alert 按日期倒序(最新异动在前);混合时 alert 优先。
-    目录不存在或无文件返回 []。损坏文件备份 + 记日志(与 scan_events 同款)。
+    按标题字母序。目录不存在或无文件返回 []。损坏文件备份 + 记日志(与 scan_events 同款)。
 
     loader 走 kb.load_market_file(而非本模块直接引用),保证 tests 用
     monkeypatch.setattr(kb, "load_market_file", ...) 注入故障时能生效。
@@ -506,17 +499,11 @@ def scan_market(kind: str | None = None) -> list[dict]:
     kb = _kb()
     results = _scan_entities(
         kb.MARKET_DIR_NAME, "market_*.md", kb.load_market_file,
-        # sort_key 仅占位(下面要按 kind 分组重排,这里的统一排序结果会被覆盖)
         sort_key=lambda r: r.get("title", ""),
     )
     if kind:
         results = [r for r in results if r.get("kind") == kind]
-    # alert 按日期倒序在前;watchlist 按标题序在后
-    alerts = sorted([r for r in results if r.get("kind") == "alert"],
-                    key=lambda r: r.get("date", "") or "", reverse=True)
-    watchlists = sorted([r for r in results if r.get("kind") != "alert"],
-                        key=lambda r: r.get("title", ""))
-    return alerts + watchlists
+    return results
 
 
 def write_market_file(path: Path, meta: dict, body: str, *, is_new: bool = False) -> None:
@@ -530,8 +517,204 @@ def write_market_file(path: Path, meta: dict, body: str, *, is_new: bool = False
 
 
 # ---------------------------------------------------------------------------
+# Market judgment(个人判断) —— 08_Market/judgment_*.md
+# ---------------------------------------------------------------------------
+
+def _fm_json_text(raw) -> str:
+    """Return a frontmatter-safe JSON string scalar."""
+    return json.dumps("" if raw is None else str(raw), ensure_ascii=False)
+
+
+def _read_fm_json_text(raw) -> str:
+    """Read a string written by _fm_json_text, with plain-text legacy fallback."""
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    try:
+        val = json.loads(raw)
+        if isinstance(val, str):
+            return val
+    except (json.JSONDecodeError, TypeError):
+        pass
+    return raw
+
+
+def make_market_judgment_id(title: str) -> str:
+    """Generate a market judgment id: judgment_<hash>."""
+    kb = _kb()
+    raw = f"{title}|{time.time_ns()}"
+    return f"judgment_{kb.content_hash(raw)}"
+
+
+def _market_judgment_file_path(judgment_id: str) -> Path:
+    """Return the markdown path for a market judgment id."""
+    kb = _kb()
+    slug_part = judgment_id.removeprefix("judgment_")
+    return kb.VAULT_ROOT / kb.MARKET_DIR_NAME / f"judgment_{slug_part}.md"
+
+
+def _find_market_judgment_file(judgment_id: str) -> Path | None:
+    """Find a market judgment markdown file by frontmatter id."""
+    return _find_entity_file(
+        judgment_id, _kb().MARKET_DIR_NAME, "judgment_*.md", _market_judgment_file_path
+    )
+
+
+def _format_market_judgment_file(meta: dict, body: str) -> str:
+    """Format market judgment metadata + markdown body."""
+    lines = ["---"]
+    for key in ("id", "title", "target", "judgment", "judged_at", "horizon",
+                "verdict", "actual_result", "reviewed_at",
+                "created_at", "updated_at"):
+        val = meta.get(key, "")
+        if key in ("title", "target", "judgment", "horizon", "actual_result"):
+            val = _fm_json_text(val)
+        lines.append(f"{key}: {val}")
+    lines.append("---")
+    lines.append("")
+    lines.append(body.rstrip() if body else "（暂无补充）")
+    return "\n".join(lines) + "\n"
+
+
+def load_market_judgment_file(path: Path) -> dict:
+    """Read a market judgment markdown file."""
+    kb = _kb()
+    text = kb.read_text(path)
+    meta, body = kb.parsefrontmatter(text)
+    return {
+        "id": meta.get("id", "").strip(),
+        "title": _read_fm_json_text(meta.get("title", "")),
+        "target": _read_fm_json_text(meta.get("target", "")),
+        "judgment": _read_fm_json_text(meta.get("judgment", "")),
+        "judged_at": meta.get("judged_at", "").strip(),
+        "horizon": _read_fm_json_text(meta.get("horizon", "")),
+        "verdict": meta.get("verdict", "pending").strip() or "pending",
+        "actual_result": _read_fm_json_text(meta.get("actual_result", "")),
+        "reviewed_at": meta.get("reviewed_at", "").strip(),
+        "created_at": meta.get("created_at", "").strip(),
+        "updated_at": meta.get("updated_at", "").strip(),
+        "body": body,
+        "path": path.relative_to(kb.VAULT_ROOT).as_posix() if _is_relative(path) else str(path),
+    }
+
+
+def scan_market_judgments() -> list[dict]:
+    """Scan market judgments, newest judged_at first."""
+    kb = _kb()
+    results = _scan_entities(
+        kb.MARKET_DIR_NAME, "judgment_*.md", kb.load_market_judgment_file,
+        sort_key=lambda r: r.get("judged_at", ""),
+    )
+    results.reverse()
+    return results
+
+
+def write_market_judgment_file(path: Path, meta: dict, body: str, *, is_new: bool = False) -> None:
+    """Atomically write a market judgment markdown file."""
+    kb = _kb()
+    now = kb.now_ts()
+    if is_new and not meta.get("created_at"):
+        meta["created_at"] = now
+    meta["updated_at"] = now
+    kb.write_text(path, _format_market_judgment_file(meta, body))
+
+
+# ---------------------------------------------------------------------------
+# Market simulation(模拟盘) —— 08_Market/simulation_*.md
+# ---------------------------------------------------------------------------
+
+def make_market_simulation_id(title: str) -> str:
+    """Generate a market simulation id: simulation_<hash>."""
+    kb = _kb()
+    raw = f"{title}|{time.time_ns()}"
+    return f"simulation_{kb.content_hash(raw)}"
+
+
+def _market_simulation_file_path(simulation_id: str) -> Path:
+    """Return the markdown path for a market simulation id."""
+    kb = _kb()
+    slug_part = simulation_id.removeprefix("simulation_")
+    return kb.VAULT_ROOT / kb.MARKET_DIR_NAME / f"simulation_{slug_part}.md"
+
+
+def _find_market_simulation_file(simulation_id: str) -> Path | None:
+    """Find a market simulation markdown file by frontmatter id."""
+    return _find_entity_file(
+        simulation_id, _kb().MARKET_DIR_NAME, "simulation_*.md", _market_simulation_file_path
+    )
+
+
+def _format_market_simulation_file(meta: dict, body: str) -> str:
+    """Format market simulation metadata + markdown body."""
+    lines = ["---"]
+    for key in ("id", "title", "market", "ticker", "sector",
+                "entry_price", "shares", "entry_date",
+                "target_price", "stop_price",
+                "status", "exit_price", "exit_date", "note",
+                "created_at", "updated_at"):
+        val = meta.get(key, "")
+        if key in ("title", "sector", "note"):
+            val = _fm_json_text(val)
+        lines.append(f"{key}: {val}")
+    lines.append("---")
+    lines.append("")
+    lines.append(body.rstrip() if body else "（暂无补充）")
+    return "\n".join(lines) + "\n"
+
+
+def load_market_simulation_file(path: Path) -> dict:
+    """Read a market simulation markdown file."""
+    kb = _kb()
+    text = kb.read_text(path)
+    meta, body = kb.parsefrontmatter(text)
+    return {
+        "id": meta.get("id", "").strip(),
+        "title": _read_fm_json_text(meta.get("title", "")),
+        "market": meta.get("market", "").strip(),
+        "ticker": meta.get("ticker", "").strip(),
+        "sector": _read_fm_json_text(meta.get("sector", "")),
+        "entry_price": meta.get("entry_price", "").strip(),
+        "shares": meta.get("shares", "").strip(),
+        "entry_date": meta.get("entry_date", "").strip(),
+        "target_price": meta.get("target_price", "").strip(),
+        "stop_price": meta.get("stop_price", "").strip(),
+        "status": meta.get("status", "active").strip() or "active",
+        "exit_price": meta.get("exit_price", "").strip(),
+        "exit_date": meta.get("exit_date", "").strip(),
+        "note": _read_fm_json_text(meta.get("note", "")),
+        "created_at": meta.get("created_at", "").strip(),
+        "updated_at": meta.get("updated_at", "").strip(),
+        "body": body,
+        "path": path.relative_to(kb.VAULT_ROOT).as_posix() if _is_relative(path) else str(path),
+    }
+
+
+def scan_market_simulations(status: str | None = None) -> list[dict]:
+    """Scan market simulations, newest entry_date/created_at first."""
+    kb = _kb()
+    results = _scan_entities(
+        kb.MARKET_DIR_NAME, "simulation_*.md", kb.load_market_simulation_file,
+        sort_key=lambda r: (r.get("entry_date", ""), r.get("created_at", ""), r.get("title", "")),
+    )
+    results.reverse()
+    if status:
+        results = [r for r in results if r.get("status") == status]
+    return results
+
+
+def write_market_simulation_file(path: Path, meta: dict, body: str, *, is_new: bool = False) -> None:
+    """Atomically write a market simulation markdown file."""
+    kb = _kb()
+    now = kb.now_ts()
+    if is_new and not meta.get("created_at"):
+        meta["created_at"] = now
+    meta["updated_at"] = now
+    kb.write_text(path, _format_market_simulation_file(meta, body))
+
+
+# ---------------------------------------------------------------------------
 # Task(任务)管理 —— 07_Tasks/task_*.md
-# 与 04_Plans/todo_suggestions.md(从文章抽取的待办建议)是完全不同的系统。
+# 与 04_Plans/plan_suggestions.md(从文章抽取的计划建议)是完全不同的系统。
 # 新增 checklist(JSON 结构化)+ deadline + blocker + pinned 字段。
 # ---------------------------------------------------------------------------
 
@@ -566,9 +749,9 @@ def _format_task_file(meta: dict, body: str) -> str:
         cl = json.dumps(cl, ensure_ascii=False)
     lines = ["---"]
     for key in ("id", "title", "category", "project", "status",
-                "deadline", "blocker", "checklist",
+                "deadline", "blocker", "next_action", "checklist",
                 "related_source", "synced_calendar_ids",
-                "created_at", "updated_at", "completed_at", "pinned"):
+                "created_at", "updated_at", "completed_at", "pinned", "pinned_at"):
         val = meta.get(key, "")
         # checklist 字段用 JSON 字符串,其余字段原样输出
         if key == "checklist":
@@ -617,6 +800,7 @@ def load_task_file(path: Path) -> dict:
         "status": meta.get("status", "active").strip() or "active",
         "deadline": meta.get("deadline", "").strip(),
         "blocker": meta.get("blocker", "").strip(),
+        "next_action": meta.get("next_action", "").strip(),
         "checklist": checklist,
         "related_source": meta.get("related_source", "").strip(),
         "synced_calendar_ids": synced,
@@ -624,6 +808,7 @@ def load_task_file(path: Path) -> dict:
         "updated_at": meta.get("updated_at", "").strip(),
         "completed_at": meta.get("completed_at", "").strip(),
         "pinned": kb._parse_bool(meta.get("pinned", "false")),  # 旧文件无此字段默认 false
+        "pinned_at": meta.get("pinned_at", "").strip(),  # 置顶时间戳;组内按此倒序(最近置顶在前)
         "body": body,
         "path": path.relative_to(kb.VAULT_ROOT).as_posix() if _is_relative(path) else str(path),
     }
@@ -724,6 +909,177 @@ def sync_task_to_calendar(task_id: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Plan(计划)实体:每条独立文件,带 deadline 字段(v0.4.23 重构,废弃 weekly/monthly/someday 分桶)
+# 照搬 task 模式,字段更精简(无 checklist/category/project/blocker/pinned)。
+# ---------------------------------------------------------------------------
+
+def make_plan_id(title: str) -> str:
+    """生成稳定 plan id:plan_<8位hash>。基于标题+当前时刻,保证新建不冲突。"""
+    import time
+    kb = _kb()
+    raw = f"{title}|{time.time_ns()}"
+    return f"plan_{kb.content_hash(raw)}"
+
+
+def _plan_file_path(plan_id: str) -> Path:
+    """由 plan_id 推导对应的 markdown 文件路径。"""
+    slug_part = plan_id.removeprefix("plan_")
+    kb = _kb()
+    return kb.VAULT_ROOT / kb.PLAN_DIR_NAME / f"plan_{slug_part}.md"
+
+
+def _find_plan_file(plan_id: str) -> Path | None:
+    """扫描 04_Plans/ 找到 frontmatter id == plan_id 的文件。返回路径或 None。"""
+    return _find_entity_file(plan_id, _kb().PLAN_DIR_NAME, "plan_*.md", _plan_file_path)
+
+
+def _format_plan_file(meta: dict, body: str) -> str:
+    """把 plan meta dict + 正文格式化成完整 markdown 文件(frontmatter + body)。
+
+    synced_calendar_ids 用逗号分隔(避免 YAML 列表解析复杂度)。
+    """
+    lines = ["---"]
+    for key in ("id", "title", "deadline", "status", "source_summary",
+                "related_source", "synced_calendar_ids",
+                "created_at", "updated_at", "completed_at"):
+        val = meta.get(key, "")
+        lines.append(f"{key}: {val}")
+    lines.append("---")
+    lines.append("")
+    lines.append(body.rstrip() if body else "（暂无描述）")
+    return "\n".join(lines) + "\n"
+
+
+def load_plan_file(path: Path) -> dict:
+    """读 plan markdown 文件,返回完整字段 dict(含 body)。
+
+    synced_calendar_ids 解析成 list[str]。
+    """
+    kb = _kb()
+    text = kb.read_text(path)
+    meta, body = kb.parsefrontmatter(text)
+    synced_raw = meta.get("synced_calendar_ids", "")
+    synced = [s.strip() for s in synced_raw.split(",") if s.strip()] if synced_raw else []
+    return {
+        "id": meta.get("id", "").strip(),
+        "title": meta.get("title", "").strip(),
+        "deadline": meta.get("deadline", "").strip(),
+        "status": meta.get("status", "active").strip() or "active",
+        "source_summary": meta.get("source_summary", "").strip(),
+        "related_source": meta.get("related_source", "").strip(),
+        "synced_calendar_ids": synced,
+        "created_at": meta.get("created_at", "").strip(),
+        "updated_at": meta.get("updated_at", "").strip(),
+        "completed_at": meta.get("completed_at", "").strip(),
+        "body": body,
+        "path": path.relative_to(kb.VAULT_ROOT).as_posix() if _is_relative(path) else str(path),
+    }
+
+
+def scan_plans() -> list[dict]:
+    """扫描 04_Plans/plan_*.md,返回按 deadline 升序排列的 plan 列表。
+
+    无 deadline 的排末尾(用 9999 sentinel)。每个元素是 load_plan_file 的返回 dict。
+    v0.4.23: 不再扫 Weekly/Monthly/someday 分桶(已废弃)。
+    注意:排除 plan_suggestions.md(review 队列文件,也匹配 plan_*.md 但不是独立 plan)。
+    """
+    kb = _kb()
+    entity_dir = kb.VAULT_ROOT / kb.PLAN_DIR_NAME
+    if not entity_dir.exists():
+        return []
+    results: list[dict] = []
+    for path in sorted(entity_dir.glob("plan_*.md")):
+        if path.name == "plan_suggestions.md":  # review 队列,非独立 plan
+            continue
+        try:
+            results.append(load_plan_file(path))
+        except Exception as e:
+            _log_scan_error(path, e)
+    results.sort(key=lambda t: t.get("deadline", "") or "9999")
+    return results
+
+
+def write_plan_file(path: Path, meta: dict, body: str, *, is_new: bool = False) -> None:
+    """原子写 plan 文件。新建时补 created_at,更新时刷新 updated_at。
+
+    completed_at 生命周期(与 task 一致):
+    - status==done 且无 completed_at → 写当前时间(首次完成)
+    - status==done 且已有 completed_at → 保留
+    - status!=done → 清空
+    """
+    kb = _kb()
+    now = kb.now_ts()
+    if is_new and not meta.get("created_at"):
+        meta["created_at"] = now
+    if meta.get("status") == "done":
+        if not meta.get("completed_at"):
+            meta["completed_at"] = now
+    else:
+        meta["completed_at"] = ""
+    meta["updated_at"] = now
+    kb.write_text(path, _format_plan_file(meta, body))
+
+
+def sync_plan_to_calendar(plan_id: str) -> dict:
+    """把单个 plan 单向推送到日历(创建一条 calendar item,回指 plan_id)。
+
+    幂等:若该 plan 已有存活的 calendar item,不重复创建。日历项被删后允许重新推送。
+    plan 无 deadline 返回 400(与 task 同语义)。
+    """
+    import uuid as _uuid
+    kb = _kb()
+
+    path = _find_plan_file(plan_id)
+    if path is None:
+        return {"synced": False, "plan_id": plan_id, "reason": "plan_not_found"}
+
+    plan = load_plan_file(path)
+    if not plan["deadline"]:
+        return {"synced": False, "plan_id": plan_id, "reason": "plan_has_no_deadline"}
+
+    cal = kb.load_calendar()
+    items = cal.get("items", {})
+
+    for existing_id in plan["synced_calendar_ids"]:
+        if existing_id in items:
+            return {
+                "synced": False, "plan_id": plan_id,
+                "calendar_id": existing_id, "reason": "already_synced",
+            }
+
+    item_id = f"cal_{_uuid.uuid4().hex[:12]}"
+    now = kb.now_ts()
+    item = {
+        "id": item_id,
+        "title": plan["title"],
+        "date": plan["deadline"],
+        "note": "",
+        "source_id": "",
+        "source_type": "plan",
+        "source_title": plan["title"],
+        "plan_id": plan_id,
+        "category": "截止日期",
+        "date_source": "manual",
+        "date_confidence": "",
+        "created_at": now,
+        "updated_at": now,
+    }
+    items[item_id] = item
+    cal["items"] = items
+    kb.save_calendar(cal)
+
+    new_synced = plan["synced_calendar_ids"] + [item_id]
+    meta = {k: v for k, v in plan.items() if k not in ("body", "path")}
+    meta["synced_calendar_ids"] = ",".join(new_synced)
+    write_plan_file(path, meta, plan["body"], is_new=False)
+
+    return {
+        "synced": True, "plan_id": plan_id,
+        "calendar_id": item_id, "reason": "created",
+    }
+
+
+# ---------------------------------------------------------------------------
 # 悬空引用清理(v0.4.12 修复 M5)
 # ---------------------------------------------------------------------------
 # 删除 calendar item / task / event / 文章后,frontmatter 里的回指字段
@@ -745,6 +1101,7 @@ def _cleanup_ref_field(field_name: str, target_value: str) -> int:
     for loader, finder_all, writer in (
         (load_task_file, lambda: (kb.VAULT_ROOT / kb.TASK_DIR_NAME).glob("task_*.md"), write_task_file),
         (load_event_file, lambda: (kb.VAULT_ROOT / kb.EVENT_DIR_NAME).glob("event_*.md"), write_event_file),
+        (load_plan_file, lambda: (kb.VAULT_ROOT / kb.PLAN_DIR_NAME).glob("plan_*.md"), write_plan_file),
     ):
         try:
             for path in finder_all():
