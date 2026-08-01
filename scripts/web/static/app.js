@@ -509,8 +509,8 @@ async function toggleReadLater(sourceId) {
     const res = await fetch(`/api/article/${sourceId}/read-later`, { method: 'POST' });
     const data = await res.json();
     if (!res.ok) { toast('操作失败:' + (data.detail || ''), 'error'); return; }
-    if (document.getElementById('stats-overview')) refreshCurrentPage();
-    else updateDetailButtons('read_later', data.read_later);
+    if (document.querySelector('.detail-action-btn')) updateDetailButtons('read_later', data.read_later);
+    else refreshCurrentPage();
   } catch (e) { toast('网络错误:' + e.message, 'error'); }
 }
 
@@ -519,8 +519,10 @@ async function toggleFavorite(sourceId) {
     const res = await fetch(`/api/article/${sourceId}/favorite`, { method: 'POST' });
     const data = await res.json();
     if (!res.ok) { toast('操作失败:' + (data.detail || ''), 'error'); return; }
-    if (document.getElementById('stats-overview')) refreshCurrentPage();
-    else updateDetailButtons('is_favorite', data.is_favorite);
+    // 详情页(detail-action-btn)就地更新按钮;其余页面(KB/收藏夹/最近阅读等)刷新当前列表,
+    // 这样收藏夹页点取消收藏后,文章会从列表移除。
+    if (document.querySelector('.detail-action-btn')) updateDetailButtons('is_favorite', data.is_favorite);
+    else refreshCurrentPage();
   } catch (e) { toast('网络错误:' + e.message, 'error'); }
 }
 
