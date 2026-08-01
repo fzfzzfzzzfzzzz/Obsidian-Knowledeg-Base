@@ -111,9 +111,9 @@
 - **来源**:v0.4.0 PRD §1.2 批注 + §12 后续项 D
 - **价值**:review 队列信息完整,用户决策有依据
 
-### 14. prompt_library.md 沉淀与同步(v0.4.0 批注后续项 E)
-- **现状**:`99_System/prompt_library.md` 第 42 行仍写「Summary 生成待实现」,idea/todo prompt 未沉淀,文档严重滞后于代码
-- **要做**:把 idea/todo 的 prompt 沉淀进 prompt_library.md,删过时表述,建立"代码改 prompt 同步更新文档"的约定
+### 14. ✅ prompt_library.md 沉淀与同步(v0.4.0 批注后续项 E)
+- **现状已修复**:`99_System/prompt_library.md` 第 42 行起已是完整的「Summary 生成」章节(调用位置 / 触发方式 / 输出结构),原"待实现"表述已清除;idea/todo 抽取 prompt 也已沉淀。
+- **剩余小项**:`prompt_library.md` 第 55 行自述"本节后续应补充 prompt 全文镜像"——非阻塞,留作后续。
 - **来源**:v0.4.0 PRD §1.2 批注 + §12 后续项 E
 - **价值**:文档与代码一致,符合 AGENTS.md "状态字段一致"要求
 

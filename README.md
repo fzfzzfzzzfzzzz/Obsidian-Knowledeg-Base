@@ -3,7 +3,7 @@
 > Local-first Obsidian knowledge base —— 把看到的前沿技术内容整理成结构化总结,提炼 idea,生成 plan 建议。
 > 当前版本:见根目录 [`VERSION`](./VERSION)。版本演进见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
-完整设计见 [`obsidian_kb_codex_implementation_plan.md`](./obsidian_kb_codex_implementation_plan.md)。
+完整设计见 [`docs/ROADMAP.md`](./docs/ROADMAP.md) 与各版本 `docs/vX.Y.Z/PRD.md`。
 
 ---
 
@@ -85,7 +85,7 @@ ingest 时 LLM 会为每段内容自动识别:
 | **自由文本(推荐)** | 直接粘贴正文,`---` 分隔 | ✅ 自动识别 metadata | 日常使用,最省事 |
 | **结构化 KB_ITEM** | `<!-- KB_ITEM_START -->` 包裹,内嵌 metadata | ❌ 不调 LLM | 离线、或想精确控制分类 |
 
-结构化模式示例见 plan.md 第 4 节。两种模式可混用:inbox 里有 KB_ITEM 标记就走结构化,否则走自由文本。
+结构化模式(KB_ITEM 包裹)说明见 [`00_Inbox/inbox.md`](./00_Inbox/inbox.md)。两种模式可混用:inbox 里有 KB_ITEM 标记就走结构化,否则走自由文本。
 
 ---
 
@@ -98,9 +98,9 @@ ingest 时 LLM 会为每段内容自动识别:
 | `python scripts/kb.py ingest` | ✅ | 解析 inbox,生成 source note(LLM 或离线) |
 | `python scripts/kb.py ingest --no-llm` | ✅ | 离线模式,只接受 KB_ITEM 格式 |
 | `python scripts/kb.py status` | ✅ | 输出 pending inbox / sources / 待 review 数量 |
-| `python scripts/kb.py make-prompts` | ⏳ Phase 2 | 生成总结 prompt |
-| `python scripts/kb.py accept-ideas` | ⏳ Phase 4 | 移动 accepted idea |
-| `python scripts/kb.py accept-plans` | ⏳ Phase 4 | 移动 accepted plan |
+| `python scripts/kb.py make-prompts` | ✅ | 生成总结 prompt |
+| `python scripts/kb.py accept-ideas` | ✅ | 移动 accepted idea |
+| `python scripts/kb.py accept-plans` | ✅ | 移动 accepted plan |
 
 ---
 
@@ -119,8 +119,8 @@ ingest 时 LLM 会为每段内容自动识别:
 ```
 00_Inbox/        用户输入区(inbox.md 主入口,processed.md 留底)
 01_Sources/      ingest 生成的 source note,按来源类型分子目录
-02_Summaries/    总结输出区(Phase 2+ 填充)
-03_Ideas/        research_ideas / productivity_ideas / idea_suggestions(review 队列)
+02_Summaries/    总结输出区(LLM 或手动生成)
+03_Ideas/        research_ideas / productivity_ideas / general_ideas / idea_suggestions(review 队列)/ archived_ideas
 04_Plans/        plan_suggestions.md(review 队列)/ plan_*.md(独立 plan 文件)
 05_Projects/     项目自身的进度记录
 90_Templates/    11 个模板
@@ -143,10 +143,8 @@ scripts/         kb.py(CLI) + kb_llm.py(LLM 封装)
 
 ---
 
-## 下一阶段(待实现)
+## 已实现能力
 
-- **Phase 2** `make-prompts`:为 source 生成总结 prompt,调 LLM 输出结构化 summary
-- **Phase 3** manual output import:summary/idea/plan 写回对应目录
-- **Phase 4** `accept-ideas` / `accept-plans`:用户改 status 后自动 append 到正式计划
-
-详见 plan.md 第 15、16 节。
+采集 → 总结 → idea/plan 建议 → 确认 → 正式清单的完整闭环已在 v0.1 ~ v0.4.x 逐步落地。
+完整演进见 [`CHANGELOG.md`](./CHANGELOG.md) 与 [`docs/ROADMAP.md`](./docs/ROADMAP.md);
+尚未实现的方向见 ROADMAP 的「P2 / P3」章节。
