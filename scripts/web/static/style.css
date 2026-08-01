@@ -679,7 +679,10 @@ a { color: var(--c-primary); }
 }
 .icon-btn:hover { background: var(--c-surface); border-color: var(--c-border-strong); }
 .icon-btn.active-rl { background: var(--c-primary); border-color: var(--c-primary); color: #fff; }
-.icon-btn.active-fav { background: var(--c-warning); border-color: var(--c-warning); color: #fff; }
+/* 收藏激活:按钮底色不变,只把星标本身变黄(描边 stroke + 内部 fill 都用黄),
+   深浅模式都用同一亮黄 #fbbf24,保证在两种背景上都显眼。*/
+.icon-btn.active-fav { color: #fbbf24; }
+.icon-btn.active-fav svg { fill: #fbbf24; stroke: #fbbf24; }
 .icon-btn-danger:hover { background: var(--c-danger); border-color: var(--c-danger); color: #fff; }
 
 /* ---------- 10. 详情页 ---------- */
@@ -1544,7 +1547,8 @@ a { color: var(--c-primary); }
 }
 .detail-action-bar .btn { flex: 0 1 auto; }
 .detail-action-btn.active-rl { background: var(--c-primary); border-color: var(--c-primary); color: #fff; }
-.detail-action-btn.active-fav { background: var(--c-warning); border-color: var(--c-warning); color: #fff; }
+.detail-action-btn.active-fav { color: #fbbf24; }
+.detail-action-btn.active-fav svg { fill: #fbbf24; stroke: #fbbf24; }
 
 /* 详情页:阅读专栏 + 右侧目录(无滚动高亮,纯导航) */
 html { scroll-behavior: smooth; }
@@ -3868,14 +3872,13 @@ a.icon-btn > svg, a.icon-btn > i {
 }
 
 /* 浅色/中等明度强调底 + 白字:压暗背景以保白字可读 */
+/* 注意:.active-fav(收藏按钮)不在此列 —— 收藏态不改按钮底色,只把星标变黄填实,无需压暗 */
 [data-theme="dark"] .btn-accept,
 [data-theme="dark"] .btn-danger:hover,
 [data-theme="dark"] .btn-warn:hover,
 [data-theme="dark"] .icon-btn.active-rl,
-[data-theme="dark"] .icon-btn.active-fav,
 [data-theme="dark"] .icon-btn-danger:hover,
 [data-theme="dark"] .detail-action-btn.active-rl,
-[data-theme="dark"] .detail-action-btn.active-fav,
 [data-theme="dark"] .cal-list-del:hover,
 [data-theme="dark"] .cal-today-badge,
 [data-theme="dark"] .tl-today-tag,
