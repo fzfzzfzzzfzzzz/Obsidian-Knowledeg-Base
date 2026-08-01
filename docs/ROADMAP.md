@@ -2,13 +2,13 @@
 
 > 本文件汇总所有版本 PRD 中提到的后续迭代方向 + 已知限制的改进计划。
 > 按优先级分层,供评审和规划参考。
-> 最后更新:2026-07-28(v0.4.16+ 后)
+> 最后更新:2026-08-01 · 当前版本见根目录 [`../VERSION`](../VERSION)
 
 ---
 
-## 当前版本:v0.4.16+
+## 当前版本
 
-已实现:全站 Lucide 图标本地化 + 类别元数据单一数据源(cat-meta.js)+ AGENTS.md 规范重写 + 深色对比度修复。416 passed。
+已实现:全站 Lucide 图标本地化 + 类别元数据单一数据源(cat-meta.js)+ AGENTS.md 规范重写 + 深色对比度修复 + 任务状态元数据统一 + todo→plan 域迁移 + market 重构。427 passed。
 - v0.4.0:详情页「生成 Idea/Todo 列表」按钮 + 引导弹窗(见 `docs/v0.4.0/`)
 - v0.4.1:投稿页批量投稿(URL 提取)、/ideas /todos 拆「待定/已确定」tab、已确认 todo 放入日历(见 `docs/v0.4.1/`)
 - v0.4.2:日历「时间轴」视图(垂直+水平)、category 字段(6 预设+自定义)、标签筛选条影响三个视图(见 `docs/v0.4.2/`)
@@ -22,6 +22,8 @@
 - v0.4.10:任务(Tasks)管理系统 —— checklist/deadline/blocker/项目/置顶/客户端排序,+21 测试(见 `docs/v0.4.10/`)
 - v0.4.13:Idea/Todo 卡片与抽取简化(只留标题)+ Web 新建 idea + completed_at,+8 测试(见 `docs/v0.4.13/`)
 - v0.4.16:全站 Lucide 图标 + cat-meta.js 类别元数据单一数据源 + AGENTS.md 规范重写 + 深色对比度(覆盖 v0.4.16~v0.4.20,见 `docs/v0.4.16/`)
+- v0.4.22:任务状态元数据统一到 cat-meta.js(`KB_TASK_STATUS`),消除 6 处重复定义
+- v0.4.23:todo→plan 域迁移(独立 plan_*.md)+ market 重构(去 alert、拆 kb_quote.py)+ task next_action + 侧栏折叠(见 `docs/v0.4.23/`)
 完整功能清单见 `PRODUCT.md`。
 
 ---

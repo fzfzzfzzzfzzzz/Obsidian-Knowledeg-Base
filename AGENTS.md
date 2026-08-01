@@ -67,7 +67,15 @@
 
 ### 软性约束
 
-`wc -l scripts/kb.py` 超过 ~1800 行就该警惕(v0.4.22 重构后约 1500 行)。超了先看是不是又有业务域该拆出去。
+`wc -l scripts/kb.py` 超过 ~2800 行就该警惕(v0.4.23 实测 2641 行)。
+
+> **历史与现状**:v0.4.22 重构后曾压到 ~1500 行,红线设为 ~1800。但随后 ingest / make-prompts /
+> accept / rebuild 等流水线函数(各几百行,属跨域基础设施)集中留在 kb.py,v0.4.23 已回到 2641 行。
+> 评估后认定:这些流水线是 CLI + 基础设施的合理归属,**暂不强制拆出**。红线据此上调到 ~2800。
+>
+> **下次再涨时的优先拆法**(若超过 ~2800):把 ingest 流水线(`cmd_ingest` + `parse_inbox_items` +
+> `build_source_note` 等)抽到 `kb_ingest.py`;把 make-prompts / accept / rebuild 流水线抽到
+> `kb_prompts.py`。kb.py 只留 CLI 入口 + 配置常量 + 底层 IO/锁/frontmatter 基元。
 
 ### kb_entities.py 的特殊约束
 
@@ -80,6 +88,19 @@
 - 未经用户明确要求,不得执行 `git commit`、`git push`、创建分支或修改远程仓库。
 - 可以用 `git status` 和 `git diff` 检查修改。
 - 如果用户只要求修改代码,默认不创建 commit。
+
+## Version Release Checklist(发版检查清单)
+
+> 发版时按此清单走,确保版本号单一数据源不被破坏。**版本号只活在 `VERSION` 文件里**,
+> 任何文档/脚本都不得硬编码版本号字面量。
+
+- [ ] 改 `VERSION` 文件为新版本号(唯一改动点)。
+- [ ] 在根 `CHANGELOG.md` 顶部追加新一节(用户可见变化;详细开发记录进 `docs/vX.Y.Z/changelog.md`)。
+- [ ] `docs/ROADMAP.md` 的「当前版本」段补一行新版本摘要 + 测试数。
+- [ ] 新建 `docs/vX.Y.Z/` 文件夹,内部用 `PRD.md` / `checklist.md` / `changelog.md` 三件套命名
+      (大版本才需三件套;小迭代只放 `changelog.md` 即可)。
+- [ ] 打 annotated tag:`git tag -a vX.Y.Z -m "..."`(本地注解,不自动 push)。
+- [ ] **不要**在 README / PRODUCT / AGENTS 等文档里手写版本号 —— 它们都引用 `VERSION`。
 
 ## Frontend Modification Boundaries
 
@@ -175,7 +196,7 @@ Additional commands(require LLM / web deps, gracefully degrade when absent):
 
 ## Current Module Status
 
-> 更新时间:2026-07-26 · 当前版本 **v0.4.18+**
+> 更新时间:2026-08-01 · 当前版本见根目录 [`VERSION`](./VERSION)
 > 各模块状态供 agent 快速定位已实现的功能范围。Phase 0–5 是早期 MVP 阶段(已全部完成),后续按模块演进。
 
 ### 早期 MVP 阶段(Phase 0–5,全部 done)

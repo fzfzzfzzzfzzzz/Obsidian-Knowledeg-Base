@@ -1,7 +1,7 @@
 # Obsidian 本地知识库
 
 > Local-first Obsidian knowledge base —— 把看到的前沿技术内容整理成结构化总结,提炼 idea,生成 plan 建议。
-> 当前版本:**MVP Phase 0 + Phase 1**(目录结构 + Inbox 解析器,**已接入智谱 GLM API**)。
+> 当前版本:见根目录 [`VERSION`](./VERSION)。版本演进见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
 完整设计见 [`obsidian_kb_codex_implementation_plan.md`](./obsidian_kb_codex_implementation_plan.md)。
 

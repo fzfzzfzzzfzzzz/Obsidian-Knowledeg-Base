@@ -1,7 +1,7 @@
 # Obsidian 本地知识库 —— 产品功能文档
 
 > Local-first 知识库:收集前沿技术内容 → AI 总结 → 提炼 idea/plan → 个人阅读管理 → 日历事件管理。
-> 当前版本:**v0.4.7**(2026-07-21)。
+> 当前版本:见根目录 [`VERSION`](./VERSION)。版本演进见 [`CHANGELOG.md`](./CHANGELOG.md)。
 
 ---
 
@@ -42,7 +42,7 @@
 | 重新生成 | 详情页「🔄 重新生成」按钮(备份旧 summary) |
 | 删除 summary | 详情页「🗑 删除 summary」按钮(保留 source,可让别的 Agent 重做) |
 | 网站一键生成 | 投稿页勾选"自动生成 summary",或对待总结文章逐个/批量生成 |
-| 手动 Agent 生成 | AGENT_SUMMARIZE.md 手册供本地 Agent 自主生成 summary |
+| 手动 Agent 生成 | [`docs/AGENT_SUMMARIZE.md`](./docs/AGENT_SUMMARIZE.md) 手册供本地 Agent 自主生成 summary |
 | 空内容检查 | LLM 返回空时不写入空 summary(防思考模型 token 浪费) |
 
 ### 2.3 Idea/Plan 候选(v0.1)
@@ -246,5 +246,5 @@
 
 详见 `docs/ROADMAP.md`。
 
-- v0.4.0:详情页手动生成 idea/plan 见 `docs/v0.4.0/manual_idea_todo_generation_PRD.md`,含 idea/plan 生成规则已知问题批注
-- v0.4.1:批量投稿、Idea/Plan 页「待定/已确定」拆分、Todo→日历链接 三项功能见 `docs/v0.4.1/v041_features_PRD.md`
+- v0.4.0:详情页手动生成 idea/plan 见 `docs/v0.4.0/PRD.md`,含 idea/plan 生成规则已知问题批注
+- v0.4.1:批量投稿、Idea/Plan 页「待定/已确定」拆分、Todo→日历链接 三项功能见 `docs/v0.4.1/PRD.md`
