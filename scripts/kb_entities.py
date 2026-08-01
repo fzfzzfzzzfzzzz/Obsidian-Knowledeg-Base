@@ -192,6 +192,9 @@ def _format_event_file(meta: dict, body: str) -> str:
                 "related_source", "synced_calendar_ids", "created_at", "updated_at",
                 "completed_at"):
         val = meta.get(key, "")
+        # synced_calendar_ids: load 返回 list[str],落盘必须是逗号分隔串
+        if key == "synced_calendar_ids" and isinstance(val, list):
+            val = ",".join(val)
         lines.append(f"{key}: {val}")
     lines.append("---")
     lines.append("")
@@ -260,10 +263,11 @@ def write_event_file(path: Path, meta: dict, body: str, *, is_new: bool = False)
 def sync_event_to_calendar(event_id: str) -> dict:
     """把单个事件单向推送到日历(创建一条 calendar item,回指 event_id)。
 
-    幂等:若该事件已有存活的 calendar item(synced_calendar_ids 里仍有在日历中的),
-    不重复创建。日历项被删后允许重新推送。
+    幂等 + 日期感知:
+    - 若该事件已有存活的 calendar item 且 date 与当前 event.date 一致 → 不重复创建。
+    - 若已有 item 但 date 已过期(event.date 改了) → 就地更新该项,不新建。
+    - 日历项被删后允许重新推送。
     """
-    import uuid as _uuid
     kb = _kb()
 
     path = _find_event_file(event_id)
@@ -277,15 +281,38 @@ def sync_event_to_calendar(event_id: str) -> dict:
     cal = kb.load_calendar()
     items = cal.get("items", {})
 
-    # 幂等:检查已有同步项是否仍存活
-    for existing_id in event["synced_calendar_ids"]:
-        if existing_id in items:
+    # 找第一个仍存活的已同步项(正常只有一个)
+    live_id = next(
+        (eid for eid in event["synced_calendar_ids"] if eid in items),
+        None,
+    )
+
+    if live_id is not None:
+        existing = items[live_id]
+        # date 没变 → 真幂等,跳过(测试契约:返回 already_synced)
+        if existing.get("date") == event["date"]:
             return {
                 "synced": False, "event_id": event_id,
-                "calendar_id": existing_id, "reason": "already_synced",
+                "calendar_id": live_id, "reason": "already_synced",
             }
+        # date 变了 → 就地更新该项,不新建(否则旧日期点会残留在日历/时间线上)
+        now = kb.now_ts()
+        existing["date"] = event["date"]
+        existing["title"] = event["title"]
+        existing["source_title"] = event["title"]
+        existing["note"] = event["note"]
+        existing["category"] = event["category"]
+        existing["updated_at"] = now
+        items[live_id] = existing
+        cal["items"] = items
+        kb.save_calendar(cal)
+        return {
+            "synced": True, "event_id": event_id,
+            "calendar_id": live_id, "reason": "updated",
+        }
 
     # 创建新日历项(回指 event,source_type=event 供前端识别来源)
+    import uuid as _uuid
     item_id = f"cal_{_uuid.uuid4().hex[:12]}"
     now = kb.now_ts()
     item = {
@@ -759,6 +786,9 @@ def _format_task_file(meta: dict, body: str) -> str:
         elif key == "pinned":
             # 布尔统一输出 true/false(避免 Python True 被写成 "True")
             val = "true" if kb._parse_bool(val) else "false"
+        elif key == "synced_calendar_ids":
+            # load 返回 list[str],但落盘必须是逗号分隔串(避免写成 Python repr)
+            val = ",".join(val) if isinstance(val, list) else val
         lines.append(f"{key}: {val}")
     lines.append("---")
     lines.append("")
@@ -853,9 +883,12 @@ def write_task_file(path: Path, meta: dict, body: str, *, is_new: bool = False) 
 def sync_task_to_calendar(task_id: str) -> dict:
     """把单个任务单向推送到日历(创建一条 calendar item,回指 task_id)。
 
-    幂等:若该任务已有存活的 calendar item,不重复创建。日历项被删后允许重新推送。
+    幂等 + 日期感知:
+    - 若该任务已有存活的 calendar item 且 date 与当前 deadline 一致 → 不重复创建。
+    - 若已有 item 但 date 已过期(deadline 改了) → 就地更新该项的 date/title/note,
+      不新建(避免日历上残留旧日期点)。
+    - 日历项被删后允许重新推送。
     """
-    import uuid as _uuid
     kb = _kb()
 
     path = _find_task_file(task_id)
@@ -869,13 +902,36 @@ def sync_task_to_calendar(task_id: str) -> dict:
     cal = kb.load_calendar()
     items = cal.get("items", {})
 
-    for existing_id in task["synced_calendar_ids"]:
-        if existing_id in items:
+    # 找第一个仍存活的已同步项(正常只有一个)
+    live_id = next(
+        (eid for eid in task["synced_calendar_ids"] if eid in items),
+        None,
+    )
+
+    if live_id is not None:
+        existing = items[live_id]
+        # deadline 没变 → 真幂等,跳过(测试契约:返回 already_synced)
+        if existing.get("date") == task["deadline"]:
             return {
                 "synced": False, "task_id": task_id,
-                "calendar_id": existing_id, "reason": "already_synced",
+                "calendar_id": live_id, "reason": "already_synced",
             }
+        # deadline 变了 → 就地更新该项,不新建(否则旧日期点会残留在日历/时间线上)
+        now = kb.now_ts()
+        existing["date"] = task["deadline"]
+        existing["title"] = task["title"]
+        existing["source_title"] = task["title"]
+        existing["note"] = task["blocker"] or ""
+        existing["updated_at"] = now
+        items[live_id] = existing
+        cal["items"] = items
+        kb.save_calendar(cal)
+        return {
+            "synced": True, "task_id": task_id,
+            "calendar_id": live_id, "reason": "updated",
+        }
 
+    import uuid as _uuid
     item_id = f"cal_{_uuid.uuid4().hex[:12]}"
     now = kb.now_ts()
     item = {

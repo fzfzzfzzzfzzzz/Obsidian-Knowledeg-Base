@@ -191,6 +191,36 @@ def test_sync_again_after_calendar_deleted(isolate_vault):
     assert r2["calendar_id"] != cal_id_1
 
 
+def test_sync_event_updates_item_when_date_changed(isolate_vault):
+    """改 date 后再同步:就地更新已有日历项,不新建,不残留旧日期点。"""
+    tmp = isolate_vault
+    eid = _create_event(tmp, title="旧标题", date="2026-08-01", category="比赛")
+    r1 = kb.sync_event_to_calendar(eid)
+    cal_id = r1["calendar_id"]
+
+    # 改 date + title 后写回,再同步
+    path = kb._find_event_file(eid)
+    ev = kb.load_event_file(path)
+    ev["date"] = "2026-09-20"
+    ev["title"] = "新标题"
+    meta = {k: v for k, v in ev.items() if k not in ("body", "path")}
+    meta["synced_calendar_ids"] = ",".join(ev["synced_calendar_ids"])
+    kb.write_event_file(path, meta, ev["body"], is_new=False)
+
+    r2 = kb.sync_event_to_calendar(eid)
+    assert r2["synced"] is True
+    assert r2["reason"] == "updated"
+    assert r2["calendar_id"] == cal_id  # 复用同一项
+
+    cal = kb.load_calendar()
+    item = cal["items"][cal_id]
+    assert item["date"] == "2026-09-20"
+    assert item["title"] == "新标题"
+    # 日历里仍只有这一条 event 项
+    ev_items = [it for it in cal["items"].values() if it.get("event_id") == eid]
+    assert len(ev_items) == 1
+
+
 def test_sync_event_not_found(isolate_vault):
     result = kb.sync_event_to_calendar("event_ghost")
     assert result["synced"] is False
@@ -318,6 +348,27 @@ def test_api_update_event_not_found(client):
     c, _ = client
     resp = c.patch("/api/events/event_ghost", json={"title": "X"})
     assert resp.status_code == 404
+
+
+def test_api_patch_event_date_reconciles_calendar(client):
+    """已同步的事件改 date,PATCH 自动更新日历项,旧日期不残留。"""
+    c, _ = client
+    create = c.post("/api/events", json={"title": "改期事件", "date": "2026-08-01", "category": "比赛"})
+    eid = create.json()["event"]["id"]
+    # 先同步,建立日历项
+    r1 = c.post(f"/api/events/{eid}/sync-calendar")
+    assert r1.json()["reason"] == "created"
+    cal_id = r1.json()["calendar_id"]
+
+    # PATCH 改 date → 应自动 reconcile
+    r2 = c.patch(f"/api/events/{eid}", json={"date": "2026-09-20"})
+    assert r2.status_code == 200
+
+    cal = kb.load_calendar()
+    item = cal["items"][cal_id]
+    assert item["date"] == "2026-09-20"
+    ev_items = [it for it in cal["items"].values() if it.get("event_id") == eid]
+    assert len(ev_items) == 1
 
 
 def test_api_delete_event(client):

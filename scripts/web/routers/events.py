@@ -126,15 +126,23 @@ async def api_events_update(event_id: str, payload: EventUpdate):
     """更新事件字段(原子改 frontmatter + 正文)。
 
     空串=更新为空(类别/备注/正文除外,见各字段判断);None=不改(仅 body/related_source)。
+
+    若 date 被改且事件已同步到日历,自动 reconcile 日历项的日期。
     """
     path = kb._find_event_file(event_id)
     if path is None:
         raise HTTPException(404, f"找不到事件:{event_id}")
 
     event = kb.load_event_file(path)
+    had_synced = bool(event.get("synced_calendar_ids"))
+    date_changed = bool(payload.date) and payload.date != event.get("date", "")
     meta = _update_event_fields(event, payload)
     body = event["body"] if payload.body is None else payload.body
     kb.write_event_file(path, meta, body, is_new=False)
+
+    # 改了 date 且之前已同步 → 自动更新日历项,避免旧日期点残留
+    if date_changed and had_synced:
+        kb.sync_event_to_calendar(event_id)
 
     return JSONResponse({"ok": True, "event": kb.load_event_file(path)})
 

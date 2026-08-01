@@ -199,14 +199,24 @@ async def api_tasks_update(task_id: str, payload: TaskUpdate):
 
     None=不改,提供值(含空串)=更新为该值。
     checklist 整体替换(传 list);单项打勾用专用端点。
+
+    若 deadline 被改且任务已同步到日历,自动 reconcile 日历项的日期
+    (sync_task_to_calendar 内部按日期差异就地更新,不新建)。
     """
     path = kb._find_task_file(task_id)
     if path is None:
         raise HTTPException(404, f"找不到任务:{task_id}")
     task = kb.load_task_file(path)
+    had_synced = bool(task.get("synced_calendar_ids"))
+    deadline_changed = payload.deadline is not None and payload.deadline.strip() != task.get("deadline", "")
     meta = _update_task_fields(task, payload)
     body = task["body"] if payload.body is None else payload.body
     kb.write_task_file(path, meta, body, is_new=False)
+
+    # 改了 deadline 且之前已同步 → 自动更新日历项,避免旧日期点残留
+    if deadline_changed and had_synced:
+        kb.sync_task_to_calendar(task_id)
+
     return JSONResponse({"ok": True, "task": kb.load_task_file(path)})
 
 

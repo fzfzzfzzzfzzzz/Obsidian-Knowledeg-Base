@@ -191,6 +191,43 @@ def test_sync_task_to_calendar_creates_item(isolate_vault):
     assert r2["calendar_id"] == cal_id
 
 
+def test_sync_task_updates_item_when_deadline_changed(isolate_vault):
+    """改 deadline 后再同步:就地更新已有日历项的 date,不新建,不残留旧日期点。"""
+    tmp = isolate_vault
+    d = tmp / "07_Tasks"
+    d.mkdir(parents=True, exist_ok=True)
+    meta = {"id": "task_dl2", "title": "改名前", "category": "写作", "status": "active",
+            "deadline": "2026-09-01", "blocker": "旧阻塞", "checklist": [],
+            "related_source": "", "synced_calendar_ids": "", "created_at": "", "updated_at": ""}
+    kb.write_task_file(d / "task_dl2.md", meta, "", is_new=False)
+
+    r1 = kb.sync_task_to_calendar("task_dl2")
+    cal_id = r1["calendar_id"]
+
+    # 改 deadline + title + blocker 后再同步(重新 load 以保留 sync 写回的 synced_calendar_ids)
+    meta = kb.load_task_file(d / "task_dl2.md")
+    meta["deadline"] = "2026-10-15"
+    meta["title"] = "改名后"
+    meta["blocker"] = "新阻塞"
+    kb.write_task_file(d / "task_dl2.md", meta, "", is_new=False)
+
+    r2 = kb.sync_task_to_calendar("task_dl2")
+    assert r2["synced"] is True
+    assert r2["reason"] == "updated"
+    assert r2["calendar_id"] == cal_id  # 复用同一项,不新建
+
+    # 日历项的 date/title/note 已更新到新值,旧日期点不残留
+    cal = kb.load_calendar()
+    item = cal["items"][cal_id]
+    assert item["date"] == "2026-10-15"
+    assert item["title"] == "改名后"
+    assert item["note"] == "新阻塞"
+
+    # 日历里仍只有这一条 task 项(没新建第二条)
+    task_items = [it for it in cal["items"].values() if it.get("task_id") == "task_dl2"]
+    assert len(task_items) == 1
+
+
 # —— Web API 层:TestClient ——
 
 @pytest.fixture
@@ -294,6 +331,27 @@ def test_api_sync_calendar_no_deadline_400(client):
     t = _create_task_via_api(client, title="无截止", deadline="")
     r = client.post(f"/api/tasks/{t['id']}/sync-calendar")
     assert r.status_code == 400
+
+
+def test_api_patch_deadline_reconciles_calendar(client):
+    """已同步的任务改 deadline,PATCH 自动更新日历项,旧日期不残留。"""
+    t = _create_task_via_api(client, title="改期任务", deadline="2026-10-01")
+    tid = t["id"]
+    # 先同步,建立日历项
+    r1 = client.post(f"/api/tasks/{tid}/sync-calendar")
+    assert r1.json()["reason"] == "created"
+    cal_id = r1.json()["calendar_id"]
+
+    # PATCH 改 deadline → 应自动 reconcile(无需手动再点同步)
+    r2 = client.patch(f"/api/tasks/{tid}", json={"deadline": "2026-11-20"})
+    assert r2.status_code == 200
+
+    cal = kb.load_calendar()
+    item = cal["items"][cal_id]
+    assert item["date"] == "2026-11-20"  # 已是新日期
+    # 日历里仍只有这一条 task 项
+    task_items = [it for it in cal["items"].values() if it.get("task_id") == tid]
+    assert len(task_items) == 1
 
 
 def test_task_pages_render_200(client):
