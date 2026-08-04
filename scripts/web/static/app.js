@@ -409,6 +409,7 @@ function refreshCurrentPage() {
 
 /* ====================== 批量选择 ====================== */
 const selectedIds = new Set();
+let batchMode = false;  // 是否处于批量选择模式(控制 checkbox 显隐)
 
 function toggleSelect(checkbox, sid) {
   if (checkbox.checked) selectedIds.add(sid);
@@ -419,10 +420,10 @@ function toggleSelect(checkbox, sid) {
 function updateBatchBar() {
   const bar = document.getElementById('batch-bar');
   if (!bar) return;
-  const count = selectedIds.size;
-  if (count > 0) {
+  // 仅在批量选择模式下显示操作栏;无选中时隐藏操作栏但仍保持模式
+  if (batchMode && selectedIds.size > 0) {
     bar.style.display = 'flex';
-    document.getElementById('batch-count').textContent = count;
+    document.getElementById('batch-count').textContent = selectedIds.size;
   } else {
     bar.style.display = 'none';
   }
@@ -432,6 +433,43 @@ function clearSelection() {
   selectedIds.clear();
   document.querySelectorAll('.card-checkbox').forEach(cb => cb.checked = false);
   updateBatchBar();
+}
+
+/* 批量选择模式开关:进入 → 显示 checkbox + 操作栏;退出 → 隐藏并清空 */
+function enterBatchMode() {
+  batchMode = true;
+  document.querySelectorAll('.card-grid').forEach(g => g.classList.add('selectable'));
+  updateBatchBtn();
+  refreshIcons();
+}
+
+function exitBatchMode() {
+  batchMode = false;
+  document.querySelectorAll('.card-grid').forEach(g => g.classList.remove('selectable'));
+  clearSelection();
+  const bar = document.getElementById('batch-bar');
+  if (bar) bar.style.display = 'none';
+  updateBatchBtn();
+  refreshIcons();
+}
+
+function toggleBatchMode() {
+  if (batchMode) exitBatchMode();
+  else enterBatchMode();
+}
+
+function updateBatchBtn() {
+  const btn = document.getElementById('kb-batch-toggle');
+  if (!btn) return;
+  if (batchMode) {
+    btn.innerHTML = '<i data-lucide="x"></i> 退出选择';
+    btn.classList.add('btn-primary');
+    btn.setAttribute('title', '退出批量选择模式');
+  } else {
+    btn.innerHTML = '<i data-lucide="check-square"></i> 批量选择';
+    btn.classList.remove('btn-primary');
+    btn.setAttribute('title', '进入批量选择模式');
+  }
 }
 
 async function batchAction(action) {

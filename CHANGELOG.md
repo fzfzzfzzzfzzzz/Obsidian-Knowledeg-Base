@@ -7,13 +7,39 @@
 
 ---
 
+## [0.4.24] —— 2026-08-04
+
+### 新增
+- **BaoStock 接入**:A 股 K 线主数据源切换为 BaoStock,形成 BaoStock → AKShare → SQLite 三层降级链,
+  无网络时仍可返回缓存数据。详情见 [`docs/v0.4.24/changelog.md`](./docs/v0.4.24/changelog.md)。
+- **`kb_market_cache.py` 模块**:新增 SQLite 派生缓存层(`.kb/cache/market/market_cache.sqlite`),
+  4 张表(daily_kline / quote_snapshot / detail_blocks / fetch_status),替代原 JSON 文件缓存。
+- **大盘趋势 + 市场宽度**:新增大盘走势 API、涨跌家数统计、20 日新高/新低、涨停/跌停计数。
+- **行业概览页**:新增 `/market/industry` 子页面,展示行业强度排名、资金流向、申万/同花顺双源支持。
+- **个人概览页**:新增 `/market/personal` 子页面,展示持仓概览、盈亏追踪。
+- **`requirements-market.txt`**:行情可选依赖(akshare / baostock)独立文件,不安装时主系统不受影响。
+- **`AKShare_BaoStock_API_Guide.md`**:接口选型参考文档。
+
+### 变更
+- **Market 页面拆子页**:行业概览、个人概览从 market.html 主页拆出独立模板,
+  市场页加四 tab 子导航(市场概览 / 自选股 / 行业概览 / 个人概览)。
+- **个股详情缓存迁 SQLite**:旧 `stock_details_90d.json` 移除,改走 `kb_market_cache` SQLite,
+  缓存周期从 90 天延长到 180 天。
+- **行情模块数据标准化**:`_normalize_baostock_row` / `_normalize_akshare_row` 统一字段映射,
+  保证成交量单位(股)、复权标识(qfq)在多源之间一致。
+
+### 测试
+- 457 passed(+30)。
+
+---
+
 ## [0.4.23] —— 2026-08-01
 
 ### 新增
 - **Plan 域(替代 Todo)**:计划项改为独立文件 `04_Plans/plan_*.md`,frontmatter 含可选 `deadline`,
   与 Task 同模式;不再按 weekly / monthly / someday 分桶。详情见 [`docs/v0.4.23/changelog.md`](./docs/v0.4.23/changelog.md)。
 - **Task `next_action` 字段**:任务新增「下一步行动」属性,CRUD 与 Web API 同步支持。
-- **Market 重构**:拆出独立行情模块 `kb_quote.py`;新增个股详情页(`/market/stock/{ticker}`)、
+- **Market 重构**:拆出独立行情模块 `kb_quote.py`;新增个股详情页(`/market/{market_id}`)、
   自选股看板、判断(judgments)视图,支持拖拽排序(vendored `sortable.min.js`)。
 - **侧栏可折叠**:左侧导航支持折叠/展开,状态持久化到 localStorage,刷新不闪。
 

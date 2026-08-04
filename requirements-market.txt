@@ -1,0 +1,5 @@
+# Optional market data providers.
+# Install only when you want live/near-live quote fetching:
+#   pip install -r requirements-market.txt
+akshare
+baostock

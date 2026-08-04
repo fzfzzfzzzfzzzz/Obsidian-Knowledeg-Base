@@ -10,12 +10,13 @@
         GET /api/market/materials             收藏资料(「金融」收藏夹内文章)
         GET /api/market/linked-tasks          关联任务(tasks 按 category==金融)
 
-市场条目存 08_Market/market_*.md,仅 watchlist(自选股/赛道)。无外部行情数据源(离线优先)。
+市场条目存 08_Market/market_*.md,仅 watchlist(自选股/赛道)。
+行情数据是派生缓存,落在 .kb/cache/market/market_cache.sqlite,不进入 Markdown 主数据层。
 """
 from __future__ import annotations
 
 import asyncio
-import json
+import threading
 from datetime import date, datetime
 from pathlib import Path
 
@@ -31,8 +32,9 @@ from web.models import (
 from web.services.cards import _build_collections_list, _build_collection_articles
 
 import kb
+import kb_market_cache
 
-# 行情数据接入(可选依赖,akshare 缺失时优雅降级)
+# 行情数据接入(可选依赖缺失时优雅降级)
 try:
     import kb_quote
 except Exception:
@@ -49,6 +51,8 @@ async def _run_blocking(fn, *args, **kwargs):
     return await asyncio.to_thread(fn, *args, **kwargs)
 
 router = APIRouter()
+_TREND_REFRESH_LOCK = threading.Lock()
+_TREND_REFRESHING: set[str] = set()
 
 # 板块4「收藏资料」依赖的收藏夹名(聚合时按名查找,避免硬编码 col_id)
 FINANCE_COLLECTION_NAME = "金融"
@@ -58,44 +62,46 @@ FINANCE_CATEGORY = "金融"
 VALID_JUDGMENT_VERDICTS = {"pending", "correct", "wrong", "partial", "archived"}
 VALID_SIMULATION_STATUSES = {"active", "closed", "archived"}
 MARKET_POSITION_FIELDS = ("cost_price", "shares", "target_price", "stop_price")
-STOCK_DETAIL_CACHE_DAYS = 90
-STOCK_DETAIL_CACHE_FILE = "stock_details_90d.json"
+STOCK_DETAIL_CACHE_DAYS = 180  # 个人热力图需要 180d 周期收益
+
+
+def _claim_trend_refresh(key: str) -> bool:
+    with _TREND_REFRESH_LOCK:
+        if key in _TREND_REFRESHING:
+            return False
+        _TREND_REFRESHING.add(key)
+        return True
+
+
+def _release_trend_refresh(key: str) -> None:
+    with _TREND_REFRESH_LOCK:
+        _TREND_REFRESHING.discard(key)
+
+
+def _mark_refreshing(payload: dict) -> dict:
+    out = dict(payload)
+    out["refreshing"] = True
+    return out
+
+
+async def _run_trend_refresh_once(key: str, fn, *args) -> None:
+    try:
+        await _run_blocking(fn, *args)
+    except Exception:
+        pass
+    finally:
+        _release_trend_refresh(key)
+
+
+def _queue_trend_refresh(key: str, fn, *args) -> None:
+    if not _claim_trend_refresh(key):
+        return
+    asyncio.create_task(_run_trend_refresh_once(key, fn, *args))
 
 
 def _stock_detail_cache_path() -> Path:
-    """90 天自选股详情缓存。临时可重建数据,不属于 Markdown 主数据层。"""
-    return kb.KB_DIR / "cache" / "market" / STOCK_DETAIL_CACHE_FILE
-
-
-def _empty_stock_detail_cache() -> dict:
-    return {"version": 1, "items": {}}
-
-
-def _load_stock_detail_cache() -> dict:
-    path = _stock_detail_cache_path()
-    if not path.exists():
-        return _empty_stock_detail_cache()
-    try:
-        data = json.loads(kb.read_text(path))
-    except Exception:
-        return _empty_stock_detail_cache()
-    if not isinstance(data, dict):
-        return _empty_stock_detail_cache()
-    items = data.get("items")
-    if not isinstance(items, dict):
-        data["items"] = {}
-    data.setdefault("version", 1)
-    return data
-
-
-def _save_stock_detail_cache(cache: dict) -> None:
-    cache["version"] = 1
-    cache["updated_at"] = kb.now_ts()
-    cache.setdefault("items", {})
-    kb.write_text(
-        _stock_detail_cache_path(),
-        json.dumps(cache, ensure_ascii=False, indent=2, sort_keys=True),
-    )
+    """SQLite market cache path. Kept as a helper for tests/backward imports."""
+    return kb_market_cache.cache_db_path()
 
 
 def _stock_payload_from_market_item(item: dict, market: str, code: str) -> dict:
@@ -107,6 +113,10 @@ def _stock_payload_from_market_item(item: dict, market: str, code: str) -> dict:
         "sector": item.get("sector", ""),
         "note": item.get("note", ""),
         "ticker": item.get("ticker", ""),
+        "cost_price": item.get("cost_price", ""),
+        "shares": item.get("shares", ""),
+        "target_price": item.get("target_price", ""),
+        "stop_price": item.get("stop_price", ""),
     }
 
 
@@ -151,8 +161,13 @@ def _display_quote_from_cache_entry(
         "change_pct": change_pct,
         "date": detail.get("date") or last.get("date", ""),
         "kline_days": len(kline),
+        "kline": kline,
         "updated_at": entry.get("updated_at", ""),
         "stale": stale,
+        "cost_price": stock.get("cost_price", ""),
+        "shares": stock.get("shares", ""),
+        "target_price": stock.get("target_price", ""),
+        "stop_price": stock.get("stop_price", ""),
     }
 
 
@@ -185,15 +200,16 @@ def _watchlist_quote_targets(market_id: str = "") -> list[tuple[dict, str, str]]
 
 
 def _cached_watchlist_quote_response(market_id: str = "", *, stale: bool = False) -> dict:
-    cache = _load_stock_detail_cache()
-    cache_items = cache.get("items", {})
     results = []
     for item, mkt, code in _watchlist_quote_targets(market_id):
         mid = item.get("id", "")
-        entry = cache_items.get(mid)
         stock = _stock_payload_from_market_item(item, mkt, code)
-        if isinstance(entry, dict) and _is_cacheable_stock_detail(entry.get("detail", {})):
-            results.append(_display_quote_from_cache_entry(mid, entry, fallback_stock=stock, stale=stale))
+        detail = kb_quote.get_cached_stock_detail(mkt, code, STOCK_DETAIL_CACHE_DAYS) if kb_quote is not None else {}
+        if _is_cacheable_stock_detail(detail):
+            entry = {"stock": stock, "detail": detail, "updated_at": detail.get("updated_at", "")}
+            results.append(_display_quote_from_cache_entry(
+                mid, entry, fallback_stock=stock, stale=stale or bool(detail.get("stale"))
+            ))
         else:
             results.append(_error_quote_for_market_item(item, mkt, code))
     ok_count = sum(1 for q in results if q.get("ok"))
@@ -239,6 +255,27 @@ async def page_market_judgments(request: Request):
     )
 
 
+# 字面路径必须排在 /market/{market_id} 前(与 watchlist/judgments 同理)
+@router.get("/market/industry", response_class=HTMLResponse)
+async def page_industry_overview(request: Request):
+    """行业概览子页:行业强度、资金流向与成分股深度分析(后续填充图表)。"""
+    if templates is None:
+        return HTMLResponse("templates 目录不存在", 500)
+    return templates.TemplateResponse(
+        request, "industry_overview.html", {"active_nav": "market", "active_mktab": "industry"}
+    )
+
+
+@router.get("/market/personal", response_class=HTMLResponse)
+async def page_personal_overview(request: Request):
+    """个人概览子页:持仓分析、盈亏追踪与组合表现(后续填充图表)。"""
+    if templates is None:
+        return HTMLResponse("templates 目录不存在", 500)
+    return templates.TemplateResponse(
+        request, "personal_overview.html", {"active_nav": "market", "active_mktab": "personal"}
+    )
+
+
 @router.get("/market/{market_id}", response_class=HTMLResponse)
 async def page_market_detail(market_id: str, request: Request):
     """自选股详情页:K线图+资金流+财务+盘口(按市场能力显示)。"""
@@ -249,7 +286,7 @@ async def page_market_detail(market_id: str, request: Request):
         raise HTTPException(404, f"找不到自选股:{market_id}")
     return templates.TemplateResponse(
         request, "stock_detail.html",
-        {"active_nav": "market", "market_id": market_id},
+        {"active_nav": "market", "active_mktab": "watchlist", "market_id": market_id},
     )
 
 
@@ -338,9 +375,78 @@ async def api_market_linked_tasks():
 
 @router.get("/api/market/quote/status")
 async def api_market_quote_status():
-    """行情功能是否可用(akshare 是否安装)。前端据此决定是否显示「刷新行情」。"""
+    """任一行情能力是否可用。前端据此决定是否显示「刷新行情」。"""
     available = kb_quote is not None and kb_quote.is_available()
     return JSONResponse({"available": available})
+
+
+@router.get("/api/market/trends")
+async def api_market_trends(days: int = 90, force: bool = False):
+    """市场指数趋势。默认缓存优先返回;force=1 时同步刷新外部源。"""
+    if kb_quote is None:
+        raise HTTPException(503, "行情模块不可用")
+    days = max(30, min(days, 365))
+    key = f"market:{days}"
+    if force:
+        if not _claim_trend_refresh(key):
+            cached = await _run_blocking(kb_quote.get_cached_market_trends, days)
+            if cached.get("ok"):
+                return JSONResponse(_mark_refreshing(cached))
+            return JSONResponse({
+                "ok": False, "view": "market", "title": "市场趋势",
+                "series": [], "cards": [], "summary": [],
+                "refreshing": True, "error": "行情刷新中",
+            })
+        else:
+            try:
+                result = await _run_blocking(kb_quote.get_market_trends, days)
+                return JSONResponse(result)
+            finally:
+                _release_trend_refresh(key)
+    if not force:
+        cached = await _run_blocking(kb_quote.get_cached_market_trends, days)
+        if cached.get("ok"):
+            _queue_trend_refresh(key, kb_quote.get_market_trends, days)
+            return JSONResponse(cached)
+    result = await _run_blocking(kb_quote.get_market_trends, days)
+    return JSONResponse(result)
+
+
+@router.get("/api/market/trends/industry")
+async def api_market_industry_trends(
+    days: int = 90,
+    top_n: int = 8,
+    force: bool = False,
+):
+    """行业板块轮动趋势。默认缓存优先返回;force=1 时同步刷新外部源。"""
+    if kb_quote is None:
+        raise HTTPException(503, "行情模块不可用")
+    days = max(30, min(days, 365))
+    top_n = max(5, min(top_n, 16))
+    key = f"industry:{days}:{top_n}"
+    if force:
+        if not _claim_trend_refresh(key):
+            cached = await _run_blocking(kb_quote.get_cached_industry_trends, days, top_n)
+            if cached.get("ok"):
+                return JSONResponse(_mark_refreshing(cached))
+            return JSONResponse({
+                "ok": False, "view": "industry", "title": "行业趋势",
+                "series": [], "heatmap": [], "summary": [],
+                "refreshing": True, "error": "行情刷新中",
+            })
+        else:
+            try:
+                result = await _run_blocking(kb_quote.get_industry_trends, days, top_n)
+                return JSONResponse(result)
+            finally:
+                _release_trend_refresh(key)
+    if not force:
+        cached = await _run_blocking(kb_quote.get_cached_industry_trends, days, top_n)
+        if cached.get("ok"):
+            _queue_trend_refresh(key, kb_quote.get_industry_trends, days, top_n)
+            return JSONResponse(cached)
+    result = await _run_blocking(kb_quote.get_industry_trends, days, top_n)
+    return JSONResponse(result)
 
 
 @router.get("/api/market/quote")
@@ -352,7 +458,7 @@ async def api_market_quote(market_id: str = "", days: int = 30):
     days=30               K线天数
     """
     if kb_quote is None:
-        raise HTTPException(503, "行情功能不可用:akshare 未安装")
+        raise HTTPException(503, "行情模块不可用")
 
     days = max(7, min(days, 90))  # 限制 7-90 天
 
@@ -423,11 +529,9 @@ async def api_market_quote_cache_refresh(market_id: str = ""):
     缓存按 market_id 独立覆盖:单只成功才更新该股票;失败时保留旧缓存并返回 stale。
     """
     targets = _watchlist_quote_targets(market_id)
-    cache = _load_stock_detail_cache()
-    cache_items = cache.setdefault("items", {})
 
     available = kb_quote is not None and kb_quote.is_available()
-    if not available:
+    if kb_quote is None:
         data = _cached_watchlist_quote_response(market_id, stale=True)
         data["available"] = False
         return JSONResponse(data)
@@ -437,21 +541,26 @@ async def api_market_quote_cache_refresh(market_id: str = ""):
     async def _refresh_one(item: dict, mkt: str, code: str) -> tuple[str, dict, dict | None]:
         mid = item.get("id", "")
         stock = _stock_payload_from_market_item(item, mkt, code)
-        old_entry = cache_items.get(mid)
         async with sem:
             try:
                 detail = await _run_blocking(kb_quote.get_stock_detail, mkt, code, STOCK_DETAIL_CACHE_DAYS)
             except Exception as e:
-                if isinstance(old_entry, dict) and _is_cacheable_stock_detail(old_entry.get("detail", {})):
-                    return mid, _display_quote_from_cache_entry(mid, old_entry, fallback_stock=stock, stale=True), None
+                cached = kb_quote.get_cached_stock_detail(mkt, code, STOCK_DETAIL_CACHE_DAYS)
+                if _is_cacheable_stock_detail(cached):
+                    entry = {"stock": stock, "detail": cached, "updated_at": cached.get("updated_at", "")}
+                    return mid, _display_quote_from_cache_entry(mid, entry, fallback_stock=stock, stale=True), None
                 return mid, _error_quote_for_market_item(item, mkt, code, str(e)), None
 
         if _is_cacheable_stock_detail(detail):
-            entry = {"stock": stock, "detail": detail, "updated_at": kb.now_ts()}
-            return mid, _display_quote_from_cache_entry(mid, entry, fallback_stock=stock, stale=False), entry
+            entry = {"stock": stock, "detail": detail, "updated_at": detail.get("updated_at") or kb.now_ts()}
+            return mid, _display_quote_from_cache_entry(
+                mid, entry, fallback_stock=stock, stale=bool(detail.get("stale"))
+            ), None if detail.get("stale") else entry
 
-        if isinstance(old_entry, dict) and _is_cacheable_stock_detail(old_entry.get("detail", {})):
-            return mid, _display_quote_from_cache_entry(mid, old_entry, fallback_stock=stock, stale=True), None
+        cached = kb_quote.get_cached_stock_detail(mkt, code, STOCK_DETAIL_CACHE_DAYS)
+        if _is_cacheable_stock_detail(cached):
+            entry = {"stock": stock, "detail": cached, "updated_at": cached.get("updated_at", "")}
+            return mid, _display_quote_from_cache_entry(mid, entry, fallback_stock=stock, stale=True), None
 
         error = detail.get("error") if isinstance(detail, dict) else "暂无本地行情"
         return mid, _error_quote_for_market_item(item, mkt, code, error), None
@@ -462,11 +571,7 @@ async def api_market_quote_cache_refresh(market_id: str = ""):
     for mid, quote, entry in refreshed:
         results.append(quote)
         if entry is not None:
-            cache_items[mid] = entry
             updated_count += 1
-
-    if updated_count:
-        _save_stock_detail_cache(cache)
 
     ok_count = sum(1 for q in results if q.get("ok"))
     stale_count = sum(1 for q in results if q.get("stale"))
@@ -483,12 +588,12 @@ async def api_market_quote_cache_refresh(market_id: str = ""):
 
 @router.get("/api/market/detail/{market_id}")
 async def api_market_detail(market_id: str, days: int = 90):
-    """自选股详情数据(akshare):K线全字段 + 按市场补充资金流/财务/盘口。
+    """自选股详情数据:K线全字段 + 按市场补充资金流/财务/盘口。
 
     字面路径,必须在 /api/market/{market_id} 之前声明。
     """
     if kb_quote is None:
-        raise HTTPException(503, "行情功能不可用:akshare 未安装")
+        raise HTTPException(503, "行情模块不可用")
     path = kb._find_market_file(market_id)
     if path is None:
         raise HTTPException(404, f"找不到自选股:{market_id}")
@@ -509,7 +614,7 @@ async def api_market_detail(market_id: str, days: int = 90):
             "ticker": item.get("ticker", ""),
         },
         "detail": detail,
-        "available": kb_quote.is_available(),
+        "available": kb_quote.is_available() or bool(detail.get("ok")),
     })
 
 
@@ -523,7 +628,7 @@ async def api_market_fund_flow(indicator: str = "今日", sector_type: str = "�
     ?indicator=今日|5日|10日  ?sector_type=行业资金流|概念资金流|地域资金流  ?top_n=20
     """
     if kb_quote is None:
-        raise HTTPException(503, "行情功能不可用:akshare 未安装")
+        raise HTTPException(503, "行情模块不可用")
     top_n = max(5, min(top_n, 50))
     # 走线程池:akshare 同步阻塞,不能直接在事件循环里跑
     result = await _run_blocking(kb_quote.get_sector_fund_flow, indicator, sector_type, top_n)

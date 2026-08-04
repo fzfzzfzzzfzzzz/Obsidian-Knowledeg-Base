@@ -8,9 +8,9 @@
 
 ## 当前版本
 
-已实现:全站 Lucide 图标本地化 + 类别元数据单一数据源(cat-meta.js)+ AGENTS.md 规范重写 + 深色对比度修复 + 任务状态元数据统一 + todo→plan 域迁移 + market 重构。427 passed。
+已实现:全站 Lucide 图标本地化 + 类别元数据单一数据源(cat-meta.js)+ AGENTS.md 规范重写 + 深色对比度修复 + 任务状态元数据统一 + todo→plan 域迁移 + market 重构 + 行情数据引擎重构(BaoStock 接入 + SQLite 缓存 + 行业/个人概览页)。457 passed。
 - v0.4.0:详情页「生成 Idea/Todo 列表」按钮 + 引导弹窗(见 `docs/v0.4.0/`)
-- v0.4.1:投稿页批量投稿(URL 提取)、/ideas /todos 拆「待定/已确定」tab、已确认 todo 放入日历(见 `docs/v0.4.1/`)
+- v0.4.1:投稿页批量投稿(URL 提取)、/ideas /todos 拆「待定/已确定」tab、已确认 todo 放入日历(todo 现已更名为 plan,见 v0.4.23)(见 `docs/v0.4.1/`)
 - v0.4.2:日历「时间轴」视图(垂直+水平)、category 字段(6 预设+自定义)、标签筛选条影响三个视图(见 `docs/v0.4.2/`)
 - v0.4.3:rebuild-index 命令、Web accept 自动搬运、6 路径常量环境变量覆盖、文档同步、+61 测试(见 `docs/v0.4.3/`)
 - v0.4.4:kb_web.py 2117→74 行装配文件 + web/ 包(9 router + 4 service)、kb.py 抽公共工具、+11 测试(见 `docs/v0.4.4/`)
@@ -24,6 +24,7 @@
 - v0.4.16:全站 Lucide 图标 + cat-meta.js 类别元数据单一数据源 + AGENTS.md 规范重写 + 深色对比度(覆盖 v0.4.16~v0.4.20,见 `docs/v0.4.16/`)
 - v0.4.22:任务状态元数据统一到 cat-meta.js(`KB_TASK_STATUS`),消除 6 处重复定义
 - v0.4.23:todo→plan 域迁移(独立 plan_*.md)+ market 重构(去 alert、拆 kb_quote.py)+ task next_action + 侧栏折叠(见 `docs/v0.4.23/`)
+- v0.4.24:行情数据引擎重构(BaoStock 接入 + SQLite 缓存)+ 行业/个人概览子页 + 大盘趋势/市场宽度 API(见 `docs/v0.4.24/`)
 完整功能清单见 `PRODUCT.md`。
 
 ---
@@ -88,10 +89,9 @@
 - **来源**:v0.2 Implementation Prompt 第六节
 - **价值**:文章到 500+ 篇时搜索性能保障
 
-### 10. 多收藏夹
-- **现状**:收藏只是布尔值 is_favorite
-- **要做**:collections 数据结构,一篇文章可属于多个收藏夹
-- **来源**:v0.1 PRD 1.4 / PRODUCT.md 限制 3
+### 10. ~~多收藏夹~~ ✅ 已完成
+- **结果**:collections 功能已实现 —— `.kb/state.json` 双向存储(`sources[].collection_ids` ↔ `collections[].source_ids`),`scripts/web/routers/collections.py`(228 行)提供 CRUD,Web 端有收藏夹管理 UI。21 个专项测试。
+- **来源**:v0.1 PRD 1.4 / 原 PRODUCT.md §六 #3「无多收藏夹」限制已解除
 - **价值**:按主题/项目分组管理重要文章
 
 ### 11. 日历提醒
@@ -105,11 +105,10 @@
 - **来源**:v0.2 PRD 5.2 明确不做(第一版),后续可加
 - **价值**:标签多了后的维护能力
 
-### 13. 自动产出补全模板章节(v0.4.0 批注后续项 D)
-- **现状**:自动生成的 suggestion 比模板少一半章节(模板的 MVP/风险/下一步 todo/依赖条件等节在 `_format_idea_suggestion`/`_format_todo_suggestion` 里没产出),review 信息残缺
-- **要做**:prompt 要求产出这些章节,`_format_*` 同步写全;todo 补 `related_idea` 关联
-- **来源**:v0.4.0 PRD §1.2 批注 + §12 后续项 D
-- **价值**:review 队列信息完整,用户决策有依据
+### 13. ❌ 自动产出补全模板章节(v0.4.0 批注后续项 D)— v0.4.13 主动放弃
+- **原计划**:自动生成的 suggestion 补全模板章节(MVP/风险/下一步 todo/依赖条件等),让 review 信息完整;`_format_idea_suggestion`/`_format_todo_suggestion` 同步写全。
+- **实际决策(v0.4.13)**:idea/plan 卡片与抽取已简化为**只保留标题**(见 P1-#5 同批放弃决策),MVP/风险/下一步 todo 等模板章节概念不再适用,**主动放弃该方向**。
+- **来源**:v0.4.0 PRD §1.2 批注 + §12 后续项 D;放弃决策见 `docs/v0.4.13/`
 
 ### 14. ✅ prompt_library.md 沉淀与同步(v0.4.0 批注后续项 E)
 - **现状已修复**:`99_System/prompt_library.md` 第 42 行起已是完整的「Summary 生成」章节(调用位置 / 触发方式 / 输出结构),原"待实现"表述已清除;idea/todo 抽取 prompt 也已沉淀。

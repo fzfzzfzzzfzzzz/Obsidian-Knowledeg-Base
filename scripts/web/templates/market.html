@@ -2,7 +2,7 @@
 {% block title %}市场 · 知识库{% endblock %}
 {% block content %}
 
-<!-- 顶部 Hero:标题 + 副标题 + 刷新/加自选 -->
+<!-- 顶部 Hero:标题 + 副标题 + 刷新 -->
 <section class="mk-hero">
   <div class="mk-hero-main">
     <h1 class="mk-title"><i data-lucide="candlestick-chart"></i> 市场中心</h1>
@@ -10,22 +10,16 @@
   </div>
   <div class="mk-hero-actions">
     <button class="btn btn-ghost btn-sm" id="mk-refresh" type="button" title="刷新"><i data-lucide="refresh-cw"></i> 刷新</button>
-    <a class="btn btn-primary btn-sm" href="/market/watchlist"><i data-lucide="star"></i> 自选股</a>
   </div>
 </section>
 
-<nav class="kb-subnav mk-subnav" aria-label="市场子页面">
-  <a href="/market"{% if active_mktab == 'overview' %} class="active"{% endif %}><i data-lucide="layout-grid"></i> 市场概览</a>
-  <a href="/market/watchlist"{% if active_mktab == 'watchlist' %} class="active"{% endif %}><i data-lucide="star"></i> 自选股</a>
-  <a href="/market/judgments"{% if active_mktab == 'judgments' %} class="active"{% endif %}><i data-lucide="clipboard-check"></i> 市场判断</a>
-</nav>
-
-<!-- Tab:市场概览 / 个人 / 资金气泡 / 资金流向 -->
+<!-- Tab:市场概览 / 自选股 / 行业概览 / 个人概览(跳转) / 个人(走势图 panel) -->
 <div class="tab-bar mk-tabs">
   <button class="tab active" data-mktab="overview" type="button"><i data-lucide="layout-grid"></i> 市场概览</button>
-  <button class="tab" data-mktab="personal" type="button"><i data-lucide="user-round"></i> 个人</button>
-  <button class="tab" data-mktab="bubbles" type="button"><i data-lucide="circle-dot"></i> 资金气泡</button>
-  <button class="tab" data-mktab="flow" type="button"><i data-lucide="arrow-left-right"></i> 资金流向</button>
+  <a class="tab" href="/market/watchlist"><i data-lucide="star"></i> 自选股</a>
+  <a class="tab" href="/market/industry"><i data-lucide="layers-3"></i> 行业概览</a>
+  <a class="tab" href="/market/personal"><i data-lucide="user-round"></i> 个人概览</a>
+  <button class="tab" data-mktab="personal" type="button"><i data-lucide="line-chart"></i> 个人</button>
 </div>
 
 <!-- panel:市场概览(原 5 板块,整体包进来,不改动内部结构) -->
@@ -36,45 +30,62 @@
   <!-- 主内容列 -->
   <div class="mk-main">
 
-    <!-- 占位:市场指数卡片(行情数据待接入) -->
+    <!-- 市场指数卡片 -->
     <section class="mk-section" id="mk-index" aria-label="市场指数">
       <div class="mk-section-head">
         <h2 class="mk-section-title"><i data-lucide="activity"></i> 市场指数</h2>
       </div>
       <div class="mk-index-grid">
-        <div class="mk-index-card"><div class="mk-index-name">上证指数</div><div class="mk-index-val">—</div><div class="mk-index-chg muted">行情待接入</div></div>
-        <div class="mk-index-card"><div class="mk-index-name">深证成指</div><div class="mk-index-val">—</div><div class="mk-index-chg muted">行情待接入</div></div>
-        <div class="mk-index-card"><div class="mk-index-name">创业板指</div><div class="mk-index-val">—</div><div class="mk-index-chg muted">行情待接入</div></div>
-        <div class="mk-index-card"><div class="mk-index-name">自选股表现</div><div class="mk-index-val">—</div><div class="mk-index-chg muted">行情待接入</div></div>
+        <div class="mk-index-card" data-index-card="csi300">
+          <div class="mk-index-name"><span>A股</span><b>沪深300</b></div>
+          <div class="mk-index-val" data-index-val>—</div>
+          <div class="mk-index-chg muted" data-index-chg>等待行情</div>
+        </div>
+        <div class="mk-index-card" data-index-card="sp500">
+          <div class="mk-index-name"><span>美股</span><b>标普500</b></div>
+          <div class="mk-index-val" data-index-val>—</div>
+          <div class="mk-index-chg muted" data-index-chg>等待行情</div>
+        </div>
+        <div class="mk-index-card" data-index-card="hstech">
+          <div class="mk-index-name"><span>港股</span><b>恒生科技指数</b></div>
+          <div class="mk-index-val" data-index-val>—</div>
+          <div class="mk-index-chg muted" data-index-chg>等待行情</div>
+        </div>
+        <div class="mk-index-card" data-index-card="watch_equal">
+          <div class="mk-index-name"><span>自选股</span><b>自选股等权指数</b></div>
+          <div class="mk-index-val" data-index-val>—</div>
+          <div class="mk-index-chg muted" data-index-chg>等待行情</div>
+        </div>
       </div>
     </section>
 
-    <!-- 占位:市场视图(走势图待接入) -->
-    <section class="mk-section" aria-label="市场视图">
+    <!-- 行情走势图:市场 / 行业 / 个人 三视图共用主图 -->
+    <section class="mk-section mk-trend-card" id="mk-trend-card" aria-label="行情走势图">
       <div class="mk-section-head">
-        <h2 class="mk-section-title"><i data-lucide="bar-chart-3"></i> 市场视图</h2>
+        <h2 class="mk-section-title"><i data-lucide="line-chart"></i> 行情走势图</h2>
+        <div class="mk-trend-head-actions">
+          <span class="mk-trend-updated muted" id="mk-trend-updated"></span>
+          <button class="btn btn-ghost btn-sm" id="mk-trend-refresh" type="button" title="刷新图表"><i data-lucide="refresh-cw"></i> 刷新</button>
+        </div>
       </div>
-      <div class="mk-chart-panel">
-        <i data-lucide="bar-chart-3" class="mk-chart-icon"></i>
-        <div class="mk-chart-hint">行情走势图待接入</div>
-        <div class="muted">大盘 / 板块 / 概念 / 自选股 视图</div>
-      </div>
-    </section>
 
-    <!-- 自选股入口卡片(完整列表在 /market/watchlist 子页) -->
-    <section class="mk-section" id="mk-watchlist-entry" aria-label="自选股">
-      <div class="mk-section-head">
-        <h2 class="mk-section-title"><i data-lucide="star"></i> 自选股与关注赛道</h2>
-        <a class="mk-section-more" href="/market/watchlist">查看全部自选股 →</a>
+      <div class="tab-bar mk-trend-tabs" role="group" aria-label="走势图类型">
+        <button class="tab active" data-trend-view="market" type="button"><i data-lucide="activity"></i> 市场趋势</button>
+        <button class="tab" data-trend-view="industry" type="button"><i data-lucide="layers-3"></i> 行业趋势</button>
+        <button class="tab" data-trend-view="personal" type="button"><i data-lucide="user-round"></i> 个人趋势</button>
       </div>
-      <a class="mk-entry-card" href="/market/watchlist">
-        <span class="mk-entry-icon"><i data-lucide="star"></i></span>
-        <span class="mk-entry-text">
-          <span class="mk-entry-title">自选股管理</span>
-          <span class="mk-entry-sub muted">持仓位置 · 实时行情 · ticker 校验 —— 点击进入完整列表</span>
-        </span>
-        <i data-lucide="chevron-right" class="mk-entry-arrow"></i>
-      </a>
+
+      <!-- 时间选择(周期):留在原位,与图表类型 tab 同区;industry 视图由 JS 隐藏(看板自带 5/20 日切换) -->
+      <div class="mk-trend-period-row" id="mk-trend-period-row">
+        <div class="mk-fund-seg" role="group" aria-label="走势图周期">
+          <button class="mk-fund-btn" data-trend-period="30" type="button">30日</button>
+          <button class="mk-fund-btn active" data-trend-period="90" type="button">90日</button>
+          <button class="mk-fund-btn" data-trend-period="180" type="button">180日</button>
+        </div>
+      </div>
+
+      <div class="mk-trend-canvas" id="mk-trend-canvas"><div class="loading">加载中...</div></div>
+      <div class="mk-trend-summary" id="mk-trend-summary"></div>
     </section>
 
     <!-- 近期事件与财报(横向时间轴) -->
@@ -154,45 +165,12 @@
   </div>
 </div>
 
-<!-- panel:资金气泡(上半红流入 / 下半绿流出,气泡大小∝金额) -->
-<div class="tab-panel" id="panel-mk-bubbles">
-  <div class="mk-fund-bar">
-    <div class="mk-fund-seg" role="group" aria-label="时间周期">
-      <button class="mk-fund-btn active" data-fund-indicator="今日" data-fund-target="bubbles" type="button">今日</button>
-      <button class="mk-fund-btn" data-fund-indicator="5日" data-fund-target="bubbles" type="button">5日</button>
-      <button class="mk-fund-btn" data-fund-indicator="10日" data-fund-target="bubbles" type="button">10日</button>
-    </div>
-    <div class="mk-fund-seg" role="group" aria-label="板块类型">
-      <button class="mk-fund-btn active" data-fund-sector="行业资金流" data-fund-target="bubbles" type="button">行业</button>
-      <button class="mk-fund-btn" data-fund-sector="概念资金流" data-fund-target="bubbles" type="button">概念</button>
-    </div>
-    <span class="mk-fund-updated muted" id="mk-bubble-updated"></span>
-  </div>
-  <div class="mk-fund-canvas" id="mk-bubble-canvas"><div class="loading">切换到此页加载…</div></div>
-  <p class="mk-fund-legend muted">上半区红色 = 主力资金<span class="mk-leg-in">流入</span>,下半区绿色 = <span class="mk-leg-out">流出</span>;气泡大小 ∝ 金额。</p>
-</div>
-
-<!-- panel:资金流向(左绿流出排行 / 右红流入排行,无中间连线) -->
-<div class="tab-panel" id="panel-mk-flow">
-  <div class="mk-fund-bar">
-    <div class="mk-fund-seg" role="group" aria-label="时间周期">
-      <button class="mk-fund-btn active" data-fund-indicator="今日" data-fund-target="flow" type="button">今日</button>
-      <button class="mk-fund-btn" data-fund-indicator="5日" data-fund-target="flow" type="button">5日</button>
-      <button class="mk-fund-btn" data-fund-indicator="10日" data-fund-target="flow" type="button">10日</button>
-    </div>
-    <div class="mk-fund-seg" role="group" aria-label="板块类型">
-      <button class="mk-fund-btn active" data-fund-sector="行业资金流" data-fund-target="flow" type="button">行业</button>
-      <button class="mk-fund-btn" data-fund-sector="概念资金流" data-fund-target="flow" type="button">概念</button>
-    </div>
-    <span class="mk-fund-updated muted" id="mk-flow-updated"></span>
-  </div>
-  <div class="mk-fund-canvas" id="mk-flow-canvas"><div class="loading">切换到此页加载…</div></div>
-</div>
 {% endblock %}
 
 {% block scripts %}
 <script src="/static/market-judgments.js?v=1"></script>
 <script src="/static/market-personal.js?v=1"></script>
+<script src="/static/market-trends.js?v=20"></script>
 <script>
 // 市场页交互。复用 cat-meta.js 的 taskCatColor/taskCatIcon(金融类配色)。
 (function(){
@@ -205,6 +183,7 @@
     rootSelector: '#mk-personal-judgments',
     filterSelector: '#mk-personal-judgments [data-mj-filter]'
   }) : null;
+  var marketTrends = window.KBMarketTrends ? window.KBMarketTrends.mount() : null;
 
   function fmtDate(d){
     if(!d) return '';
@@ -287,18 +266,9 @@
       var items = d.items || [];
       if(!items.length){ setHTML('mk-tasks-grid', emptyHTML('暂无 category=金融 的任务。去 /tasks 创建。')); return; }
       var rows = items.map(function(t){
-        var sm = { c: taskStatusColor(t.status), l: taskStatusLabel(t.status) };
-        var clDone = (t.checklist||[]).filter(function(x){return x.done;}).length;
-        var clTotal = (t.checklist||[]).length;
-        var clText = clTotal ? (clDone+'/'+clTotal) : '—';
-        var cat = t.category || '金融';
         return '<a class="mk-task-row" href="/task/'+escapeHtml(t.id)+'">'
           + '<span class="mk-task-check"><i data-lucide="'+(t.status==='done'?'check-circle':'circle')+'"></i></span>'
           + '<span class="mk-task-title">'+escapeHtml(t.title)+'</span>'
-          + '<span class="mk-task-type"><span class="mk-task-catdot" style="--ev:'+taskCatColor(cat)+'"></span>'+taskCatIcon(cat)+' '+escapeHtml(cat)+'</span>'
-          + '<span class="mk-task-dl">'+(t.deadline?escapeHtml(t.deadline):'—')+'</span>'
-          + '<span class="mk-task-status"><span class="mk-task-badge" style="--st:'+sm.c+'">'+sm.l+'</span></span>'
-          + '<span class="mk-task-prog muted">'+clText+'</span>'
         + '</a>';
       }).join('');
       setHTML('mk-tasks-grid',
@@ -306,10 +276,6 @@
         + '<div class="mk-task-head">'
           + '<span class="mk-task-check"></span>'
           + '<span class="mk-task-title">任务</span>'
-          + '<span class="mk-task-type">类型</span>'
-          + '<span class="mk-task-dl">截止</span>'
-          + '<span class="mk-task-status">状态</span>'
-          + '<span class="mk-task-prog">进度</span>'
         + '</div>'
         + rows
         + '</div>');
@@ -334,13 +300,7 @@
   // 局部 mkSwitchTab:不能用全局 switchTab(它耦合 KBState)。
   // 懒加载:首次切到对应 panel 才拉数据;切回不重复拉(控件按钮才重拉)。
   // ===========================================================================
-  var _mkBubbleLoaded = false, _mkFlowLoaded = false;
-  var MK_TAB_NAMES = ['overview','personal','bubbles','flow'];
-  // 每个 panel 各自的当前 indicator/sector 状态
-  var fundState = {
-    bubbles: { indicator: '今日', sector: '行业资金流', loaded: false, data: null },
-    flow:    { indicator: '今日', sector: '行业资金流', loaded: false, data: null }
-  };
+  var MK_TAB_NAMES = ['overview','personal'];
 
   function mkSwitchTab(name){
     if(MK_TAB_NAMES.indexOf(name) < 0) name = 'overview';
@@ -351,8 +311,6 @@
       var p = document.getElementById('panel-mk-'+n);
       if(p) p.classList.toggle('active', n === name);
     });
-    if(name === 'bubbles' && !_mkBubbleLoaded){ _mkBubbleLoaded = true; loadFundData('bubbles'); }
-    if(name === 'flow' && !_mkFlowLoaded){ _mkFlowLoaded = true; loadFundData('flow'); }
     window.refreshIcons();
   }
 
@@ -364,347 +322,8 @@
       var hash = tab.dataset.mktab === 'overview' ? '' : '#'+tab.dataset.mktab;
       history.replaceState(null, '', location.pathname + location.search + hash);
     }
-    // 资金控件按钮(indicator / sector 切换)
-    var seg = e.target.closest('.mk-fund-btn[data-fund-target]');
-    if(seg){
-      var target = seg.dataset.fundTarget;
-      var st = fundState[target];
-      var changed = false;
-      if(seg.dataset.fundIndicator && st.indicator !== seg.dataset.fundIndicator){
-        st.indicator = seg.dataset.fundIndicator; changed = true;
-      }
-      if(seg.dataset.fundSector && st.sector !== seg.dataset.fundSector){
-        st.sector = seg.dataset.fundSector; changed = true;
-      }
-      if(changed){
-        // 更新同组按钮高亮
-        if(seg.dataset.fundIndicator){
-          document.querySelectorAll('.mk-fund-btn[data-fund-indicator][data-fund-target="'+target+'"]').forEach(function(b){
-            b.classList.toggle('active', b === seg);
-          });
-        }
-        if(seg.dataset.fundSector){
-          document.querySelectorAll('.mk-fund-btn[data-fund-sector][data-fund-target="'+target+'"]').forEach(function(b){
-            b.classList.toggle('active', b === seg);
-          });
-        }
-        loadFundData(target);
-      }
-    }
   });
 
-  function fmtAmt(a){
-    // 金额格式化:±X.XX亿(小数点对齐),保留正负号
-    var sign = a > 0 ? '+' : (a < 0 ? '−' : '');  // 流出用减号字符,视觉对称
-    return sign + Math.abs(a).toFixed(2) + '亿';
-  }
-
-  async function loadFundData(target){
-    var st = fundState[target];
-    var canvasId = target === 'bubbles' ? 'mk-bubble-canvas' : 'mk-flow-canvas';
-    var updatedId = target === 'bubbles' ? 'mk-bubble-updated' : 'mk-flow-updated';
-    var canvas = document.getElementById(canvasId);
-    // 缓存 key:target + indicator + sector(切换时段/板块类型时各自独立缓存)
-    var cacheKey = 'fund_' + target + '_' + st.indicator + '_' + st.sector;
-
-    function _renderFund(d, stamp){
-      st.data = d; st.loaded = true;
-      var upd = document.getElementById(updatedId);
-      if(upd) upd.textContent = d.sector_type + ' · 更新于 ' + (d.updated_at || '') + (stamp || '');
-      if(target === 'bubbles') drawFundBubbles(canvasId, d);
-      else drawFundFlow(canvasId, d);
-    }
-
-    // 1. 先显缓存(秒出)
-    var cached = KB_QUOTE_CACHE.get(cacheKey);
-    if(cached && cached.data){
-      _renderFund(cached.data, cached.fresh ? '' : '（缓存·'+cached.age_label+'）');
-    } else if(canvas){
-      canvas.innerHTML = '<div class="loading">⟳ 拉取中…(akshare 板块资金流,首次可能较慢)</div>';
-    }
-
-    // 2. 后台拉最新
-    try{
-      var url = '/api/market/fund-flow?indicator='+encodeURIComponent(st.indicator)
-              + '&sector_type='+encodeURIComponent(st.sector) + '&top_n=20';
-      var r = await fetch(url);
-      if(r.status === 503){
-        var d503 = await r.json().catch(function(){return {};});
-        if(!cached && canvas) canvas.innerHTML = emptyHTML(d503.detail || '行情功能不可用:akshare 未安装');
-        st.loaded = false; st.data = null;
-        return;
-      }
-      var d = await r.json();
-      if(!d.ok){
-        // 拉取失败:有缓存则保留缓存显示 + 提示;无缓存才显示错误
-        if(cached && cached.data){
-          _renderFund(cached.data, '（网络异常·显示'+cached.age_label+'数据）');
-          toast('资金流拉取失败,已显示上次缓存','warning');
-        } else if(canvas){
-          canvas.innerHTML = emptyHTML('资金流拉取失败:'+escapeHtml(d.error||''));
-        }
-        st.loaded = false; st.data = null;
-        return;
-      }
-      _renderFund(d, '');
-      KB_QUOTE_CACHE.set(cacheKey, d);  // 写缓存
-    }catch(e){
-      // 网络异常:同上,有缓存兜底
-      if(cached && cached.data){
-        _renderFund(cached.data, '（网络异常·显示'+cached.age_label+'数据）');
-        toast('网络异常,已显示上次资金流缓存','warning');
-      } else if(canvas){
-        canvas.innerHTML = emptyHTML('网络错误:'+e.message);
-      }
-      st.loaded = false; st.data = null;
-    }
-  }
-
-  // ---- SVG 气泡图(上半红流入 / 下半绿流出,克制发光) ----
-  function drawFundBubbles(containerId, data){
-    var el = document.getElementById(containerId);
-    if(!el) return;
-    var inflow = data.inflow || [], outflow = data.outflow || [];
-    if(!inflow.length && !outflow.length){ el.innerHTML = emptyHTML('该时段无资金流数据'); return; }
-
-    var W = Math.min(1180, Math.max(360, el.clientWidth || 800));
-    var padT = 30, padB = 16, midGap = 26;
-    var halfH = 232;
-    var H = halfH * 2 + midGap + padT + padB;                 // 容器高度微调降低(~8%)
-
-    // 半径:面积 ∝ |amount|,故 r ∝ sqrt(amount);上下限拉开,强化大小差异。
-    // 关键:流入/流出共用全图最大额(同一套面积比例),避免两侧比例口径不一致。
-    var maxAll = 0;
-    inflow.concat(outflow).forEach(function(i){ if(Math.abs(i.amount) > maxAll) maxAll = Math.abs(i.amount); });
-    maxAll = maxAll || 1;
-    function radii(items){
-      var rMax = Math.min(82, halfH * 0.46);                  // 放大上限,气泡整体区域 +10~15%
-      var rMin = 17;
-      return items.map(function(i){
-        var t = Math.sqrt(Math.abs(i.amount) / maxAll);
-        return Math.max(rMin, rMin + (rMax - rMin) * t);
-      });
-    }
-
-    // 有机气泡堆叠:大泡居中、小泡螺旋环绕,松弛消除重叠(互不重叠)
-    function packOrganic(items, r, cx, cy, bandTop, bandH){
-      var arr = items.map(function(it, i){ return { item: it, r: r[i] }; });
-      arr.sort(function(a, b){ return b.r - a.r; });            // 大泡优先放中心
-      // 黄金角螺旋初始化:确定但分布均匀(不依赖随机,布局可复现)
-      arr.forEach(function(p, i){
-        var ang = i * 2.39996323, rad = Math.sqrt(i) * 28;      // 放大螺旋间距 → 横向铺满,减少两侧空白
-        p.cx = cx + Math.cos(ang) * rad;
-        p.cy = cy + Math.sin(ang) * rad;
-      });
-      var gap = 4;                                              // 正间隙:气泡互不重叠(留 4px 呼吸空间)
-      for(var k = 0; k < 200; k++){
-        for(var i = 0; i < arr.length; i++){
-          for(var j = i + 1; j < arr.length; j++){
-            var a = arr[i], b = arr[j];
-            var dx = b.cx - a.cx, dy = b.cy - a.cy;
-            var dist = Math.sqrt(dx*dx + dy*dy) || 0.01;
-            var min = a.r + b.r + gap;
-            if(dist < min){
-              var push = (min - dist) / 2, ux = dx/dist, uy = dy/dist;
-              a.cx -= ux*push; a.cy -= uy*push;
-              b.cx += ux*push; b.cy += uy*push;
-            }
-          }
-        }
-        // 弱回拉聚拢 + 约束在半区/画布范围内(顶到边缘,消除左右空白)
-        for(var m = 0; m < arr.length; m++){
-          var p = arr[m];
-          p.cx += (cx - p.cx) * 0.01;
-          p.cy += (cy - p.cy) * 0.02;
-          var minX = p.r, maxX = W - p.r;
-          if(p.cx < minX) p.cx = minX; if(p.cx > maxX) p.cx = maxX;
-          var minY = bandTop + p.r, maxY = bandTop + bandH - p.r;
-          if(p.cy < minY) p.cy = minY; if(p.cy > maxY) p.cy = maxY;
-        }
-      }
-      return arr;
-    }
-
-    var inCx = W/2,  inCy = padT + halfH/2;
-    var outCx = W/2, outCy = padT + halfH + midGap + halfH/2;
-    var inPlaced  = packOrganic(inflow,  radii(inflow),  inCx,  inCy,  padT, halfH);
-    var outPlaced = packOrganic(outflow, radii(outflow), outCx, outCy, padT + halfH + midGap, halfH);
-
-    function bubbleSVG(p, idx, gradId){
-      var it = p.item;
-      var amt = it.amount;
-      var isTop = idx === 0;                                   // 排名第一(最大)气泡 → 强发光强调
-      var glowId = isTop ? 'glow-strong' : 'glow-soft';
-      var title = escapeHtml(it.name) + '  ' + fmtAmt(amt)
-                + (it.change_pct ? '\n涨跌幅: ' + it.change_pct + '%' : '')
-                + (it.main_pct ? '\n主力净占比: ' + it.main_pct + '%' : '')
-                + (it.lead_stock ? '\n领涨股: ' + it.lead_stock : '');
-      var shortName = it.name.length > 5 ? it.name.slice(0,4)+'…' : it.name;
-      var amtStr = fmtAmt(amt);                                // 保留「亿」单位
-      var fs = Math.max(10, Math.min(15, p.r * 0.42));
-      var afs = Math.max(9, Math.min(12, p.r * 0.33));
-      return ''
-        + '<g class="mk-bubble'+(isTop ? ' mk-bubble--top' : '')+'" filter="url(#'+glowId+')">'
-        + '<circle cx="'+p.cx.toFixed(1)+'" cy="'+p.cy.toFixed(1)+'" r="'+p.r.toFixed(1)+'" '
-          + 'fill="url(#'+gradId+')" stroke="#ffffff" stroke-opacity="'+(isTop?0.55:0.22)+'" stroke-width="1">'
-          + '<title>'+title+'</title></circle>'
-        + '</g>'
-        + '<text x="'+p.cx.toFixed(1)+'" y="'+(p.cy - 1).toFixed(1)+'" text-anchor="middle" '
-          + 'font-size="'+fs.toFixed(0)+'" font-weight="700" fill="#ffffff" fill-opacity="0.95">'+escapeHtml(shortName)+'</text>'
-        + '<text x="'+p.cx.toFixed(1)+'" y="'+(p.cy + fs).toFixed(1)+'" text-anchor="middle" '
-          + 'font-size="'+afs.toFixed(0)+'" font-weight="600" fill="#ffffff" fill-opacity="0.72">'+escapeHtml(amtStr)+'</text>';
-    }
-
-    var svg = '<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" class="mk-bubble-svg">';
-    // defs:径向渐变(中心亮、边缘深)+ 两级发光滤镜(常规弱光 / 强光明亮留给 #1 与悬停)
-    svg += '<defs>'
-      + '<radialGradient id="bg-in" cx="40%" cy="35%" r="65%">'
-      +   '<stop offset="0%" stop-color="#ff7a7a" stop-opacity="0.95"/>'
-      +   '<stop offset="60%" stop-color="#dc2626" stop-opacity="0.75"/>'
-      +   '<stop offset="100%" stop-color="#991b1b" stop-opacity="0.55"/>'
-      + '</radialGradient>'
-      + '<radialGradient id="bg-out" cx="40%" cy="35%" r="65%">'
-      +   '<stop offset="0%" stop-color="#5ee08a" stop-opacity="0.95"/>'
-      +   '<stop offset="60%" stop-color="#16a34a" stop-opacity="0.75"/>'
-      +   '<stop offset="100%" stop-color="#14532d" stop-opacity="0.55"/>'
-      + '</radialGradient>'
-      + '<filter id="glow-soft" x="-40%" y="-40%" width="180%" height="180%">'
-      +   '<feGaussianBlur stdDeviation="2.5" result="b"/>'
-      +   '<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>'
-      + '</filter>'
-      + '<filter id="glow-strong" x="-60%" y="-60%" width="220%" height="220%">'
-      +   '<feGaussianBlur stdDeviation="5" result="b"/>'
-      +   '<feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>'
-      + '</filter>'
-      + '</defs>';
-    // 分区标题 + 单位/比例说明 + 中线
-    var note = '单位:亿元 · 全图同比例';
-    svg += '<text x="0" y="16" font-size="13" font-weight="700" fill="#ff7a7a">▲ 主力流入 TOP '+inflow.length+'</text>';
-    svg += '<text x="'+W+'" y="16" text-anchor="end" font-size="11" font-weight="500" fill="#ffffff" fill-opacity="0.45">'+note+'</text>';
-    svg += '<line x1="0" y1="'+(padT+halfH+midGap/2).toFixed(1)+'" x2="'+W+'" y2="'+(padT+halfH+midGap/2).toFixed(1)+'" stroke="#ffffff" stroke-opacity="0.08" stroke-width="1"/>';
-    svg += '<text x="0" y="'+(padT+halfH+midGap+16).toFixed(0)+'" font-size="13" font-weight="700" fill="#5ee08a">▼ 主力流出 TOP '+outflow.length+'</text>';
-    inPlaced.forEach(function(p, i){ svg += bubbleSVG(p, i, 'bg-in'); });
-    outPlaced.forEach(function(p, i){ svg += bubbleSVG(p, i, 'bg-out'); });
-    svg += '</svg>';
-    el.innerHTML = svg;
-  }
-
-  // ---- 资金流向图:左绿流出 / 中曲线连线(流动粒子)/ 右红流入 + 顶部时段轴 + 底部净额 ----
-  function drawFundFlow(containerId, data){
-    var el = document.getElementById(containerId);
-    if(!el) return;
-    var inflow = data.inflow || [], outflow = data.outflow || [];
-    if(!inflow.length && !outflow.length){ el.innerHTML = emptyHTML('该时段无资金流数据'); return; }
-
-    var COLORS = {
-      out: { main: '#16a34a', light: '#5ee08a' },   // 绿·流出
-      in:  { main: '#dc2626', light: '#ff7a7a' }    // 红·流入
-    };
-
-    // 合计(净额 = 总流入 − 总流出),用于底部汇总
-    var sumIn = 0, sumOut = 0;
-    inflow.forEach(function(i){ sumIn += i.amount; });
-    outflow.forEach(function(i){ sumOut += Math.abs(i.amount); });
-    var net = sumIn - sumOut;
-
-    // 连线布局常量(须与 CSS 中 .mk-flow-col-head / .mk-flow-row 高度一致)
-    var HEAD_H = 40, ROW_H = 38, MID_W = 150, TOP_N = 8;
-    var linkN = Math.min(TOP_N, inflow.length, outflow.length);
-    var colN = Math.max(inflow.length, outflow.length);
-    var MID_H = HEAD_H + colN * ROW_H + 8;
-
-    // 顶部交易时段轴(9:30 → 15:00,纯展示)
-    var taPts = [['9:30',0],['10:30',25],['11:30 / 13:00',50],['14:00',75],['15:00',100]];
-    var taHtml = '<div class="mk-flow-timeaxis"><span class="mk-flow-ta-label">资金流向时段</span>'
-      + '<div class="mk-flow-ta-track">'
-      + taPts.map(function(p){
-          return '<span class="mk-flow-ta-dot'+(p[1]===0?' mk-flow-ta-now':'')+'" style="left:'+p[1]+'%"></span>';
-        }).join('')
-      + '</div><span class="mk-flow-ta-label">15:00</span></div>';
-
-    // 中间连线 SVG:左列第 i 个流出 → 右列第 i 个流入,线宽 ∝ 较小金额,粒子沿曲线由左向右流动
-    var connectors = '';
-    if(linkN > 0){
-      var pairMax = 0;
-      for(var i=0;i<linkN;i++){
-        var a = Math.min(Math.abs(outflow[i].amount), Math.abs(inflow[i].amount));
-        if(a > pairMax) pairMax = a;
-      }
-      pairMax = pairMax || 1;
-      var paths = [];
-      for(var k=0;k<linkN;k++){
-        var yL = HEAD_H + k*ROW_H + ROW_H/2;
-        var yR = HEAD_H + k*ROW_H + ROW_H/2;
-        var amt = Math.min(Math.abs(outflow[k].amount), Math.abs(inflow[k].amount));
-        var sw = 2.0 + 8 * Math.sqrt(amt / pairMax);
-        var d = 'M0,'+yL.toFixed(1)+' C '+(MID_W*0.42).toFixed(1)+','+yL.toFixed(1)
-              + ' '+(MID_W*0.58).toFixed(1)+','+yR.toFixed(1)+' '+MID_W+','+yR.toFixed(1);
-        paths.push('<path class="mk-flow-connector" d="'+d+'" stroke-width="'+sw.toFixed(1)+'"/>');
-        paths.push('<circle class="mk-flow-particle" r="3.0"><animateMotion dur="2.6s" begin="0s" repeatCount="indefinite" path="'+d+'"/></circle>');
-        paths.push('<circle class="mk-flow-particle" r="2.4"><animateMotion dur="2.6s" begin="1.3s" repeatCount="indefinite" path="'+d+'"/></circle>');
-      }
-      connectors = '<svg class="mk-flow-svg" width="'+MID_W+'" height="'+MID_H+'" viewBox="0 0 '+MID_W+' '+MID_H+'" xmlns="http://www.w3.org/2000/svg">'
-        + '<defs><linearGradient id="mk-flow-grad" x1="0" y1="0" x2="1" y2="0">'
-        +   '<stop offset="0%" stop-color="'+COLORS.out.light+'"/>'
-        +   '<stop offset="100%" stop-color="'+COLORS.in.light+'"/>'
-        + '</linearGradient></defs>'
-        + paths.join('')
-        + '</svg>';
-    }
-
-    function colHTML(items, c, side){
-      if(!items.length){
-        return '<div class="mk-flow-col mk-flow-'+side+'">'
-          + '<div class="mk-flow-col-head mk-flow-'+side+'-head">主力'+(side==='in'?'流入':'流出')+' · 暂无</div>'
-          + '<div class="empty">无数据</div></div>';
-      }
-      var maxAbs = 0; items.forEach(function(i){ if(Math.abs(i.amount) > maxAbs) maxAbs = Math.abs(i.amount); });
-      maxAbs = maxAbs || 1;
-      var rows = items.map(function(it, idx){
-        var pct = Math.abs(it.amount) / maxAbs * 100;
-        var rankCls = idx < 3 ? ' mk-flow-rank-top' : '';
-        var title = escapeHtml(it.name) + '  ' + fmtAmt(it.amount)
-          + (it.change_pct ? '\n涨跌幅: ' + it.change_pct + '%' : '')
-          + (it.main_pct ? '\n主力净占比: ' + it.main_pct + '%' : '')
-          + (it.lead_stock ? '\n领涨股: ' + it.lead_stock : '');
-        var grad = 'linear-gradient(90deg, '+c.light+'00 0%, '+c.light+'cc 25%, '+c.main+' 100%)';
-        return ''
-          + '<div class="mk-flow-row" title="'+title+'">'
-          +   '<span class="mk-flow-rank mk-flow-rank-'+side+rankCls+'">'+(idx+1)+'</span>'
-          +   '<div class="mk-flow-main">'
-          +     '<span class="mk-flow-name">'+escapeHtml(it.name)+'</span>'
-          +     '<div class="mk-flow-track">'
-          +       '<div class="mk-flow-bar mk-flow-bar-'+side+'" style="width:'+pct.toFixed(1)+'%;background:'+grad+'"></div>'
-          +     '</div>'
-          +   '</div>'
-          +   '<span class="mk-flow-amt mk-flow-amt-'+side+'">'+fmtAmt(it.amount)+'</span>'
-          + '</div>';
-      }).join('');
-      return '<div class="mk-flow-col mk-flow-'+side+'">'
-        + '<div class="mk-flow-col-head mk-flow-'+side+'-head">'
-        +   (side==='in' ? '▲ 主力流入 TOP '+items.length : '▼ 主力流出 TOP '+items.length)
-        + '</div>'
-        + rows
-        + '</div>';
-    }
-
-    // 底部净额汇总(替代参考图"市场离场":以主力净额呈现资金净去向)
-    var sumHtml = '<div class="mk-flow-summary">'
-      + '<div class="mk-flow-chip in"><span>主力流入</span><b>'+fmtAmt(sumIn)+'</b></div>'
-      + '<div class="mk-flow-chip out"><span>主力流出</span><b>'+fmtAmt(-sumOut)+'</b></div>'
-      + '<div class="mk-flow-chip net"><span>主力净额 '+(net>=0?'净流入':'净流出')+'</span><b>'+fmtAmt(net)+'</b></div>'
-      + '</div>';
-
-    el.innerHTML = '<div class="mk-flow-wrap">'
-      + taHtml
-      + '<div class="mk-flow-layout">'
-      +   colHTML(outflow, COLORS.out, 'out')        // 左:流出(绿)
-      +   '<div class="mk-flow-center">'+connectors+'</div>'
-      +   colHTML(inflow, COLORS.in, 'in')           // 右:流入(红)
-      + '</div>'
-      + sumHtml
-      + '</div>';
-  }
 
   // 初始化
   loadEarnings();

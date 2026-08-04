@@ -1,13 +1,21 @@
 {% extends "base.html" %}
 {% block title %}股票详情 · 知识库{% endblock %}
 {% block content %}
+<!-- 市场子页面导航 -->
+<nav class="kb-subnav mk-subnav" aria-label="市场子页面">
+  <a href="/market"{% if active_mktab == 'overview' %} class="active"{% endif %}><i data-lucide="layout-grid"></i> 市场概览</a>
+  <a href="/market/watchlist"{% if active_mktab == 'watchlist' %} class="active"{% endif %}><i data-lucide="star"></i> 自选股</a>
+  <a href="/market/industry"{% if active_mktab == 'industry' %} class="active"{% endif %}><i data-lucide="layers-3"></i> 行业概览</a>
+  <a href="/market/personal"{% if active_mktab == 'personal' %} class="active"{% endif %}><i data-lucide="user-round"></i> 个人概览</a>
+</nav>
+
 <div id="stock-detail-root" class="stock-detail">
   <div class="loading">加载中...</div>
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
-// 自选股详情页:K线图(蜡烛+成交量)+ 资金流 + 盘口 + 财务(akshare,按市场能力显示)
+// 自选股详情页:K线图(蜡烛+成交量)+ 资金流 + 盘口 + 财务(按市场/数据源能力显示)
 // 仿 task_detail.html 模式:content 占位 root,JS fetch + render
 const MARKET_ID = "{{ market_id }}";
 const MARKET_LABELS = {SH:'沪', SZ:'深', BJ:'京', HK:'港', US:'美'};
@@ -62,9 +70,9 @@ function renderDetail(d, cacheStamp){
   const mkt = s.market || '';
   const label = MARKET_LABELS[mkt] || mkt;
 
-  // akshare 不可用
+  // 行情源不可用
   if(!d.available){
-    root.innerHTML = renderHeader(s, label, null, cacheStamp) + '<div class="sd-empty">行情功能不可用(akshare 未安装)。仅显示自选股基础信息。</div>';
+    root.innerHTML = renderHeader(s, label, null, cacheStamp) + '<div class="sd-empty">行情源不可用。仅显示自选股基础信息。</div>';
     window.refreshIcons();
     return;
   }

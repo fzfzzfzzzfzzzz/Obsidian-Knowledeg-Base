@@ -17,7 +17,8 @@
 <nav class="kb-subnav mk-subnav" aria-label="市场子页面">
   <a href="/market"{% if active_mktab == 'overview' %} class="active"{% endif %}><i data-lucide="layout-grid"></i> 市场概览</a>
   <a href="/market/watchlist"{% if active_mktab == 'watchlist' %} class="active"{% endif %}><i data-lucide="star"></i> 自选股</a>
-  <a href="/market/judgments"{% if active_mktab == 'judgments' %} class="active"{% endif %}><i data-lucide="clipboard-check"></i> 市场判断</a>
+  <a href="/market/industry"{% if active_mktab == 'industry' %} class="active"{% endif %}><i data-lucide="layers-3"></i> 行业概览</a>
+  <a href="/market/personal"{% if active_mktab == 'personal' %} class="active"{% endif %}><i data-lucide="user-round"></i> 个人概览</a>
 </nav>
 
 <!-- 自选股卡片网格 -->
@@ -30,7 +31,7 @@
 {% block scripts %}
 <script>
 // 自选股独立子页。从 market.html 迁移,逻辑不变:
-// 卡片渲染 / 行情刷新(akshare)/ ticker 校验 / 表单 CRUD。
+// 卡片渲染 / 行情刷新 / ticker 校验 / 表单 CRUD。
 // 复用全局:app.js(escapeHtml/toast/confirmModal/renderArticleCard/modalOverlay)、
 // cat-meta.js(taskCatColor/taskCatIcon)。
 (function(){
@@ -86,7 +87,7 @@
     }catch(e){ /* 本地缓存读取失败时保留卡片默认态 */ }
   }
 
-  // ---- 行情刷新(akshare,手动触发,逐只拉 90 天详情并写服务端缓存) ----
+  // ---- 行情刷新(手动触发,逐只拉 90 天详情并写服务端缓存) ----
   async function loadQuotes(){
     var btn = document.getElementById('mk-refresh-quote');  // 子页自己的刷新按钮
     document.querySelectorAll('.mk-quote-box').forEach(function(el){

@@ -15,6 +15,14 @@ class IdeaCreate(BaseModel):
     """用户手动新建 idea(进待定队列 idea_suggestions.md)。只需标题。"""
     title: str
 
+class PlanCreate(BaseModel):
+    """用户手动新建 plan(进待定队列 plan_suggestions.md)。只需标题。
+
+    与 idea 对称:新建的 plan 先进待定队列(status=pending_review),
+    之后走同一条「接受」流程(deadline 在接受弹窗里填)。
+    """
+    title: str
+
 class IngestRequest(BaseModel):
     """投稿请求:多个文本片段(URL 或正文)。"""
     items: list[str]
@@ -56,6 +64,10 @@ class CollectionNameRequest(BaseModel):
 
 class ArticleCollectionsRequest(BaseModel):
     collection_ids: list[str]
+
+class CollectionArticlesRequest(BaseModel):
+    """批量把文章追加到某收藏夹(追加语义,不覆盖、不互斥其他夹)。"""
+    source_ids: list[str]
 
 class BatchRequest(BaseModel):
     """批量操作请求。"""

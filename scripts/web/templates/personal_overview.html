@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}个人概览 · 市场 · 知识库{% endblock %}
+{% block content %}
+
+<!-- 顶部 Hero -->
+<section class="mk-hero">
+  <div class="mk-hero-main">
+    <h1 class="mk-title"><i data-lucide="user-round"></i> 个人概览</h1>
+    <p class="mk-subtitle">持仓分析、盈亏追踪与组合表现</p>
+  </div>
+  <div class="mk-hero-actions">
+    <button class="btn btn-ghost btn-sm" id="pers-refresh" type="button" title="刷新"><i data-lucide="refresh-cw"></i> 刷新</button>
+  </div>
+</section>
+
+<!-- 市场子页面导航 -->
+<nav class="kb-subnav mk-subnav" aria-label="市场子页面">
+  <a href="/market"{% if active_mktab == 'overview' %} class="active"{% endif %}><i data-lucide="layout-grid"></i> 市场概览</a>
+  <a href="/market/watchlist"{% if active_mktab == 'watchlist' %} class="active"{% endif %}><i data-lucide="star"></i> 自选股</a>
+  <a href="/market/industry"{% if active_mktab == 'industry' %} class="active"{% endif %}><i data-lucide="layers-3"></i> 行业概览</a>
+  <a href="/market/personal"{% if active_mktab == 'personal' %} class="active"{% endif %}><i data-lucide="user-round"></i> 个人概览</a>
+</nav>
+
+<!-- 内容区:后续填充图表/指标的预留骨架 -->
+<div class="mk-overview-grid">
+
+  <!-- 持仓概览 -->
+  <section class="mk-section" aria-label="持仓概览">
+    <div class="mk-section-head">
+      <h2 class="mk-section-title"><i data-lucide="wallet"></i> 持仓概览</h2>
+    </div>
+    <div class="mk-placeholder-card">
+      <i data-lucide="pie-chart" class="mk-placeholder-icon"></i>
+      <div class="mk-placeholder-text">持仓总览</div>
+      <div class="muted">总市值 / 持仓分布 / 仓位占比</div>
+    </div>
+  </section>
+
+  <!-- 盈亏分析 -->
+  <section class="mk-section" aria-label="盈亏分析">
+    <div class="mk-section-head">
+      <h2 class="mk-section-title"><i data-lucide="trending-up"></i> 盈亏分析</h2>
+    </div>
+    <div class="mk-placeholder-card">
+      <i data-lucide="line-chart" class="mk-placeholder-icon"></i>
+      <div class="mk-placeholder-text">盈亏走势</div>
+      <div class="muted">浮动盈亏 / 已实现盈亏 / 收益率曲线</div>
+    </div>
+  </section>
+
+  <!-- 组合表现 -->
+  <section class="mk-section" aria-label="组合表现">
+    <div class="mk-section-head">
+      <h2 class="mk-section-title"><i data-lucide="bar-chart-3"></i> 组合表现</h2>
+    </div>
+    <div class="mk-placeholder-card">
+      <i data-lucide="activity" class="mk-placeholder-icon"></i>
+      <div class="mk-placeholder-text">组合指标</div>
+      <div class="muted">夏普比率 / 最大回撤 / 与基准对比</div>
+    </div>
+  </section>
+
+  <!-- 交易记录 -->
+  <section class="mk-section" aria-label="交易记录">
+    <div class="mk-section-head">
+      <h2 class="mk-section-title"><i data-lucide="receipt"></i> 交易记录</h2>
+    </div>
+    <div class="mk-placeholder-card">
+      <i data-lucide="history" class="mk-placeholder-icon"></i>
+      <div class="mk-placeholder-text">买卖记录与复盘</div>
+      <div class="muted">交易明细 / 胜率 / 平均持仓周期</div>
+    </div>
+  </section>
+
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// 个人概览页:刷新按钮(后续接入真实数据刷新逻辑)
+(function(){
+  document.addEventListener('click', function(e){
+    if(e.target.closest('#pers-refresh')){
+      toast && toast('个人数据将在此刷新(待接入)', 'info');
+    }
+  });
+})();
+</script>
+{% endblock %}

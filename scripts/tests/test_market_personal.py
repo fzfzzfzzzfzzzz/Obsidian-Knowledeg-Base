@@ -129,7 +129,11 @@ def test_market_simulation_api_rejects_invalid_input(client):
 
 
 def test_market_page_has_personal_tab_and_subnav(client):
-    """概览页有 personal tab;mk-subnav 提供 market 系列子页面导航(含判断入口)。"""
+    """概览页有 personal tab(含个人判断);主页用页内 Tab,无独立子页面导航 nav。
+
+    市场判断已并入「个人」tab(个人判断),主页不再有 mk-subnav 子导航
+    (避免页内 Tab 与子页面 nav 双导航重叠)。自选股入口由 hero 区按钮提供。
+    """
     r = client.get("/market")
     assert r.status_code == 200
     html = r.text
@@ -137,8 +141,9 @@ def test_market_page_has_personal_tab_and_subnav(client):
     assert "我的当前持仓盘" in html
     assert "我的模拟盘" in html
     assert "个人判断" in html
-    # 旧的"判断入口卡片"(mk-judgments-entry)已删,改由 mk-subnav 统一导航
+    # 旧的"判断入口卡片"(mk-judgments-entry)已删
     assert "mk-judgments-entry" not in html
-    # mk-subnav 含三个子页面入口
-    assert 'class="kb-subnav mk-subnav"' in html
-    assert 'href="/market/judgments"' in html
+    # 主页不再有子页面 nav(双导航已消除)
+    assert 'class="kb-subnav mk-subnav"' not in html
+    # 市场判断已移入个人 tab,主页导航不含该入口
+    assert 'href="/market/judgments"' not in html
