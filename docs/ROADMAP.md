@@ -25,6 +25,7 @@
 - v0.4.22:任务状态元数据统一到 cat-meta.js(`KB_TASK_STATUS`),消除 6 处重复定义
 - v0.4.23:todo→plan 域迁移(独立 plan_*.md)+ market 重构(去 alert、拆 kb_quote.py)+ task next_action + 侧栏折叠(见 `docs/v0.4.23/`)
 - v0.4.24:行情数据引擎重构(BaoStock 接入 + SQLite 缓存)+ 行业/个人概览子页 + 大盘趋势/市场宽度 API(见 `docs/v0.4.24/`)
+- v0.4.25:收藏夹拖拽归入 + 批量操作栏 + 子导航 + 活跃文件夹高亮 bug 修复
 完整功能清单见 `PRODUCT.md`。
 
 ---

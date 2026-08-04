@@ -13,7 +13,7 @@
   <button class="btn btn-sm" onclick="batchAction('extract_suggestions')"><i data-lucide="lightbulb"></i> 抽 idea/plan</button>
   <button class="btn btn-sm" onclick="batchAction('generate_summary')"><i data-lucide="file-text"></i> 生成 summary</button>
   <button class="btn btn-sm btn-danger" onclick="batchAction('delete')"><i data-lucide="trash-2"></i> 删除</button>
-  <button class="btn btn-sm btn-ghost" onclick="clearSelection()">取消选择</button>
+  <button class="btn btn-sm btn-ghost" onclick="exitBatchMode()">退出选择</button>
 </div>
 
 <div class="home-search-bar">
@@ -47,20 +47,21 @@
     <button class="btn art-view-btn btn-primary" data-view="card" aria-pressed="true">⊞ 卡片</button>
     <button class="btn art-view-btn" data-view="list" aria-pressed="false">☰ 列表</button>
   </div>
+  <button class="btn art-view-btn" id="kb-batch-toggle" onclick="toggleBatchMode()" title="进入批量选择模式"><i data-lucide="check-square"></i> 批量选择</button>
 </div>
 
 <section class="tab-panel active" id="panel-unread" role="tabpanel">
-  <div id="grid-unread" class="card-grid selectable"></div>
+  <div id="grid-unread" class="card-grid"></div>
   <button class="btn show-more" data-tab="unread" style="display:none">显示更多</button>
 </section>
 
 <section class="tab-panel" id="panel-read" role="tabpanel">
-  <div id="grid-read" class="card-grid selectable"></div>
+  <div id="grid-read" class="card-grid"></div>
   <button class="btn show-more" data-tab="read" style="display:none">显示更多</button>
 </section>
 
 <section class="tab-panel" id="panel-readlater" role="tabpanel">
-  <div id="grid-readlater" class="card-grid selectable"></div>
+  <div id="grid-readlater" class="card-grid"></div>
   <button class="btn show-more" data-tab="readlater" style="display:none">显示更多</button>
 </section>
 

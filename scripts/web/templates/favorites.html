@@ -2,7 +2,20 @@
 {% block title %}收藏夹 · 知识库{% endblock %}
 {% block content %}
 <h1 class="page-title"><i data-lucide="star"></i> 收藏夹</h1>
-<p class="page-hint muted">按文件夹分类管理收藏的文章。左侧选文件夹,右侧看文章;点文章卡片或详情页的收藏按钮。详情页可加入文件夹。</p>
+<nav class="kb-subnav" aria-label="知识库子页面">
+  <a href="/kb"{% if active_nav == 'kb' %} class="active"{% endif %}><i data-lucide="layout-dashboard"></i> 仪表盘</a>
+  <a href="/articles"{% if active_nav == 'articles' %} class="active"{% endif %}><i data-lucide="files"></i> 全部文章</a>
+  <a href="/recent"{% if active_nav == 'recent' %} class="active"{% endif %}><i data-lucide="history"></i> 最近阅读</a>
+  <a href="/favorites"{% if active_nav == 'favorites' %} class="active"{% endif %}><i data-lucide="star"></i> 收藏夹</a>
+  <a href="/submit"{% if active_nav == 'submit' %} class="active"{% endif %}><i data-lucide="upload"></i> 投稿</a>
+</nav>
+<p class="page-hint muted">按文件夹分类管理收藏的文章。可<b>拖拽卡片</b>到左侧文件夹,或<b>勾选多篇</b>后批量归入。多归属:一篇文章可同时属于多个文件夹。</p>
+
+<div id="batch-bar" class="batch-bar" style="display:none;">
+  <span class="batch-info">已选 <strong id="batch-count">0</strong> 篇</span>
+  <button class="btn btn-sm btn-accept" onclick="batchAddToCollection()"><i data-lucide="folder-plus"></i> 加入文件夹</button>
+  <button class="btn btn-sm btn-ghost" onclick="clearSelection()">取消选择</button>
+</div>
 
 <div class="collections-layout">
   <aside class="collections-sidebar">
@@ -26,6 +39,7 @@
 <script>
   let _activeCollection = KBState.get('kb-fav-col', 'all');
   let _collectionsCache = [];
+  let _dragSid = '';  // dragstart 时记录被拖卡片的 source_id
 
   // 加载左侧文件夹列表
   async function loadCollections() {
@@ -34,14 +48,14 @@
       const res = await fetch('/api/collections');
       const data = await res.json();
       _collectionsCache = data.items || [];
-      // 「全部收藏」固定在最前
+      // 「全部收藏」固定在最前(虚拟视图,不可作拖放目标 → 不带 col-drop)
       let html = '<li class="collection-item' + (_activeCollection === 'all' ? ' active' : '') + '" data-action="select-collection" data-col-id="all">' +
         '<span class="collection-name"><i data-lucide="star"></i> 全部收藏</span>' +
         '<span class="collection-count" id="count-all">-</span></li>';
       _collectionsCache.forEach(col => {
         const safeId = escapeHtml(col.id);
         const safeName = escapeHtml(col.name);
-        html += '<li class="collection-item' + (_activeCollection === col.id ? ' active' : '') + '" data-action="select-collection" data-col-id="' + safeId + '">' +
+        html += '<li class="collection-item col-drop' + (_activeCollection === col.id ? ' active' : '') + '" data-action="select-collection" data-col-id="' + safeId + '" data-col-name="' + safeName + '">' +
           '<span class="collection-name"><i data-lucide="folder"></i> ' + safeName + '</span>' +
           '<span class="collection-count">' + col.count + '</span>' +
           '<span class="collection-ops">' +
@@ -52,6 +66,7 @@
       list.innerHTML = html;
       // 动态插入了含 <i data-lucide> 的 HTML,显式刷新图标(不依赖 MutationObserver 兜底)
       if (window.refreshIcons) window.refreshIcons();
+      initCollectionDropZones();
       // 更新「全部收藏」计数
       fetch('/api/collections/all/articles').then(r => r.json()).then(d => {
         const el = document.getElementById('count-all');
@@ -68,8 +83,9 @@
     KBState.set('kb-fav-col', colId);
     // 切文件夹时清掉旧滚动位置,避免新列表滚到错误位置
     KBState.del('kb-scroll-favorites');
+    // 修 bug:HTML 属性是 data-col-id → dataset.colId(原写 dataset.col 永远 undefined,active 高亮失效)
     document.querySelectorAll('.collection-item').forEach(li => {
-      li.classList.toggle('active', li.dataset.col === colId);
+      li.classList.toggle('active', li.dataset.colId === colId);
     });
     const titleEl = document.getElementById('current-col-title');
     const countEl = document.getElementById('current-col-count');
@@ -88,14 +104,135 @@
       const items = data.items || [];
       countEl.textContent = items.length;
       if (items.length === 0) {
-        grid.innerHTML = '<div class="empty">这个文件夹还没有文章。在文章详情页点「加入文件夹」。</div>';
+        grid.innerHTML = '<div class="empty">这个文件夹还没有文章。把右侧卡片拖到这里,或在「全部收藏」勾选后批量归入。</div>';
         return;
       }
       grid.innerHTML = items.map(renderArticleCard).join('');
+      // 让本页卡片可拖拽(不改全局 renderArticleCard,避免影响其他页面)
+      grid.querySelectorAll('.article-card').forEach(c => c.setAttribute('draggable', 'true'));
+      initCollectionDropZones();
       restoreScroll();
     } catch (e) {
       grid.innerHTML = '<div class="error">加载失败:' + escapeHtml(e.message) + '</div>';
     }
+  }
+
+  // ---- 批量归入:勾选多篇 → 选目标文件夹 → 调批量追加端点 ----
+  async function batchAddToCollection() {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) { toast('请先勾选文章', 'warning'); return; }
+    let collections = [];
+    try {
+      const res = await fetch('/api/collections');
+      collections = (await res.json()).items || [];
+    } catch (e) { toast('加载失败:' + e.message, 'error'); return; }
+    if (collections.length === 0) {
+      toast('还没有文件夹,先点「+ 新建文件夹」', 'warning'); return;
+    }
+    // 单选目标夹(与详情页的多选弹窗不同:批量是"追加到某一个夹")
+    const picked = await _pickOneCollection(collections);
+    if (picked === null) return; // 取消
+    try {
+      const res = await fetch('/api/collections/' + encodeURIComponent(picked.id) + '/articles', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({source_ids: ids}),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast('归入失败:' + (data.detail || ''), 'error'); return; }
+      toast('✓ 已把 ' + (data.added || ids.length) + ' 篇加入「' + picked.name + '」', 'success');
+      clearSelection();
+      await loadCollections();
+      selectCollection(_activeCollection);
+    } catch (e) { toast('网络错误:' + e.message, 'error'); }
+  }
+
+  // 单选一个文件夹的弹窗(复用 modal,radio 列表)
+  function _pickOneCollection(collections) {
+    return new Promise(resolve => {
+      const overlay = document.getElementById('modalOverlay');
+      const box = document.getElementById('modalBox');
+      if (!overlay || !box) { toast('弹窗不可用', 'error'); resolve(null); return; }
+      document.getElementById('modalTitle').textContent = '选择目标文件夹(追加,不互斥)';
+      box.classList.remove('modal--danger');
+      const body = document.getElementById('modalBody');
+      const actions = document.getElementById('modalActions');
+      body.innerHTML = '<div class="modal-prompt-hint muted">文章会追加到所选文件夹,不会从其他文件夹移出。</div>';
+      const listEl = document.createElement('div');
+      listEl.className = 'modal-check-list';
+      collections.forEach((col, i) => {
+        const label = document.createElement('label');
+        label.className = 'modal-check-item';
+        const rb = document.createElement('input');
+        rb.type = 'radio'; rb.name = 'pick-col'; rb.value = col.id;
+        if (i === 0) rb.checked = true;
+        const span = document.createElement('span');
+        span.textContent = '📂 ' + col.name + ' (' + col.count + ')';
+        label.appendChild(rb); label.appendChild(span); listEl.appendChild(label);
+      });
+      body.appendChild(listEl);
+      actions.innerHTML = '';
+      const c = document.createElement('button'); c.className = 'btn btn-ghost'; c.textContent = '取消';
+      c.onclick = function () { overlay.hidden = true; resolve(null); };
+      const ok = document.createElement('button'); ok.className = 'btn btn-primary'; ok.textContent = '归入';
+      ok.onclick = function () {
+        const checked = listEl.querySelector('input[name=pick-col]:checked');
+        overlay.hidden = true;
+        const col = collections.find(x => x.id === (checked && checked.value));
+        resolve(col || null);
+      };
+      actions.appendChild(c); actions.appendChild(ok);
+      overlay.hidden = false;
+    });
+  }
+
+  // ---- 拖拽:右侧卡片 → 左侧文件夹(单篇,原生 HTML5 drag-and-drop)----
+  // 用原生 DnD 而非 Sortable:Sortable 适合列表内排序/跨列表迁移 DOM,
+  // 而"拖到窄文件夹条上触发一个动作"用原生 dragover+drop 更直接、命中更准。
+  function initCollectionDropZones() {
+    const grid = document.getElementById('collection-articles');
+    // 源:卡片网格,事件委托。dragstart 时记下被拖卡片的 source_id。
+    if (grid && !grid._dragInit) {
+      grid.addEventListener('dragstart', function (e) {
+        const card = e.target.closest('.article-card');
+        if (!card) return;
+        const cb = card.querySelector('[data-sid]');
+        _dragSid = cb ? cb.getAttribute('data-sid') : '';
+        if (_dragSid) e.dataTransfer.effectAllowed = 'copy';
+      });
+      grid._dragInit = true;
+    }
+    // 目标:每个真实文件夹(「全部收藏」无 col-drop class,自动排除)
+    document.querySelectorAll('.col-drop').forEach(li => {
+      if (li._dragInit) return;
+      li.addEventListener('dragover', function (e) {
+        if (!_dragSid) return;
+        e.preventDefault();            // 允许 drop
+        e.dataTransfer.dropEffect = 'copy';
+        li.classList.add('col-drop-hover');
+      });
+      li.addEventListener('dragleave', function () {
+        li.classList.remove('col-drop-hover');
+      });
+      li.addEventListener('drop', async function (e) {
+        e.preventDefault();
+        li.classList.remove('col-drop-hover');
+        const sid = _dragSid; _dragSid = '';
+        if (!sid) return;
+        const colId = li.getAttribute('data-col-id');
+        const colName = li.getAttribute('data-col-name') || colId;
+        try {
+          const res = await fetch('/api/collections/' + encodeURIComponent(colId) + '/articles', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({source_ids: [sid]}),
+          });
+          const data = await res.json();
+          if (!res.ok) { toast('归入失败:' + (data.detail || ''), 'error'); return; }
+          toast('✓ 已加入「' + colName + '」', 'success');
+          await loadCollections();
+        } catch (e) { toast('网络错误:' + e.message, 'error'); }
+      });
+      li._dragInit = true;
+    });
   }
 
   async function openCreateCollection() {

@@ -70,6 +70,7 @@ from web.models import (
     CalendarItemUpdate,
     CollectionNameRequest,
     ArticleCollectionsRequest,
+    CollectionArticlesRequest,
     BatchRequest,
     GenerateIdeasRequest,
     GeneratePlansRequest,
@@ -183,3 +184,45 @@ async def api_collection_articles(col_id: str):
         # 「全部收藏」= 所有 is_favorite=true
         return JSONResponse({"items": _build_favorites()})
     return JSONResponse({"items": _build_collection_articles(col_id)})
+
+
+@router.post("/api/collections/{col_id}/articles")
+async def api_collection_add_articles(col_id: str, payload: CollectionArticlesRequest):
+    """把文章批量**追加**到收藏夹(多归属:不移出其他夹,已在的跳过)。
+
+    供收藏夹页的拖拽(单篇)和批量归入(多篇)共用——单篇即 source_ids 长度为 1。
+    双向同步 cols[col_id].source_ids 与 sources[sid].collection_ids(见 AGENTS.md 双写约束)。
+    """
+    if col_id == "all":
+        raise HTTPException(400, "「全部收藏」是虚拟视图,不能作为归入目标")
+    source_ids = [s for s in (payload.source_ids or []) if s]
+    if not source_ids:
+        raise HTTPException(400, "source_ids 不能为空")
+    try:
+        with kb.state_lock():
+            state = kb.load_state()
+            kb._check_corrupt(state, "state")
+            cols = _get_collections(state)
+            if col_id not in cols:
+                raise HTTPException(404, f"找不到文件夹:{col_id}")
+            sources = state.get("sources", {})
+            col_sids = cols[col_id].setdefault("source_ids", [])
+            added = 0
+            for sid in source_ids:
+                if sid not in sources:
+                    continue  # 不存在的 source 静默跳过(拖拽可能拿到已删文章)
+                rec = sources[sid]
+                cids = rec.setdefault("collection_ids", [])
+                # 正向:加入夹的 source_ids
+                if sid not in col_sids:
+                    col_sids.append(sid)
+                    added += 1
+                # 反向:文章的 collection_ids 回指(幂等,不重复)
+                if col_id not in cids:
+                    cids.append(col_id)
+            kb.save_state(state)
+    except kb.CorruptStoreError:
+        raise HTTPException(503, "state.json 损坏,请先运行 kb.py rebuild-index")
+    except TimeoutError:
+        raise HTTPException(503, "操作并发,请稍后重试")
+    return JSONResponse({"ok": True, "col_id": col_id, "added": added, "count": len(col_sids)})
