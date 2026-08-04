@@ -34,8 +34,9 @@
 - **收藏 / 稍后阅读 / 阅读状态 / 集合 / 文章标签**:`.kb/state.json`(索引 + 行为数据)。
 - **工作台"当前任务"指针**:`.kb/workspace_state.json`(只存 task_id,不复制任务内容)。
 - **主题偏好(light/dark)**:浏览器 localStorage `kb-theme`(纯客户端)。
+- **派生行情缓存**(K线/快照/资金流/财报等行情快照):`.kb/cache/market/market_cache.sqlite`(SQLite)。**纯派生数据,删除后由 `kb_quote` 重新拉取重建,不是用户内容**。读写入口 `kb_market_cache`(upsert_*/load_*/record_fetch_status),仅 `kb_quote` 调用;web 层只经 `kb_quote.get_cached_*` 间接读。
 
-> 全项目**无 SQLite**。设计原则:内容类数据不得仅存于 SQLite / 数据库。
+> **SQLite 只用于派生缓存,不存内容类数据。** 设计原则:用户可编辑的知识内容(文章/笔记/summary/idea/plan/task/event 等)**必须**以 Markdown 为唯一数据源,不得仅存 SQLite 或任何数据库。可重建的派生数据(行情快照、聚合缓存、抓取状态)**允许**用 SQLite 缓存在 `.kb/cache/` 下(该目录随 `.kb/` 一并 gitignore,不入库)。判断标准:删掉这个 SQLite 文件后,能否从 Markdown 主数据 + 外部源完全重建?能 → 可缓存;不能 → 必须放 Markdown/JSON。
 
 ### 已知双写风险(改这些字段时务必两处一起改)
 - **文章标签**:同时写在 `state.json` 和 summary 的 frontmatter 里;`rebuild-index` 时**以 summary frontmatter 为准**重建 state.json(此过程中收藏/阅读次数等 state-only 字段会丢失,属已知行为)。
@@ -56,6 +57,7 @@
 ### 每个业务域必须有独立模块
 
 - **task / event / market**:实现都在 `kb_entities.py`(共享 find/scan/损坏备份骨架,保留各实体字段差异)。kb.py 只 re-export 供旧调用方(`kb._find_task_file` / `kb.load_task_file` 等)。
+- **market 行情接入子域**:`kb_quote.py`(akshare/baostock 可选依赖封装,缺则优雅降级)+ `kb_market_cache.py`(SQLite 派生缓存,见 Data Ownership)。两者是 market 域的只读行情层,不写 Markdown;web 层经 `kb_quote` 间接读缓存,不直接碰 SQLite。
 - **未来新增的实体/业务域**(如 contacts、habits…):**先建对应模块**(`kb_<domain>.py` 或并入 `kb_entities.py`),实现写在新模块里,kb.py 只 re-export。**绝不直接往 kb.py 加业务逻辑。**
 
 ### 新增功能前的自检

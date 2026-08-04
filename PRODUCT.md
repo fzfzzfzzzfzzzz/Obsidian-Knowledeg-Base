@@ -195,6 +195,9 @@
 03_Ideas/         idea 管理(review 队列 + 正式清单)
 04_Plans/         plan/计划管理(plan_suggestions.md + 独立 plan_*.md)
 05_Projects/      项目记录
+06_Events/        事件管理(event_*.md)
+07_Tasks/         任务管理(task_*.md)
+08_Market/        市场自选股
 90_Templates/     11 个模板(init 生成)
 99_System/        schema/prompt_library/settings
 .kb/              机器目录(state.json/calendar.json/raw_text/logs)
@@ -221,24 +224,24 @@
 | `kb.py status` | 知识库状态统计 |
 | `kb.py llm-test` | 测试 API 连通性 |
 | `kb.py serve` | 启动 Web 前端 |
+| `kb.py rebuild-index` | 重建 state.json ↔ frontmatter 一致性(支持 `--dry-run` / `--tags-only` / `--summary-path-only`) |
+| `kb.py clean-x` | 清洗 X (Twitter) 来源正文噪音 |
 
 ---
 
 ## 六、已知限制
 
 1. **无全文搜索索引**:搜索是实时扫描,文章多了会慢
-2. **无 rebuild-index**:state.json 和 frontmatter 不一致时无自动修复
-3. **无多收藏夹**:收藏只是布尔值,不能分组
-4. **无 AI 讨论**:不能就某篇 summary 继续追问 LLM
-5. **summary 不能网页内编辑**:要改得回 Obsidian 或用本地 Agent
-6. **无阅读进度**:只记打开次数,不记"读到哪一段"
-7. **无数据统计图表**:只有数字,无趋势图
-8. **无移动端优化**:响应式但未针对手机优化
-9. **无多用户/同步**:本地单人用
-10. **测试覆盖有限**:已有 74 个核心测试(ingest/解析/日历/批量/confirmed),但前端交互无自动化测试
-11. **日历无提醒/通知**:不会到期推送
-12. **日历无外部同步**:不支持 Google/Outlook Calendar
-13. **日期识别基准**:用当前日期而非文章发布时间做年份推断(精度略低)
+2. **无 AI 讨论**:不能就某篇 summary 继续追问 LLM
+3. **summary 不能网页内编辑**:要改得回 Obsidian 或用本地 Agent
+4. **无阅读进度**:只记打开次数,不记"读到哪一段"
+5. **无数据统计图表**:只有数字,无趋势图
+6. **无移动端优化**:响应式但未针对手机优化
+7. **无多用户/同步**:本地单人用
+8. **测试覆盖有限**:已有 460 个测试(覆盖 ingest/解析/日历/批量/collections/rebuild-index/事件/任务/行情等),但前端交互无自动化测试
+9. **日历无提醒/通知**:不会到期推送
+10. **日历无外部同步**:不支持 Google/Outlook Calendar
+11. **日期识别基准**:用当前日期而非文章发布时间做年份推断(精度略低)
 
 ---
 

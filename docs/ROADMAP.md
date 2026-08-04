@@ -8,7 +8,7 @@
 
 ## 当前版本
 
-已实现:全站 Lucide 图标本地化 + 类别元数据单一数据源(cat-meta.js)+ AGENTS.md 规范重写 + 深色对比度修复 + 任务状态元数据统一 + todo→plan 域迁移 + market 重构 + 行情数据引擎重构(BaoStock 接入 + SQLite 缓存 + 行业/个人概览页)。457 passed。
+已实现:全站 Lucide 图标本地化 + 类别元数据单一数据源(cat-meta.js)+ AGENTS.md 规范重写 + 深色对比度修复 + 任务状态元数据统一 + todo→plan 域迁移 + market 重构 + 行情数据引擎重构(BaoStock 接入 + SQLite 缓存 + 行业/个人概览页)+ 收藏夹拖拽 + 手动新建 Plan + 文档同步。460 passed。
 - v0.4.0:详情页「生成 Idea/Todo 列表」按钮 + 引导弹窗(见 `docs/v0.4.0/`)
 - v0.4.1:投稿页批量投稿(URL 提取)、/ideas /todos 拆「待定/已确定」tab、已确认 todo 放入日历(todo 现已更名为 plan,见 v0.4.23)(见 `docs/v0.4.1/`)
 - v0.4.2:日历「时间轴」视图(垂直+水平)、category 字段(6 预设+自定义)、标签筛选条影响三个视图(见 `docs/v0.4.2/`)
@@ -27,6 +27,7 @@
 - v0.4.24:行情数据引擎重构(BaoStock 接入 + SQLite 缓存)+ 行业/个人概览子页 + 大盘趋势/市场宽度 API(见 `docs/v0.4.24/`)
 - v0.4.25:收藏夹拖拽归入 + 批量操作栏 + 子导航 + 活跃文件夹高亮 bug 修复
 - v0.4.26:Web 手动新建 Plan(进待定队列,走相同 review 流程)+3 测试
+- v0.4.27:文档同步(PRODUCT 已知限制修正 / README 命令表 / VAULT_STRUCTURE 补目录 / ROADMAP P2 标记)
 完整功能清单见 `PRODUCT.md`。
 
 ---

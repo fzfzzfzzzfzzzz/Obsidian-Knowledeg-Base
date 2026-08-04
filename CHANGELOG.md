@@ -7,6 +7,16 @@
 
 ---
 
+## [0.4.27] —— 2026-08-04
+
+### 变更
+- **文档同步**:修复 PRODUCT.md 已知限制(rebuild-index / 多收藏夹已实现但文档仍标为限制)、补 README 命令表(serve / rebuild-index / clean-x)、VAULT_STRUCTURE.md 补 06_Events / 07_Tasks / 08_Market 三个数据目录及 state.json 新字段、ROADMAP.md P2-#10 标完成、P2-#13 标放弃。详情见 [`docs/v0.4.27/changelog.md`](./docs/v0.4.27/changelog.md)。
+
+### 测试
+- 460 passed。
+
+---
+
 ## [0.4.26] —— 2026-08-04
 
 ### 新增

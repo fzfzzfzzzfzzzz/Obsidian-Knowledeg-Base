@@ -26,7 +26,7 @@
 - 拆分 `kb_quote.py`(行情数据)为独立模块,与 `kb_date.py` / `kb_entities.py` 同级。
 - `MarketCreate` 去掉 alert 相关字段(`date` / `trigger` / `direction` / `magnitude`),
   `kind` 收敛为仅 `watchlist`;异动需求改由事件系统承载。
-- `web/routers/market.py` +847 行:聚合视图、个股详情(`/market/stock/{ticker}`)、
+- `web/routers/market.py` +847 行:聚合视图、个股详情(`/market/{market_id}`)、
   个人自选、判断(judgments)四个子视图。
 - 新增模板:`stock_detail.html` / `watchlist.html` / `market_judgments.html`。
 - 新增前端:`market-personal.js` / `market-judgments.js` / vendored `sortable.min.js`(拖拽排序)。

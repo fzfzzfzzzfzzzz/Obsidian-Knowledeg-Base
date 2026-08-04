@@ -101,6 +101,10 @@ ingest 时 LLM 会为每段内容自动识别:
 | `python scripts/kb.py make-prompts` | ✅ | 生成总结 prompt |
 | `python scripts/kb.py accept-ideas` | ✅ | 移动 accepted idea |
 | `python scripts/kb.py accept-plans` | ✅ | 移动 accepted plan |
+| `python scripts/kb.py extract-suggestions` | ✅ | 从 summary 抽 idea/plan 候选 |
+| `python scripts/kb.py serve` | ✅ | 启动 FastAPI Web 前端 |
+| `python scripts/kb.py rebuild-index` | ✅ | 重建 state.json ↔ frontmatter 一致性(支持 `--dry-run` / `--tags-only` / `--summary-path-only`) |
+| `python scripts/kb.py clean-x` | ✅ | 清洗 X (Twitter) 来源正文噪音 |
 
 ---
 

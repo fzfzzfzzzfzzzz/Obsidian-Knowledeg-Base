@@ -16,6 +16,9 @@
   03_Ideas/           idea 管理
   04_Plans/           plan / 计划管理
   05_Projects/        项目自身记录
+  06_Events/          事件管理(event_*.md, frontmatter 含日期/类别,可同步到日历)
+  07_Tasks/           任务管理(task_*.md, frontmatter 含 checklist/deadline/pinned/category/status)
+  08_Market/          市场自选股(watchlist / 判断等;行情经 kb_quote.py + 派生 SQLite 缓存)
   90_Templates/       模板(init 生成,代码里硬编码)
   99_System/          系统配置 / schema / prompt 沉淀
   .kb/                机器运行目录(state.json / raw_text / logs,gitignore 忽略)
@@ -104,10 +107,11 @@ action_status: undecided|idea_extracted|plan_suggested
 | `summary_gpt_chat.md` | GPT 对话总结模板 |
 | `summary_manual.md` | 手动内容总结模板 |
 | `idea_template.md` | 正式 idea 条目模板 |
+| `idea_suggestion_template.md` | idea 候选模板 |
 | `plan_suggestion_template.md` | plan 候选模板 |
 
 > init 用 `if not exists` 保护,**不会覆盖用户已修改的模板**。
-> v0.4.23:weekly/monthly 模板已从 init 移除(plan 不再分桶)。
+> v0.4.23:weekly/monthly 模板已从 init 移除(plan 不再分桶);旧 vault 里残留的 `weekly_template.md` / `monthly_template.md` 不再生成,故上表 9 个 + 2 个历史残留 = 磁盘共 11 个。
 
 ### 99_System/ —— 系统配置
 | 文件 | 用途 |
@@ -151,7 +155,16 @@ action_status: undecided|idea_extracted|plan_suggested
       "is_favorite": false,
       "last_read_at": null,
       "read_count": 0,
-      "action_status": "undecided|plan_suggested"
+      "action_status": "undecided|plan_suggested",
+      "tags": [],                         // 文章标签(双写到 summary frontmatter)
+      "collection_ids": [],               // 所属收藏夹 id 列表(与 collections[].source_ids 双向同步)
+      "detected_dates": []                // 正文识别出的日期候选(供日历推荐)
+    }
+  },
+  "collections": {                         // 收藏夹: id → {name, source_ids}
+    "<collection_id>": {
+      "name": "...",
+      "source_ids": ["source_ff_<hash>"]
     }
   }
 }
