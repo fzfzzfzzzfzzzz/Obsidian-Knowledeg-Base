@@ -7,6 +7,17 @@
 
 ---
 
+## [0.4.26] —— 2026-08-04
+
+### 新增
+- **Web 手动新建 Plan**:Plan 页加「+ 新建 plan」按钮,弹窗输入标题即可创建,直接进入待定队列(`plan_suggestions.md`),走与 AI 抽取相同的 review 流程。详情见 [`docs/v0.4.26/changelog.md`](./docs/v0.4.26/changelog.md)。
+- **`POST /api/plans`**:手动新建 plan 的 API 端点,id 采用 `plan_suggestion_{date}_{slug}_{random}` 格式,随机后缀防同名冲突。
+
+### 测试
+- +3 测试(新建追加、空标题 400、id 唯一性)。总计 **460 passed**。
+
+---
+
 ## [0.4.25] —— 2026-08-04
 
 ### 新增

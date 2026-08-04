@@ -274,3 +274,38 @@ def test_api_plan_accept_creates_file(client, isolate_vault):
     plans = kb.scan_plans()
     assert len(plans) == 1
     assert plans[0]["deadline"] == "2026-10-01"
+
+
+# ---- 手动新建 plan(POST /api/plans → 进待定队列)----
+
+def test_api_plans_create_appends_to_suggestions(client, isolate_vault):
+    """POST /api/plans 手动新建 → 追加到 plan_suggestions.md,GET /api/plans 能读回。"""
+    r = client.post("/api/plans", json={"title": "手动新建的 plan"})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["ok"] is True
+    assert data["title"] == "手动新建的 plan"
+    assert data["id"].startswith("plan_suggestion_")
+    # 文件确实写入了
+    sug_path = isolate_vault / "04_Plans" / "plan_suggestions.md"
+    assert sug_path.exists()
+    content = sug_path.read_text(encoding="utf-8")
+    assert "## Plan Suggestion: 手动新建的 plan" in content
+    assert "status: pending_review" in content
+    # GET /api/plans 能解析回来,且包含这条
+    items = client.get("/api/plans").json()["items"]
+    titles = [it.get("title") for it in items]
+    assert "手动新建的 plan" in titles
+
+
+def test_api_plans_create_empty_title_400(client, isolate_vault):
+    """空标题 → 400。"""
+    r = client.post("/api/plans", json={"title": "   "})
+    assert r.status_code == 400
+
+
+def test_api_plans_create_id_unique(client, isolate_vault):
+    """连续新建两条 → id 不同(随机后缀防撞)。"""
+    r1 = client.post("/api/plans", json={"title": "相同标题"})
+    r2 = client.post("/api/plans", json={"title": "相同标题"})
+    assert r1.json()["id"] != r2.json()["id"]

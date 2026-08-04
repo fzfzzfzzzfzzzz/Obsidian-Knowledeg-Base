@@ -2,7 +2,12 @@
 {% block title %}Plan · 知识库{% endblock %}
 {% block content %}
 <h1 class="page-title"><i data-lucide="list-checks"></i> Plan</h1>
-<p class="page-hint muted">「待定」是 AI 抽取的候选(来自 plan_suggestions.md);「已确定」是 accept 后进入计划的 plan(来自 04_Plans/plan_*.md 独立文件)。</p>
+<p class="page-hint muted">「待定」是候选(来自 plan_suggestions.md,含 AI 抽取与手动新建);「已确定」是 accept 后进入计划的 plan(来自 04_Plans/plan_*.md 独立文件)。</p>
+
+<div class="cal-toolbar">
+  <div></div>
+  <button class="btn btn-primary btn-sm" onclick="openPlanForm()">+ 新建 plan</button>
+</div>
 
 <div class="tab-bar">
   <button class="tab active" data-tab="pending" onclick="switchTab('pending')">待定</button>
@@ -10,7 +15,7 @@
 </div>
 
 <div id="panel-pending" class="tab-panel active">
-  <p class="page-hint muted">AI 抽取的 plan 先进这里。点「接受」可填可选截止日期,状态会改为 accepted 并自动创建独立 plan 文件。</p>
+  <p class="page-hint muted">候选 plan 先进这里。点「接受」可填可选截止日期,状态会改为 accepted 并自动创建独立 plan 文件。</p>
   <div id="plan-grid" class="card-grid">
     <div class="loading">加载中...</div>
   </div>
@@ -34,5 +39,45 @@
       loadConfirmedPlans();
     }
   });
+
+  // 新建 plan 模态框(照 openIdeaForm 模式,直接操作 modalOverlay)
+  function openPlanForm() {
+    const overlay = document.getElementById('modalOverlay');
+    if (!overlay) { alert('modal 不可用'); return; }
+    document.getElementById('modalTitle').textContent = '新建 plan';
+    document.getElementById('modalBody').innerHTML =
+      '<div class="cal-form">'
+      + '<div class="cal-form-field"><label>标题 <span class="required">*</span></label>'
+      + '<input type="text" id="plan-form-title" class="search-input" maxlength="120" placeholder="一句话描述这个计划"></div>'
+      + '<div class="cal-form-actions">'
+      + '<button class="btn btn-ghost" id="plan-form-cancel">取消</button>'
+      + '<button class="btn btn-primary" id="plan-form-save">创建</button></div>'
+      + '</div>';
+    document.getElementById('modalActions').innerHTML = '';
+    overlay.hidden = false;
+    document.getElementById('plan-form-title').focus();
+    document.getElementById('plan-form-cancel').onclick = function() { overlay.hidden = true; };
+    document.getElementById('plan-form-save').onclick = async function() {
+      const btn = this;
+      const title = document.getElementById('plan-form-title').value.trim();
+      if (!title) { alert('标题不能为空'); return; }
+      btn.disabled = true; btn.textContent = '创建中...';
+      try {
+        const r = await fetch('/api/plans', {
+          method: 'POST', headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({title: title})
+        });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.detail || '创建失败');
+        overlay.hidden = true;
+        toast('已创建,可在待定列表查看', 'success');
+        btn.disabled = false; btn.textContent = '创建';
+        loadSuggestions('plan');
+      } catch(e) {
+        alert('创建失败:' + e.message);
+        btn.disabled = false; btn.textContent = '创建';
+      }
+    };
+  }
 </script>
 {% endblock %}

@@ -74,6 +74,7 @@ from web.models import (
     GenerateIdeasRequest,
     GeneratePlansRequest,
     TagsRequest,
+    PlanCreate,
 )
 
 import kb
@@ -105,6 +106,35 @@ async def api_plans():
     """所有 plan suggestion 块。"""
     path = kb.VAULT_ROOT / "04_Plans" / "plan_suggestions.md"
     return JSONResponse({"items": _parse_suggestion_file(path, "Plan Suggestion")})
+
+@router.post("/api/plans")
+async def api_plans_create(payload: PlanCreate):
+    """用户手动新建 plan,追加到 plan_suggestions.md 待定队列。
+
+    与 LLM 抽取的 plan 走同一条 review 队列:只含 title + status:pending_review,
+    deadline 留到「接受」弹窗里填。复用现有 accept 流程。
+    """
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(400, "标题不能为空")
+    import secrets
+    slug = kb.make_slug(title) or "untitled"
+    suffix = secrets.token_hex(4)
+    today = kb.today_iso().replace("-", "")
+    pid = f"plan_suggestion_{today}_{slug}_{suffix}"
+    # 精简块:不依赖 _format_plan_suggestion(那个需要 source_summary 关联来源文章)
+    block = (
+        f"\n## Plan Suggestion: {title}\n\n"
+        f"- id: {pid}\n"
+        f"- status: pending_review\n"
+        f"- source_summary: \n\n"
+    )
+    sug_path = kb.VAULT_ROOT / "04_Plans" / "plan_suggestions.md"
+    if not sug_path.exists():
+        sug_path.parent.mkdir(parents=True, exist_ok=True)
+        sug_path.write_text("# Plan Suggestions\n\n", encoding="utf-8")
+    kb._append_section(sug_path, block)
+    return JSONResponse({"ok": True, "id": pid, "title": title})
 
 @router.get("/api/plans/confirmed")
 async def api_plans_confirmed():
